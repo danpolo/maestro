@@ -1,6 +1,13 @@
 # Maestro M0–M1: Characterisation Harness & Core Extraction — Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Read `docs/EXECUTION.md` first.** It is the process source of truth and wins over this document
+> on any process question — notably batching and commit granularity, which it adapts for workflow
+> fan-out. This file is the **task detail for stages M0–M1**, and its Function → Module Mapping table
+> is authoritative for the whole extraction.
+>
+> Steps use checkbox (`- [ ]`) syntax for tracking. Under workflow execution, fan-out agents create
+> and edit only their own listed files and run **no git commands**; the orchestrating session commits
+> per batch rather than per task.
 
 **Goal:** Extract the orchestration core out of `AbuAliArchive/scripts/orchestrator_run.py` (4,567 lines) into a tested, installable `maestro` package, without changing any behaviour and without modifying AbuAliArchive.
 
@@ -45,7 +52,7 @@ Created in this plan:
 | `tests/characterization/conftest.py` | `subject` fixture — parametrises legacy vs maestro |
 | `tests/characterization/test_*.py` | Behaviour pinned across both implementations |
 
-Deliberately **not** in this plan: `backends/`, `switch.py`, `roles.py`, `limits.py`, `selfupdate.py`, `cli.py`, `templates/`, `skills/`. Those are M2–M4 and get their own plans. `limits.py` in particular is M3 — until then the extracted code keeps the legacy hardcoded context constants verbatim.
+Deliberately **not** in this plan: `backends/`, `switch.py`, `roles.py`, `limits.py`, `selfupdate.py`, `cli.py`, `templates/`, `skills/`. Those belong to stages M2–M4, each of which gets its own plan written at the start of that stage (see `docs/EXECUTION.md`). `limits.py` in particular is M3 — until then the extracted code keeps the legacy hardcoded context constants verbatim.
 
 ---
 
@@ -865,5 +872,6 @@ the extracted code. No behaviour changes. Source project untouched."
 
 ## Next
 
-M2 (backend drivers and mid-work switching) gets its own plan, written against `docs/DESIGN.md` §6–§7
-once this one is green.
+Update `docs/PROGRESS.md` — mark M0 and M1 complete with the measured numbers above, and record any
+`FOUND_BUGS.md` entries under Findings. Then continue to **M2** per `docs/EXECUTION.md`, which begins
+by writing `docs/plans/<date>-m2-backends.md` against `docs/DESIGN.md` §6–§7.

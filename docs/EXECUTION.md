@@ -57,17 +57,67 @@ Rules for you, the orchestrating session:
 
 ---
 
-## Human gates — stop and ask
+## Unattended operation
 
-Three stages cannot run unattended. At each, stop, report status, and wait.
+**This programme runs overnight with nobody watching.** The operator has explicitly authorised, in
+advance, all three actions that would otherwise need approval:
 
-| Gate | Before | Why | What to ask for |
-|---|---|---|---|
-| **G1** | M3 | Edits `~/.claude/model_context_limits.md` and `~/.codex/` — machine-global, affects every project and session | Show the exact proposed diffs for both files and get explicit approval. The `~/.codex/` side must be performed by invoking the Codex CLI |
-| **G2** | M4 acceptance | Needs a real Telegram bot token and chat id, which only the operator can create | Ask the operator to create a dev bot via @BotFather and provide the token. Scaffolding and `doctor` can be built *before* the gate; only the live acceptance run waits |
-| **G3** | M5 | Halts and cuts over the operator's live production loop | Present the cutover checklist and rollback procedure, get explicit go-ahead |
+1. **Editing `~/.claude/` and `~/.codex/`** (M3). Authorised. The `~/.codex/` side is still performed
+   by invoking the Codex CLI, never by writing into that directory.
+2. **Using the Telegram dev-bot credentials** (M4). Authorised, via the secret-handling rule below.
+3. **Halting and cutting over the live loop** (M5). Authorised, subject to the M5 safety protocol below.
 
-M0, M1, M2 run unattended end to end. Expect to reach G1 in one session.
+Do not stop to ask for permission for any of these. Proceed, and record what you did in `PROGRESS.md`.
+
+### Secret handling — the token is never read by an agent
+
+The operator writes the dev-bot token to `~/.config/maestro/dev_bot_token` (mode 600) before the run
+and sends one message to that bot from Telegram.
+
+- **No agent — you or any subagent — may read, print, `cat`, `grep`, echo, log, or pass that file's
+  contents anywhere.** Its path may be named; its contents may not be seen.
+- Credentials reach a project only through `scripts/telegram_creds.py`, which reads the file,
+  validates it, captures the chat id from `getUpdates`, and writes both into the target `.env`. It
+  prints no secret.
+- `.env` files are equally off-limits to reading. If a test needs credentials, it monkeypatches the
+  network call — a test that reaches `api.telegram.org` is a defect.
+
+### Abort conditions — stop the programme, do not try to repair
+
+Stop, write `PROGRESS.md`, commit, and leave a clear report. Do **not** improvise around these:
+
+- Anything appears in `AbuAliArchive` beyond its five known untracked files (before M5).
+- A stage's tests are still red after **three** attempts. Do not weaken, skip, delete, or `xfail` a
+  test to make a stage pass. Never lower a threshold to hit a target.
+- M5 post-cutover verification fails **and** the automatic rollback also fails.
+- Any operation would require `sudo`, force-push, or history rewriting.
+- A destructive step has no verified rollback.
+
+### Autonomy rules
+
+- Prefer stopping a *stage* over stopping the *programme*. A failed M4 should not prevent
+  `PROGRESS.md` from being written, and M5 must not begin unless M0–M4 are green.
+- Never fabricate a verification result. If a command was not run, the stage is not done.
+- Bugs found in reference code are recorded in `docs/FOUND_BUGS.md`, never fixed (through M1).
+- If genuinely blocked on a judgement call, pick the **more conservative** option, proceed, and flag
+  the decision in `PROGRESS.md` for morning review.
+
+### M5 safety protocol — the live loop must survive
+
+M5 touches the operator's running production loop. In this exact order, no shortcuts:
+
+1. **Precondition:** M0–M4 all green. If not, skip M5 entirely and stop.
+2. Capture and commit a pre-cutover baseline: `orchestrator_status.py` output, `state.json`,
+   `git rev-parse HEAD`, and the running PIDs.
+3. Write the rollback script **first**, and dry-run it. No rollback, no cutover.
+4. Confirm the loop is idle (no entries in `in_flight`). If a task is in flight, **wait** — poll up to
+   60 minutes, then skip M5 and stop. Never halt mid-task.
+5. Halt via the HALT sentinel file only. Never `sudo`, never `kill -9` the watchdog.
+6. Cut over on a branch. Verify: `/status` matches the baseline, one supervised task runs end to end.
+7. On any verification failure, **run the rollback immediately and automatically**, then stop.
+8. **Whatever happens — success, failure, or abort — the run does not end with the loop halted.**
+   Removing the HALT sentinel and confirming `pgrep -f orchestrator_run.py` returns a PID is the last
+   action of M5 in every path.
 
 ---
 
@@ -121,7 +171,7 @@ Workflow size guideline for this machine: **under 15 agents per workflow.**
 - **Done when:** both drivers pass the shared protocol suite; a forced switch on a scratch task
   succeeds in both directions with work preserved in the worktree.
 
-### M3 — Model limits and self-update  ⛔ **G1 first**
+### M3 — Model limits and self-update
 - **Spec:** `docs/DESIGN.md` §8 and §9.
 - Extract the ceiling tables out of `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` into
   `model_context_limits.md` beside each, leaving a pointer line in the original. **Claude side: edit
@@ -132,20 +182,22 @@ Workflow size guideline for this machine: **under 15 agents per workflow.**
 - **Done when:** `doctor` resolves every model in both tables; a deliberately-red candidate version is
   refused and `current` stays put.
 
-### M4 — Setup: `init`, `doctor`, skills  ⛔ **G2 before the acceptance run**
+### M4 — Setup: `init`, `doctor`, skills
 - **Spec:** `docs/DESIGN.md` §10.
 - Build `cli.py`, `templates/`, and the setup skill in both Claude and Codex formats.
 - **Acceptance is on a throwaway project**, created fresh under `/tmp` — never on a real one.
+- Credentials come from `scripts/telegram_creds.py` per the secret-handling rule. If the token file
+  is absent or rejected, build and unit-test everything else, mark M4 `blocked: no credentials` in
+  `PROGRESS.md`, skip M5, and continue to report.
 - **Done when:** a brand-new git repo goes from nothing to a completed no-op supervised loop via
   `maestro init`, and re-running `init` is provably non-destructive.
 
-### M5 — Cutover of the reference project  ⛔ **G3 first**
-- **Spec:** `docs/DESIGN.md` §11.
+### M5 — Cutover of the reference project
+- **Spec:** `docs/DESIGN.md` §11, executed strictly under the **M5 safety protocol** above.
 - HALT via the sentinel file (no elevated privileges), branch, install, delete the superseded scripts
   listed in DESIGN.md §11, resume.
-- **Rollback must be written down and verified before the halt.**
-- **Done when:** `/status` output matches the pre-cutover capture, and one supervised task completes
-  end to end.
+- **Done when:** `/status` output matches the pre-cutover capture, one supervised task completes end
+  to end, and `pgrep -f orchestrator_run.py` returns a PID.
 
 ### M6 — Live switching validation
 - **Done when:** a real threshold trigger produces a real backend switch on the migrated project, and
@@ -166,10 +218,22 @@ Workflow size guideline for this machine: **under 15 agents per workflow.**
 
 ## Reporting back
 
-When you stop — at a gate, at the context ceiling, or at completion — report:
-- Stage reached and its measured verification numbers (test counts, not adjectives)
-- Anything in `docs/FOUND_BUGS.md` added this session
-- Open questions that need the operator
+The operator is asleep and will read this in the morning. When you stop — at the context ceiling, an
+abort condition, or completion — leave a report in `docs/PROGRESS.md` **and** as your final message:
+
+- Every stage reached, with its measured verification numbers (test counts, not adjectives)
+- The state of `AbuAliArchive`: HEAD, `git status --porcelain`, and whether the loop is running
+- Anything added to `docs/FOUND_BUGS.md`
+- Every conservative judgement call you made that deserves review
+- Anything that failed, verbatim, with no softening
 - The exact next action
 
-Never report a stage complete without having run its Done-when commands and seen the output.
+Never report a stage complete without having run its Done-when commands and seen the output. A
+morning report that overstates progress is worse than one that reports a clean abort.
+
+### Context and continuation
+
+You will likely not finish all seven stages in one session. That is expected and fine. At 150K,
+finish the current stage, write `PROGRESS.md`, commit, and stop cleanly — a half-finished stage
+carried into the dumb zone costs more than a fresh start. The operator re-runs the same prompt and
+you resume from `PROGRESS.md`.

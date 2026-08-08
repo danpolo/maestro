@@ -12,12 +12,16 @@ Process: `docs/EXECUTION.md`. Design: `docs/DESIGN.md`.
 | M0 — Package skeleton + characterisation harness | pending | — | — |
 | M1 — Core extraction | pending | — | — |
 | M2 — Backend drivers + mid-work switching | pending | — | — |
-| M3 — Model limits + self-update ⛔ G1 | pending | — | — |
-| M4 — Setup: init, doctor, skills ⛔ G2 | pending | — | — |
-| M5 — Cutover of reference project ⛔ G3 | pending | — | — |
+| M3 — Model limits + self-update | pending | — | — |
+| M4 — Setup: init, doctor, skills | pending | — | — |
+| M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
 **Current stage:** M0 — not started.
+
+**Mode:** unattended. All three formerly-gated actions are pre-authorised by the operator — see
+`docs/EXECUTION.md` "Unattended operation". Do not stop to ask permission; stop only on an abort
+condition or at the context ceiling.
 
 ## Baseline captured 2026-08-09
 

@@ -1,8 +1,0 @@
-pyproject.toml
-maestro/__init__.py
-maestro.egg-info/PKG-INFO
-maestro.egg-info/SOURCES.txt
-maestro.egg-info/dependency_links.txt
-maestro.egg-info/requires.txt
-maestro.egg-info/top_level.txt
-tests/test_package.py

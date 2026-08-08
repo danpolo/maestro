@@ -4,3 +4,4 @@ __pycache__/
 .env
 .orchestrator/
 .run/
+.legacy_repo

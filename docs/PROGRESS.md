@@ -5,6 +5,12 @@ and `docs/EXECUTION.md` must be enough for a fresh session to resume with no oth
 
 Process: `docs/EXECUTION.md`. Design: `docs/DESIGN.md`.
 
+PROGRAMME-STATUS: IN-PROGRESS
+
+> Machine-readable. `scripts/run_overnight.sh` greps this exact line to decide whether to relaunch a
+> fresh session. Set it to one of `IN-PROGRESS`, `COMPLETE`, `ABORTED` before exiting, every time.
+> `COMPLETE` while stages remain pending silently ends the build.
+
 ## Status
 
 | Stage | Status | Completed | Verified by |

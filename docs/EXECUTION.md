@@ -231,9 +231,27 @@ abort condition, or completion — leave a report in `docs/PROGRESS.md` **and** 
 Never report a stage complete without having run its Done-when commands and seen the output. A
 morning report that overstates progress is worse than one that reports a clean abort.
 
-### Context and continuation
+### Context and continuation — you are one link in a chain
 
-You will likely not finish all seven stages in one session. That is expected and fine. At 150K,
-finish the current stage, write `PROGRESS.md`, commit, and stop cleanly — a half-finished stage
-carried into the dumb zone costs more than a fresh start. The operator re-runs the same prompt and
-you resume from `PROGRESS.md`.
+**You are not expected to finish the programme.** `scripts/run_overnight.sh` runs a chain of fresh
+sessions: when you exit, it launches a brand-new session that resumes from `PROGRESS.md` with a clean
+context. Stopping early costs nothing; degrading in the dumb zone costs a lot.
+
+So: at **150K**, finish the current stage, update `PROGRESS.md`, commit, and **exit**. Do not try to
+squeeze in another stage. Do not compact.
+
+Before exiting — on every path, including an abort — set the `PROGRAMME-STATUS:` line at the top of
+`docs/PROGRESS.md` to exactly one of:
+
+| Value | Meaning | Driver does |
+|---|---|---|
+| `IN-PROGRESS` | more stages remain | relaunches a fresh session |
+| `COMPLETE` | all seven stages verified green | stops |
+| `ABORTED` | an abort condition fired | stops |
+
+Only set `COMPLETE` when every stage in the Status table is done **and you have seen its Done-when
+commands pass**. Setting it early silently ends the build and the operator wakes to an unfinished
+project reported as finished.
+
+The driver also stops on its own if two consecutive sessions leave `PROGRESS.md` unchanged — so a
+session that achieves nothing must still record *why* in Findings, or the chain will halt.

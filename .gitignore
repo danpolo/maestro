@@ -5,3 +5,5 @@ __pycache__/
 .orchestrator/
 .run/
 .legacy_repo
+*.egg-info/
+.pytest_cache/

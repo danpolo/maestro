@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Write(/home/dan/projects/maestro/scripts/**)",
+      "Edit(/home/dan/projects/maestro/scripts/**)",
+      "Bash(bash scripts/run_overnight.sh:*)",
+      "Bash(claude -p:*)"
+    ]
+  }
+}

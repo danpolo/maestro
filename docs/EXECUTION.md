@@ -38,14 +38,28 @@ Rules for you, the orchestrating session:
 
 ## Invariants — true for every stage
 
-- **`/home/dan/projects/AbuAliArchive` is READ-ONLY until M5.** Its autonomous loop is live
-  (`orchestrator_run.py` + `watchdog.py`, tmux session `abuali-watchdog`). Never halt it, never write
-  to it, never commit in it.
+- **`/home/dan/projects/AbuAliArchive` is READ-ONLY until M5.** Its autonomous loop normally runs live
+  (`orchestrator_run.py` + `watchdog.py`, tmux session `abuali-watchdog`) — **except that as of
+  2026-08-09 the loop is deliberately paused by operator decision, via the HALT sentinel
+  `.orchestrator/HALT`, until this extraction finishes.** See `docs/PROGRESS.md` and
+  `handoffs/2026-08-09_pause-reference-loop-and-harden-invariant.md`. Never halt or resume it
+  yourself, never write to it, never commit in it, and never touch the HALT sentinel — that is the
+  operator's call, not the build's.
   It has exactly five pre-existing untracked files: `data/multivec_output_ft_v2.pkl.gz`,
   `data/reranker_onnx/`, `data/space_match_result.json`, `eval/gold_real_v1.json`,
   `handoffs/2026-06-28_p8-postmortem-diagnosis-and-plan.md`.
-  **After every stage run `cd /home/dan/projects/AbuAliArchive && git status --porcelain`. If anything
-  beyond those five appears, STOP the programme and report it.**
+  **After every stage, check BOTH of the following. Either one showing a change means STOP the
+  programme and report it — not repair it, not reason past it:**
+  1. `cd /home/dan/projects/AbuAliArchive && git status --porcelain` — must show only the five files
+     above, nothing else. This now explicitly includes `docs/UPCOMING.md`, `docs/dependency_map.md`
+     and `docs/dependency_map.png`: earlier in the build these three were tolerated as the live loop's
+     own regenerated artefacts, but with the loop halted they cannot change on their own, so **any**
+     change to them is damage, not activity, and aborts the programme like anything else.
+  2. Reference-project **runtime state**, independent of git: `stat -c '%s %Y'
+     .orchestrator/state.json` compared against the last-recorded baseline in `PROGRESS.md`. Any
+     change in size or mtime is an abort even when `git status` is clean —
+     `.orchestrator/` is gitignored, so git will never see this category of damage. This is exactly
+     the gap that let the M0 near-miss go unflagged; see the abort-conditions rule below.
 - **Behaviour-identical through M1.** Bugs found are recorded in `docs/FOUND_BUGS.md`, never fixed.
 - **Purity.** No project-identifying content in maestro. `tests/test_purity.py` enforces it and must
   stay green.
@@ -86,7 +100,16 @@ and sends one message to that bot from Telegram.
 
 Stop, write `PROGRESS.md`, commit, and leave a clear report. Do **not** improvise around these:
 
-- Anything appears in `AbuAliArchive` beyond its five known untracked files (before M5).
+- Anything appears in `AbuAliArchive` beyond its five known untracked files (before M5), **or its
+  runtime state changes** — `.orchestrator/state.json`, or anything else under `.orchestrator/`,
+  shows a different size or mtime than the last-recorded baseline in `PROGRESS.md`. Check both; do
+  not rely on `git status` alone — `.orchestrator/` is gitignored and git will never see this
+  category of damage.
+- **Any write to the reference project's runtime state is an immediate abort.** Full stop, no
+  exceptions: regardless of whether `git status` notices it, regardless of whether the write looks
+  reversible, and regardless of whether you can show the data was not actually lost. "No data was
+  lost" is a finding to report, never a reason to keep going — the M0 near-miss was reasoned past on
+  exactly that basis and it was wrong to do so.
 - A stage's tests are still red after **three** attempts. Do not weaken, skip, delete, or `xfail` a
   test to make a stage pass. Never lower a threshold to hit a target.
 - M5 post-cutover verification fails **and** the automatic rollback also fails.

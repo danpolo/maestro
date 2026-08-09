@@ -91,12 +91,14 @@ done
 echo "[chain] $(ts) finished; final status: $(status)"
 echo "[chain] logs: $LOGDIR"
 
-# Safety net: never leave the reference project's live loop halted.
+# Reference-project HALT sentinel: as of 2026-08-09 AbuAliArchive is deliberately paused by
+# operator decision until this extraction finishes - see
+# handoffs/2026-08-09_pause-reference-loop-and-harden-invariant.md. This driver must NOT auto-remove
+# the sentinel; only the operator (or an explicit follow-up handoff) lifts the pause. Report state
+# only.
 HALT="$HOME/projects/AbuAliArchive/.orchestrator/HALT"
 if [[ -f "$HALT" ]]; then
-    echo "[chain] WARNING: HALT sentinel present at $HALT - removing it"
-    rm -f "$HALT"
-fi
-if ! pgrep -f orchestrator_run.py >/dev/null; then
-    echo "[chain] WARNING: reference project's orchestrator is NOT running"
+    echo "[chain] NOTE: HALT sentinel present at $HALT - reference loop is deliberately paused; leaving it in place"
+elif ! pgrep -f orchestrator_run.py >/dev/null; then
+    echo "[chain] WARNING: reference project's orchestrator is NOT running and no HALT sentinel is present"
 fi

@@ -2,8 +2,51 @@
 
 **Created:** 2026-08-09, by the session that paused the reference loop (see
 `handoffs/2026-08-09_pause-reference-loop-and-harden-invariant.md`).
-**Do not perform this until the Maestro extraction reports `PROGRAMME-STATUS: COMPLETE` or
-`ABORTED` and the operator has explicitly said to proceed.**
+
+## Status: partially repaired 2026-08-09 09:29 IDT (06:29 UTC) — DONE, with a known gap
+
+The operator decided not to wait: the reference loop was already fully halted (no race risk) and
+the Maestro chain was stalled indefinitely, so "after the extraction finishes" had no bound. Repair
+was done directly, with the loop still HALTed throughout and untouched otherwise.
+
+**What was restored**, after the operator confirmed P12C's Colab notebook was never actually run:
+- `waiting_on_dan["7"]` — the P12C entry, copied verbatim from `state.json.bak-eval2resolve`
+  (2026-06-27, the last known-good record of it).
+- `dan_id_counter` → `14` (one past `13`, the highest id present in `prepared_actions.json` today —
+  not the `≥7` floor guessed below; see "Correction" below for why).
+- Backup of the pre-repair file: `.orchestrator/state.json.bak-pre-repair-20260809-062936`.
+- Script used: ad hoc, not retained in this repo (ran from the assistant's scratchpad). Logic: assert
+  `waiting_on_dan == {}` and `dan_id_counter == 0` before touching anything (refuse to overwrite if
+  the file had already changed), write via temp-file + rename, re-parse to confirm valid JSON.
+
+**Deliberately NOT restored** — no reliable current value exists for any of these, and the loop's own
+self-heal rewrite on 2026-08-08 chose not to emit them either, so resurrecting stale 06-27 values
+would be fabrication, not repair:
+`queue_ref`, `paused_until`, `paused_by_user`, `halted`, `blocked_on`, `last_handoff`,
+`resume_state`, `proposal_test_notified`.
+
+**Not addressed at all** — out of scope for this pass, still open: whether **P10** (id 10) or
+**P8B5** (id 11) are still genuinely pending. Both appear in `prepared_actions.json` /
+06-27 backups the same way P12C did, but the operator was only asked about P12C. Also unresolved:
+whether **EVAL-REAL1** (id 13, also in `prepared_actions.json`) is actually done — AbuAliArchive's
+`HEAD` is a commit that looks like its fix (`fix(EVAL-REAL1): --host flag...`), suggesting it may
+already be resolved, but this was not confirmed with the operator.
+
+### Correction to the original recovery-data estimate below
+
+The `dan_id_counter ≥ 7` guidance in the original pause handoff (and the table below) was a
+conservative floor from partial information, not a verified value. Reading the older backups
+(`state.json.bak-20260616-125402`, `state.json.bak-eval2resolve`) during the repair showed
+`dan_id_counter` was already `11` by 2026-06-27 — six weeks before the incident — and that three
+manual actions (P12C/P10/P8B5), not one, were pending in `waiting_on_dan` at that point. The true
+pre-incident value on 2026-08-08 is unknowable from the files that survived; `14` was chosen as the
+smallest value that cannot collide with any id known to have been issued, not as a reconstruction of
+the "real" counter.
+
+---
+
+**The rest of this document is preserved as originally written, for the historical record and for
+resolving the P10/P8B5/EVAL-REAL1 gap above.**
 
 ---
 

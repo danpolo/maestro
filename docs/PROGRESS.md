@@ -23,7 +23,23 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** M1 — core extraction, batch 1 (`state, config, roadmap, worktree`).
+**Current stage:** M1 — core extraction, batch 3 (`telegram, commands, selfheal, parking, orchestrator`).
+
+## Reference-project baseline for the per-stage abort check
+
+Compare against these exact values after every stage. Any difference aborts the programme.
+
+- HEAD `68056b5`
+- `git status --porcelain`: the five known untracked entries **plus** ` M docs/UPCOMING.md`,
+  ` M docs/dependency_map.md`, ` M docs/dependency_map.png`. Those three were already modified when
+  the loop was halted at 09:07 IDT (mtimes 01:59:02–01:59:04) and have not changed since; the
+  EXECUTION.md rule that any *change* to them aborts still applies — their standing modified status
+  is the baseline, not a change.
+- `stat -c '%s %Y' .orchestrator/state.json` → `888 1786256976` (2026-08-09 09:29:36 IDT — the
+  operator's repair). **This supersedes the 412-byte figure recorded during the pause.**
+- `pgrep -f orchestrator_run.py` → no real process (the loop is HALTed). A bare `pgrep` may print the
+  PID of its own shell because the pattern appears in that command line; confirm with
+  `ps -p <pid>` before believing it.
 
 **Mode:** unattended. All three formerly-gated actions are pre-authorised by the operator — see
 `docs/EXECUTION.md` "Unattended operation". Do not stop to ask permission; stop only on an abort
@@ -180,6 +196,59 @@ recorded here per that handoff's instructions.
   sessions 01–03 was a one-off, not a persistent monthly cap; a fresh session started cleanly with no
   usage-limit message. M1 is live again as of this note; AbuAliArchive remains HALTed throughout and
   is untouched by the relaunch.
+
+### M1 batch 1 + batch 2 — 2026-08-09, commits `21f4a15`, `24b0579`, `53f1481`
+
+- **Recovered uncommitted work.** The sessions between 09:26 and 14:11 IDT extracted
+  `state`, `config`, `worktree`, `quota` and wrote wave-A tests for `quota`, `gates`,
+  `implementer`, `merge`, then died on the monthly spend limit **without committing any of it**
+  (sessions 01–05 in `.run/` contain nothing but the spend-limit message). All of it was still in the
+  working tree, verified green, and is now committed as `21f4a15`. Lesson for the driver: a session
+  that dies mid-stage leaves real work uncommitted, so a resuming session must inspect the working
+  tree before assuming the stage never started.
+- **Five characterisation tests in `test_merge.py` were red against the *reference*.** A test that
+  fails against the reference is asserting something the reference does not do, so all five were
+  rewritten to pin real behaviour, none deleted or weakened:
+  - three asserted `git status --porcelain == ""` in the throwaway repo, which can never be empty
+    because the `sandbox` fixture creates `.orchestrator/workspaces/` before `git init` runs. They now
+    filter only that directory out, via a `_dirty()` helper.
+  - `test_merge_prep_branch_runs_no_deny_list_or_risky_check` called `deny_list_guard` *after* the
+    merge, when `main...b` is empty and the guard vacuously reads clean. The guard assertion moved
+    before the merge, where it genuinely refuses the branch — so the real bug (`_merge_prep_branch`
+    merges with none of `merge_and_eval`'s gates) is now pinned properly rather than by accident.
+  - `test_merge_prep_branch_requires_a_session_id_even_with_a_branch` had a false premise:
+    `entry.get("branch") or entry["session_id"].lower()` short-circuits, so an explicit branch means
+    `session_id` is never read. Renamed and rewritten to pin the actual contract.
+  - the repair also caught a test that was passing vacuously
+    (`test_commit_eval_history_reports_success_even_when_the_commit_fails` asserted the tree was
+    dirty, which was true purely because of `.orchestrator/`), and tightened it.
+- **Batch 2 extraction: `docs/roadmap.py`, `gates.py`, `implementer.py`, `merge.py`.** Full suite
+  after batch 2: **1893 tests, 1891 passed, 0 failed, 0 errors, 2 skipped** (`24b0579`).
+- **The 2 remaining skips are not "module not extracted".** Both are
+  `test_config.py::test_public_alias_is_the_same_function_when_present` /
+  `test_both_spellings_agree_when_both_present` on the **legacy** subject, skipping with
+  "subject exposes only the private spelling" — the reference has only `_load_project_yaml`, while
+  `maestro.config` also exports the public alias. Capability-gated, not extraction-gated. M1's
+  done-when says "zero skips under `tests/characterization/`", so these two are rewritten in the M1
+  close-out rather than left to weaken the criterion.
+- **`docs/FOUND_BUGS.md` grew from 13 to 88 entries** (`53f1481`): 75 new behavioural findings across
+  gates (19), roadmap (14), implementer (12), merge (24) and 3 harness findings from the test repair.
+  None fixed. Highlights worth the operator's attention:
+  - `get_completed_task_ids` is all-or-nothing — one malformed entry in `completed_tasks.json` makes
+    it report that *nothing* is complete, so every dependent task looks unrunnable and the loop goes
+    quietly idle instead of failing loudly.
+  - a missing `check_verifications.py` is reported as a **PASS** by the verification gate.
+  - `deny_list_guard` scans the raw diff, so *removing* a deny-listed line is itself denied.
+  - `_merge_prep_branch` merges to main with no deny-list guard, no risky review and no smoke.
+  - `_clean_worktree_for_merge` is blind to untracked files and to any path containing a space, and
+    treats a git failure as "clean".
+  - the ```` ```yaml ```` fence regex is not line-anchored, so an indented documentation example in
+    ROADMAP.md parses as a real, dispatchable task.
+- One deviation from strict-verbatim worth review: `maestro/docs/roadmap.py` carries verbatim copies
+  of `notify_telegram` / `notify_telegram_with_map` (mapped to `hitl/telegram.py`) because
+  `maybe_push_roadmap_map_change` calls one of them unguarded and a `pending()` placeholder would
+  make five characterisation tests unrunnable. The batch-3 telegram agent is instructed to collapse
+  the duplication into an import once the canonical copies land.
 
 ## Open questions
 

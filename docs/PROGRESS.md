@@ -164,8 +164,22 @@ recorded here per that handoff's instructions.
   unconditionally deleted the HALT sentinel and warned if the orchestrator wasn't running — correct
   before this pause, actively harmful now. Changed it to report state only, never remove the
   sentinel. See the script's inline comment for the pointer back to the pause handoff.
-- Recovery data for the still-outstanding `state.json` truncation (from the M0 incident) is preserved,
-  not yet applied, in `handoffs/POST-EXTRACTION-repair-reference-state.md`.
+- **Update, 09:29 IDT (06:29 UTC), same session:** the operator decided not to wait for extraction
+  completion (loop was already fully halted, chain had no bounded finish time) and had `state.json`
+  repaired directly. `waiting_on_dan["7"]` (P12C, confirmed still pending by the operator) and
+  `dan_id_counter` (→ `14`, not the `≥7` originally guessed — see below) were restored;
+  `queue_ref`/`paused_until`/`paused_by_user`/`halted`/`blocked_on`/`last_handoff`/`resume_state`
+  were deliberately left absent, no reliable value for any of them exists. Pre-repair backup:
+  `.orchestrator/state.json.bak-pre-repair-20260809-062936`. Reading the older state backups during
+  the repair also showed the original `dan_id_counter ≥ 7` recovery estimate was too low (it was
+  already `11` by 2026-06-27) and left P10/P8B5/EVAL-REAL1 pending-status unresolved. Full detail,
+  including that gap, is in `handoffs/POST-EXTRACTION-repair-reference-state.md`, which now doubles as
+  the completed repair record rather than a future task.
+- **Also 09:26 IDT:** relaunched `scripts/run_overnight.sh` in tmux `agents:maestro-build` with Opus 5
+  (unchanged model) at the operator's instruction — the earlier "monthly spend limit" block on
+  sessions 01–03 was a one-off, not a persistent monthly cap; a fresh session started cleanly with no
+  usage-limit message. M1 is live again as of this note; AbuAliArchive remains HALTed throughout and
+  is untouched by the relaunch.
 
 ## Open questions
 

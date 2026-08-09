@@ -67,7 +67,12 @@ for i in $(seq 1 "$MAX_ITER"); do
     echo "[chain] $(ts) session $i exited rc=$?"
 
     # Quota exhaustion is not a failure: wait for the reset and try again.
-    if grep -qiE "usage limit|hit your limit|rate.?limit|resets at" "$log"; then
+    # Real observed message: "You've hit your monthly spend limit ..." -- shown for
+    # 5h/weekly caps too, not just a distinct billing cap (confirmed 2026-08-09). The
+    # original pattern required the literal phrase "hit your limit" and never matched
+    # it, so real usage-limit hits were falling through to the stale-session guard
+    # instead of sleeping and retrying. Broadened to catch phrasing variants.
+    if grep -qiE "usage limit|hit (your|the) .*limit|rate.?limit|resets at|spend limit" "$log"; then
         echo "[chain] $(ts) usage limit detected; sleeping ${LIMIT_SLEEP}s"
         sleep "$LIMIT_SLEEP"
         continue

@@ -126,6 +126,47 @@ loop-owned, but abort on anything else.
   import-time `load_dotenv(..., override=True)` was not the only route for a live token to reach the
   test process — it was already there.
 
+### Operator pause — 2026-08-09 09:07 IDT (06:07 UTC), out-of-band session
+
+Acting on `handoffs/2026-08-09_pause-reference-loop-and-harden-invariant.md`. Not a build stage —
+recorded here per that handoff's instructions.
+
+- **AbuAliArchive's autonomous loop is now halted.** Created `.orchestrator/HALT` at 09:07:39 IDT.
+  Journal confirms clean shutdown: `halt_detected` 06:07:57Z → `orchestrator_exit` 06:08:02Z
+  (`exit_code=0`) → `watchdog_halt_respected` 06:08:07Z. The watchdog systemd unit is crash-looping on
+  schedule as expected (`watchdog_start` → `watchdog_halt_respected` every ~30s) — this is normal and
+  was left alone, per the handoff. `pgrep -f orchestrator_run.py` shows no real process (only the
+  `pgrep` invocation itself, a false-positive self-match). `HEAD` unchanged at `68056b5`, `git status
+  --porcelain` shows only the five known untracked files plus the three loop-owned doc files, and
+  `.orchestrator/state.json` is unchanged at 412 bytes. **Zero Claude quota is being spent on
+  AbuAliArchive from this point.**
+- `docs/EXECUTION.md`'s abort conditions and invariants were hardened: the reference-project check now
+  covers `.orchestrator/` runtime state (size/mtime of `state.json`), not just `git status`; any write
+  to that runtime state is now an explicit immediate-abort with no "no data was lost" exception; and
+  the `docs/UPCOMING.md` / `dependency_map.{md,png}` carve-out is revoked while the loop is halted —
+  any change to those three now aborts too.
+- **This build's own overnight chain is not currently running, and appears to have stalled hours
+  before this pause.** `pgrep -af run_overnight.sh` and `pgrep -af "claude -p"` both return nothing;
+  no `maestro-build` tmux window exists. `.run/session-01.log` through `session-03.log` (02:16–02:17
+  IDT) each contain only `You've hit your monthly spend limit · raise it at
+  claude.ai/settings/usage?from=cc_cli_limit_message` — no agent work happened in any of the three.
+  That string doesn't match `run_overnight.sh`'s retry-on-usage-limit regex
+  (`usage limit|hit your limit|rate.?limit|resets at`), so it was treated as a stale, no-progress
+  session each time; the driver's own 2-consecutive-stale guard then stopped relaunching after session
+  3. The driver's final safety-net block ran at that point too (before this session's edit to it),
+  but found no HALT sentinel yet, so no harm there. **`PROGRAMME-STATUS` is still `IN-PROGRESS`
+  because nothing ever reached the point of setting it to `ABORTED`** — the stale-guard only stops
+  the loop, it doesn't update this file. No commits since `a8c737d` (M0 complete); M1 has not started.
+  This needs the operator's attention: the monthly spend limit is a different failure mode than the
+  5h/weekly usage limits the driver already knows how to wait out, and relaunching
+  `run_overnight.sh` as-is will hit the same wall immediately.
+- Fixed a related conflict while in here: `scripts/run_overnight.sh` had a "safety net" at exit that
+  unconditionally deleted the HALT sentinel and warned if the orchestrator wasn't running — correct
+  before this pause, actively harmful now. Changed it to report state only, never remove the
+  sentinel. See the script's inline comment for the pointer back to the pause handoff.
+- Recovery data for the still-outstanding `state.json` truncation (from the M0 incident) is preserved,
+  not yet applied, in `handoffs/POST-EXTRACTION-repair-reference-state.md`.
+
 ## Open questions
 
 Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the answer here.

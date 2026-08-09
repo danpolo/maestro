@@ -88,6 +88,24 @@ def _under(path: Path, root: Path) -> bool:
     return path == root or root in path.parents
 
 
+def _modules_to_rebase(subject) -> list:
+    """The subject, plus every maestro module it may reach through.
+
+    The reference implementation is one file, so rebasing the subject alone covers
+    everything. The extracted code is not: `maestro.docs.roadmap` calls
+    `maestro.state.append_journal`, which resolves `maestro.state.JOURNAL` — a global the
+    subject does not own. Rebase every loaded maestro module so a test of one module cannot
+    write through another one.
+    """
+    modules = [subject]
+    for name, module in sorted(sys.modules.items()):
+        if module is None or module is subject:
+            continue
+        if name == "maestro" or name.startswith("maestro."):
+            modules.append(module)
+    return modules
+
+
 @pytest.fixture
 def sandbox(subject, tmp_path, monkeypatch):
     """Rebase every path global of the subject into a temp tree. Never touches a real repo."""
@@ -96,24 +114,31 @@ def sandbox(subject, tmp_path, monkeypatch):
     workspaces = orch_dir / "workspaces"
     workspaces.mkdir(parents=True)
 
-    real_repo = Path(getattr(subject, "REPO")).resolve()
-
     redirected: dict[str, Path] = {}
-    for name, value in _module_paths(subject).items():
-        resolved = value if value.is_absolute() else (Path.cwd() / value)
-        if not _under(resolved, real_repo):
+    checked: list[tuple[object, Path]] = []
+
+    for module in _modules_to_rebase(subject):
+        root = getattr(module, "REPO", None)
+        if not isinstance(root, Path):
             continue
-        target = repo / resolved.relative_to(real_repo)
-        monkeypatch.setattr(subject, name, target)
-        redirected[name] = target
+        root = root.resolve()
+        checked.append((module, root))
+        for name, value in _module_paths(module).items():
+            resolved = value if value.is_absolute() else (Path.cwd() / value)
+            if not _under(resolved, root):
+                continue
+            target = repo / resolved.relative_to(root)
+            monkeypatch.setattr(module, name, target)
+            redirected[f"{module.__name__}.{name}"] = target
 
     leaked = sorted(
-        name
-        for name, value in _module_paths(subject).items()
-        if _under(value if value.is_absolute() else Path.cwd() / value, real_repo)
+        f"{module.__name__}.{name}"
+        for module, root in checked
+        for name, value in _module_paths(module).items()
+        if _under(value if value.is_absolute() else Path.cwd() / value, root)
     )
     assert not leaked, (
-        f"path globals still resolve inside the real repo {real_repo}: {leaked}. "
+        f"path globals still resolve inside a real repo: {leaked}. "
         "Calling the subject now would write to a live system."
     )
 

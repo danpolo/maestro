@@ -120,6 +120,22 @@ def _tracked(repo: Path) -> list[str]:
     return _git(repo, "ls-files").stdout.split()
 
 
+def _dirty(repo: Path) -> list[str]:
+    """`git status --porcelain` lines, minus the harness's own `.orchestrator/` directory.
+
+    The `sandbox` fixture creates `<repo>/.orchestrator/workspaces/` *before* the `repo`
+    fixture runs `git init`, so plain porcelain always reports `?? .orchestrator/` — a
+    fixture artefact, not something the subject did. Everything else is kept, so an empty
+    result still means what the tests want it to mean: no uncommitted change to a tracked
+    file and no stray file left in the worktree.
+    """
+    lines = _git(repo, "status", "--porcelain").stdout.splitlines()
+    return [
+        line for line in lines
+        if line.strip() and line[3:].split(" -> ")[-1].rstrip("/") != ".orchestrator"
+    ]
+
+
 # --- journal ------------------------------------------------------------------------
 
 
@@ -655,7 +671,7 @@ def test_commit_eval_history_commits_a_modified_row(subject, repo, sandbox):
     _write(repo, subject._EVAL_HISTORY, '{"row": 0}\n{"row": 1}\n')
     assert subject._commit_eval_history("T1") is True
     assert _head(repo) != before
-    assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+    assert _dirty(repo) == []
     detail = _detail(sandbox, "eval_history_committed")
     assert "T1" in detail
     assert subject._EVAL_HISTORY in detail
@@ -698,7 +714,8 @@ def test_commit_eval_history_reports_success_even_when_the_commit_fails(
     assert subject._commit_eval_history("T1") is True
     monkeypatch.undo()
     assert "eval_history_committed" in _event_names(sandbox)
-    assert _git(repo, "status", "--porcelain").stdout.strip() != ""
+    # `git add` really ran, only the commit was faked: the row is left staged, uncommitted.
+    assert _dirty(repo) == [f"M  {subject._EVAL_HISTORY}"]
 
 
 # =====================================================================================
@@ -856,7 +873,7 @@ def test_autoresolve_completes_a_pure_doc_conflict(subject, repo, monkeypatch, s
     assert not _merge_in_progress(repo)
     assert (repo / artifact).read_text(encoding="utf-8") == "regenerated\n"
     assert "<<<<<<<" not in (repo / artifact).read_text(encoding="utf-8")
-    assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+    assert _dirty(repo) == []
     assert artifact in _detail(sandbox, "merge_docs_autoresolved")
 
 
@@ -1263,20 +1280,36 @@ def test_merge_prep_branch_autoresolves_a_doc_conflict(subject, repo, monkeypatc
 def test_merge_prep_branch_runs_no_deny_list_or_risky_check(subject, repo, monkeypatch):
     """FOUND_BUGS: the prep path merges straight to main with none of merge_and_eval's gates.
 
-    The same diff that `merge_and_eval` refuses outright lands on main here.
+    The very diff `deny_list_guard` refuses lands on main here, unreviewed. The guard is
+    asserted *before* the merge: `deny_list_guard` diffs `main...b`, so once the branch is
+    an ancestor of main the diff is empty and the guard reads clean — asking it afterwards
+    would say "ok" about content it never saw.
     """
     judge = _use_judge(monkeypatch, subject, '{"pass": false, "reason": "no"}')
     _branch(repo, "b", {"db/migrate.sql": "DROP TABLE users;\n"})
+    assert subject.deny_list_guard("b", "T1")[0] is False
     ok, _ = subject._merge_prep_branch({"task_id": "T1", "session_id": "S", "branch": "b"})
     assert ok is True
     assert judge.calls == []
-    assert subject.deny_list_guard("b", "T1")[0] is False
+    assert "db/migrate.sql" in _tracked(repo)
+    assert (repo / "db" / "migrate.sql").read_text(encoding="utf-8") == "DROP TABLE users;\n"
 
 
-def test_merge_prep_branch_requires_a_session_id_even_with_a_branch(subject, repo):
-    """FOUND_BUGS: the `or` fallback is evaluated eagerly, so `session_id` is mandatory."""
+def test_merge_prep_branch_needs_a_session_id_only_when_no_branch_is_given(subject, repo):
+    """`entry.get("branch") or entry["session_id"].lower()` short-circuits.
+
+    An explicit branch is enough — `session_id` is never read, so no KeyError. It becomes
+    mandatory the moment `branch` is missing or empty, which is the fallback path.
+    """
+    _branch(repo, "b", {"scripts/prep.py": "x\n"})
+    ok, detail = subject._merge_prep_branch({"task_id": "T1", "branch": "b"})
+    assert ok is True
+    assert detail.startswith("merged b at ")
+
     with pytest.raises(KeyError):
-        subject._merge_prep_branch({"task_id": "T1", "branch": "b"})
+        subject._merge_prep_branch({"task_id": "T1", "branch": ""})
+    with pytest.raises(KeyError):
+        subject._merge_prep_branch({"task_id": "T1"})
 
 
 # =====================================================================================
@@ -1542,7 +1575,7 @@ def test_merge_and_eval_keeps_the_eval_history_commit_when_the_smoke_passes(
     )
     ok, _ = subject.merge_and_eval(_entry())
     assert ok is True
-    assert _git(repo, "status", "--porcelain").stdout.strip() == ""
+    assert _dirty(repo) == []
     assert (repo / subject._EVAL_HISTORY).read_text(encoding="utf-8") == '{"row": 0}\n{"row": 1}\n'
 
 

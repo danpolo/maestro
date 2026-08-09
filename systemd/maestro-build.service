@@ -1,0 +1,30 @@
+# /etc/systemd/system/maestro-build.service
+#
+# Reboot-proofs the Maestro build's overnight handoff chain
+# (scripts/run_overnight.sh). Deployed via a one-time sudo step — see
+# scripts/maestro-build-launcher.sh and the pause/resume notes in docs/PROGRESS.md.
+#
+# Audit: tmux a -t maestro-build
+# Stop for good: systemctl stop maestro-build.service && systemctl disable maestro-build.service
+[Unit]
+Description=Maestro Build Overnight Chain Driver
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+# Type=simple: systemd tracks the launcher shell (which blocks until the tmux
+# session ends), same reasoning as AbuAliArchive's abuali-watchdog.service —
+# Type=forking is unusable because the tracked process lives in the tmux
+# server's cgroup, not the service's.
+Type=simple
+User=dan
+WorkingDirectory=/home/dan/projects/maestro
+ExecStart=/bin/bash /home/dan/projects/maestro/scripts/maestro-build-launcher.sh
+ExecStop=/usr/bin/tmux kill-session -t maestro-build
+# Restart only on a real crash. A clean exit (PROGRAMME-STATUS COMPLETE/ABORTED,
+# or the stale-guard stopping the chain) must NOT be relaunched.
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

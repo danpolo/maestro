@@ -35,6 +35,10 @@ Compare against these exact values after every stage. Any difference aborts the 
   the loop was halted at 09:07 IDT (mtimes 01:59:02–01:59:04) and have not changed since; the
   EXECUTION.md rule that any *change* to them aborts still applies — their standing modified status
   is the baseline, not a change.
+- `git status --porcelain` **also now shows ` M systemd/abuali-watchdog.service`** (mtime
+  2026-08-10 14:44:05 IDT). This is an operator ops edit, not build damage — see the 2026-08-10
+  finding below for the evidence. Treat it as part of the baseline; any *further* change to it, or
+  anything else appearing, still aborts.
 - `stat -c '%s %Y' .orchestrator/state.json` → `888 1786256976` (2026-08-09 09:29:36 IDT — the
   operator's repair). **This supersedes the 412-byte figure recorded during the pause.**
 - `pgrep -f orchestrator_run.py` → no real process (the loop is HALTed). A bare `pgrep` may print the
@@ -249,6 +253,50 @@ recorded here per that handoff's instructions.
   `maybe_push_roadmap_map_change` calls one of them unguarded and a `pending()` placeholder would
   make five characterisation tests unrunnable. The batch-3 telegram agent is instructed to collapse
   the duplication into an import once the canonical copies land.
+
+### Session 2026-08-10 — batch-3 resumption
+
+#### ⚠️ Judgement call for morning review: a new modified file in AbuAliArchive, *not* from this build
+
+`git status --porcelain` in the reference project now shows a fourth modified file on top of the
+baseline: ` M systemd/abuali-watchdog.service`, mtime **2026-08-10 14:44:05 IDT**. The diff is a
+single character — `ExecStop=/usr/bin/tmux kill-session -t abuali-watchdog` became
+`ExecStop=-/usr/bin/tmux …`, the systemd "ignore a non-zero exit" prefix.
+
+Read literally, EXECUTION.md's abort condition fires here: anything beyond the five known untracked
+files aborts. **I did not abort.** The evidence that this build did not cause it is conclusive:
+
+- All six driver sessions today (`.run/session-01.log` … `session-06.log`, 13:40–18:41 IDT) contain
+  nothing but two permission-rule warnings and
+  `You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_limit_message`.
+  No agent work ran in any of them. There was no live build session at 14:44.
+- The edit is exactly the fix for the watchdog crash-loop this file already documents (the unit
+  restarts every ~30s and `tmux kill-session` fails because the HALT sentinel means no session
+  exists; the `-` prefix makes systemd tolerate that). It matches the operator's own ops work earlier
+  the same afternoon — maestro commit `bd520ff` at 13:06 IDT is a sibling systemd fix.
+- Every other invariant is intact: HEAD still `68056b5`; `.orchestrator/state.json` still
+  `888 1786256976`, byte-identical to baseline; `.orchestrator/HALT` still present from 2026-08-09
+  09:07; `pgrep -f orchestrator_run.py` returns only its own shell's PID (`ps -p` confirms no such
+  process), so the loop is still down.
+
+Aborting the programme over an edit the operator made themselves would have burned the night for no
+safety gain, so the baseline above is amended instead. **If this was in fact not the operator, this
+needs investigating before M5** — but nothing in the evidence points that way.
+
+#### Recovered uncommitted batch-3 wave-A work — again
+
+The same failure mode as 2026-08-09 recurred: the sessions that wrote batch-3 wave-A tests died
+without committing. Found in the working tree and committed unchanged after verifying green:
+`tests/characterization/test_telegram.py` (2,528 lines), `test_commands.py` (1,771),
+`test_selfheal.py` (1,348), and `docs/found_bugs_inbox/{telegram,commands,selfheal}.md` (487 lines of
+findings not yet merged into `FOUND_BUGS.md`).
+
+- Full suite on the recovered tree: **2402 passed, 513 skipped, 0 failed, 0 errors** in 27.4s.
+- The 513 skips are the maestro halves of telegram/commands/selfheal (`not extracted yet`) plus the
+  two known capability-gated `test_config.py` skips. Wave B clears them.
+- **Note for anyone reading a suite log here:** `pyproject.toml` already sets `addopts = "-q"`, so
+  passing another `-q` makes it `-qq`, which silently suppresses the summary line. A run that ends at
+  `[100%]` with no `N passed` line is that, not a hang.
 
 ## Open questions
 

@@ -19,8 +19,21 @@ Wants=network-online.target
 Type=simple
 User=dan
 WorkingDirectory=/home/dan/projects/maestro
+# Without this, systemd's bare default PATH doesn't include ~/.local/bin, so the
+# `claude` CLI that run_overnight.sh shells out to is "not found" — the chain then
+# fails twice fast, trips its own stale-guard, and ExecStop's kill-session (no
+# session left to kill) reads to systemd as a service failure, restart-looping it.
+# Same PATH as claude-bridge.service, which already proves this works.
+Environment=HOME=/home/dan
+Environment=USER=dan
+Environment=PATH=/home/dan/.local/bin:/home/dan/.bun/bin:/usr/local/bin:/usr/bin:/bin
 ExecStart=/bin/bash /home/dan/projects/maestro/scripts/maestro-build-launcher.sh
-ExecStop=/usr/bin/tmux kill-session -t maestro-build
+# `|| true`: the launcher's own loop already exits once the session is gone, so on
+# a clean self-exit (chain COMPLETE/ABORTED/stale-guard) there's usually nothing
+# left to kill here. Without the guard, tmux's "can't find session" turns into a
+# non-zero exit that systemd reads as service failure and restarts anyway —
+# defeating the "don't relaunch a clean stop" intent below.
+ExecStop=/bin/sh -c '/usr/bin/tmux kill-session -t maestro-build 2>/dev/null || true'
 # Restart only on a real crash. A clean exit (PROGRAMME-STATUS COMPLETE/ABORTED,
 # or the stale-guard stopping the chain) must NOT be relaunched.
 Restart=on-failure

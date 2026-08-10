@@ -43,6 +43,7 @@ BUILD_SCAFFOLD = {
     "docs/PROGRESS.md",
     "docs/FOUND_BUGS.md",
     "scripts/run_overnight.sh",
+    "scripts/maestro-build-launcher.sh",
     "tests/test_purity.py",
 }
 

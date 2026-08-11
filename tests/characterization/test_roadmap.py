@@ -11,6 +11,7 @@ a real repository: all document state lives under the ``sandbox`` temp tree.
 import hashlib
 import json
 import subprocess
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -192,6 +193,14 @@ class FakeSubprocess:
 def no_subprocess(subject, monkeypatch, **kw):
     fake = FakeSubprocess(**kw)
     monkeypatch.setattr(subject, "subprocess", fake)
+    # `maybe_push_roadmap_map_change` calls `notify_telegram_with_map`, which in the
+    # extracted package lives in `maestro.hitl.telegram` and therefore shells out through
+    # *that* module's `subprocess` — stubbing only the subject's would let a real `bash`
+    # and a real `curl` to api.telegram.org out of the sandbox. The legacy subject is one
+    # flat namespace that never imports the module, so the lookup is guarded.
+    telegram = sys.modules.get("maestro.hitl.telegram")
+    if telegram is not None and telegram is not subject:
+        monkeypatch.setattr(telegram, "subprocess", fake)
     return fake
 
 

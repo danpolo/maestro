@@ -5,7 +5,7 @@ and `docs/EXECUTION.md` must be enough for a fresh session to resume with no oth
 
 Process: `docs/EXECUTION.md`. Design: `docs/DESIGN.md`.
 
-PROGRAMME-STATUS: IN-PROGRESS
+PROGRAMME-STATUS: ABORTED
 
 > Machine-readable. `scripts/run_overnight.sh` greps this exact line to decide whether to relaunch a
 > fresh session. Set it to one of `IN-PROGRESS`, `COMPLETE`, `ABORTED` before exiting, every time.
@@ -24,6 +24,15 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M6 — Live switching validation | pending | — | — |
 
 **Current stage:** M1 — core extraction, batch 3 (`telegram, commands, selfheal, parking, orchestrator`).
+Wave A is complete for all five modules; wave B has landed `hitl/telegram` only. Remaining wave-B
+modules: `hitl/commands`, `selfheal`, `parking`, `orchestrator`.
+
+**ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
+` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
+provenance is an operator-owned nightly timer, not this build, but EXECUTION.md's abort condition is
+unconditional and this would have been the *third* consecutive session to amend the safety baseline
+rather than stop. **The operator must decide whether to widen the baseline; do not decide it for
+them.** Restarting is a one-line edit — see "To resume" below.
 
 ## Reference-project baseline for the per-stage abort check
 
@@ -297,6 +306,105 @@ findings not yet merged into `FOUND_BUGS.md`).
 - **Note for anyone reading a suite log here:** `pyproject.toml` already sets `addopts = "-q"`, so
   passing another `-q` makes it `-qq`, which silently suppresses the summary line. A run that ends at
   `[100%]` with no `N passed` line is that, not a hang.
+
+### Session 2026-08-11 (23:1x IDT) — recovered batch-3 work, then **ABORTED** on the reference check
+
+#### What this session did before stopping
+
+Recovered and committed a third tranche of uncommitted work (`ad63fee`) — the same
+died-on-the-spend-limit-without-committing failure mode as 2026-08-09 and 2026-08-10. Found in the
+working tree, verified green, committed unchanged:
+
+- `tests/characterization/test_parking.py` (1,947 lines) and `test_orchestrator.py` (1,562) — the
+  last two batch-3 wave-A suites. **Wave A is now complete for all thirteen modules.**
+- `maestro/hitl/telegram.py` (334 lines) — wave-B extraction of the first batch-3 module.
+- `maestro/docs/roadmap.py` — collapses the batch-2 stopgap duplication of `notify_telegram` /
+  `notify_telegram_with_map` into an import of the now-canonical `maestro.hitl.telegram`, exactly as
+  the batch-2 note said it would once that module landed. No cycle: `hitl.telegram` does not import
+  `docs.roadmap`.
+- `docs/found_bugs_inbox/{parking,orchestrator}.md` (40 lines of findings, still not merged into
+  `FOUND_BUGS.md` — five inbox files now await that merge).
+
+**Full suite: 2974 passed, 585 skipped, 0 failed, 0 errors in 36.15s.** The 585 skips are the maestro
+halves of the four modules whose wave B has not run (`commands`, `selfheal`, `parking`,
+`orchestrator`) plus the two known capability-gated `test_config.py` skips.
+
+Driver history for the intervening 24h: `.run/session-03.log` … `session-24.log` are all 598 bytes
+and contain only the monthly-spend-limit message. **No agent work ran between 2026-08-10 14:41 and
+2026-08-11 23:14** — twenty-two consecutive sessions burned doing nothing. The spend limit, not this
+build's logic, is what has cost the schedule.
+
+#### ⛔ Abort trigger: a sixth modified file in AbuAliArchive — `eval/history.jsonl`
+
+`git status --porcelain` in the reference project now shows ` M eval/history.jsonl` on top of the
+five-file baseline. EXECUTION.md's abort condition fires literally, so **the programme is stopped and
+`PROGRAMME-STATUS` is `ABORTED`.** Per the protocol I did not repair it and did not amend the
+baseline myself.
+
+Evidence on provenance, gathered before stopping. **It points conclusively away from this build:**
+
+- The change is a **single appended line** (`git diff --stat` → `1 insertion`): one eval record,
+  `{"timestamp": "2026-08-11T03:56:43", "tag": "nightly-20260811", "n": 300, "elapsed_s": 10429.8, …}`.
+  Append-only metrics log; nothing rewritten or deleted. Metrics are in line with the previous
+  nightly (`Recall@5` 0.91 dense / 0.9 full, NDCG@10 0.861 / 0.844).
+- The writer is a **user-level systemd unit that nobody had noticed**:
+  `journalctl --user -u abuali-nightly-eval.service` shows
+  `Started … AbuAliArchive nightly eval (NDCG regression check + Telegram alert)` at
+  **01:00:02**; `elapsed_s` 10429.8 ≈ 2h54m lands exactly on the 03:56:43 write. It is a *user*
+  manager unit (`systemd[776]`), which is why `systemctl status abuali-nightly-eval.service` at the
+  system level reports "could not be found" and why it is invisible to `systemctl list-timers`.
+- This build was provably not running then: `.run/session-12.log` (01:04) and `session-13.log`
+  (02:04) are the 598-byte spend-limit message.
+- It is **not** the halted orchestrator loop: `.orchestrator/HALT` is still in place from
+  2026-08-09 09:07, `.orchestrator/state.json` is byte-identical to baseline at `888 1786256976`,
+  and `pgrep -f orchestrator_run.py` returns only its own shell's PID (`ps -p` confirms).
+- HEAD unchanged at `68056b5`. The other five entries are unchanged, including
+  `systemd/abuali-watchdog.service` at its 2026-08-10 14:44:05 mtime.
+- Re-checked *after* this session's full suite run: `state.json` still `888 1786256976`,
+  `history.jsonl` still `11186 03:56:43.625`. The write firewall held; this session touched nothing.
+
+**Why I stopped anyway, rather than amending the baseline like the two sessions before me.** Each
+individual amendment has been well-evidenced and each was probably right on the facts. But this would
+have been the third in three sessions, and EXECUTION.md says in bold — added *because* of the M0
+near-miss — "STOP the programme and report it — not repair it, not reason past it." An invariant that
+protects a production project dies exactly this way: one conclusive explanation at a time. The cost
+of a wrong abort is one restarted night; the cost of a wrong continue is the build writing to
+AbuAliArchive unnoticed. So the call goes to the operator.
+
+**Two things here genuinely need the operator, independent of the abort:**
+
+1. **`abuali-nightly-eval.timer` is live and will fire again at 01:00 tonight**, writing into the
+   reference project. The build's model of "the reference project is frozen because the loop is
+   HALTed" is **wrong** — the HALT sentinel stops `orchestrator_run.py`, not this timer. That matters
+   for **M5**: the cutover baseline capture and post-cutover comparison must either account for this
+   timer or stop it for the duration, or M5 will compare against a moving target and its verification
+   step may fail spuriously and trigger an automatic rollback.
+2. **The nightly eval has been running against the reference project this whole time**, consuming
+   ~3h of CPU per night, which contradicts the pause note's "zero Claude quota is being spent on
+   AbuAliArchive" only in spirit (the eval is local CPU + Telegram, not Claude quota) but is worth
+   knowing.
+
+#### To resume
+
+If the operator agrees `eval/history.jsonl` is the nightly timer and not damage:
+
+1. Add ` M eval/history.jsonl` to the baseline list above — **and note it is expected to change every
+   night at ~01:00**, so unlike the other entries a *changed* mtime there is not by itself an abort.
+   Decide the same question for M5 (see point 1 above).
+2. Set `PROGRAMME-STATUS:` back to `IN-PROGRESS`.
+3. Relaunch `scripts/run_overnight.sh`.
+
+**The real blocker is not this abort — it is the monthly spend limit.** Twenty-two of the last
+twenty-four driver sessions did zero work. Until that is resolved, relaunching produces 598-byte logs
+and the 2-consecutive-stale guard stops the chain. `run_overnight.sh`'s retry regex
+(`usage limit|hit your limit|rate.?limit|resets at`) still does not match
+`You've hit your monthly spend limit`, so the driver treats a spend-limited session as stale progress
+rather than as something to wait out.
+
+**Next action after that:** M1 batch-3 wave B for the remaining four modules, in dependency order —
+`hitl/commands` → `selfheal` → `parking` → `orchestrator`. Wave-A tests for all four already exist
+and are green against the reference; wave B is the verbatim-copy half that clears the 585 skips.
+`main()` moving unchanged into `orchestrator` is the last piece of M1.
 
 ## Open questions
 

@@ -116,6 +116,21 @@ for i in $(seq 1 "$MAX_ITER"); do
     claude -p --model "$MODEL" --dangerously-skip-permissions "$PROMPT" >"$log" 2>&1
     echo "[chain] $(ts) session $i exited rc=$?"
 
+    # Check for a terminal status BEFORE the usage-limit scan below: a session that
+    # legitimately finishes (COMPLETE/ABORTED) commonly narrates past limit hits in
+    # its own report ("the monthly spend limit blocked sessions N-M"), which false-
+    # matches the usage-limit regex just as well as a real fresh hit does. Without
+    # this check that session would sleep for hours waiting on a reset nobody needs,
+    # only to break on the *next* loop's status() check anyway - harmless but makes
+    # a finished/aborted programme look like it's still grinding for hours. Observed
+    # 2026-08-11: the ABORT report's own "spend limit" narration triggered exactly
+    # this.
+    st="$(status)"
+    if [[ "$st" == "COMPLETE" || "$st" == "ABORTED" ]]; then
+        echo "[chain] $(ts) programme $st after session $i"
+        break
+    fi
+
     # Quota exhaustion is not a failure: wait for the reset and try again.
     # Real observed message: "You've hit your monthly spend limit ..." -- shown for
     # 5h/weekly caps too, not just a distinct billing cap (confirmed 2026-08-09). The

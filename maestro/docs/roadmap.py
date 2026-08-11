@@ -15,6 +15,7 @@ import subprocess
 
 import yaml  # PyYAML
 
+from maestro.hitl.telegram import notify_telegram, notify_telegram_with_map
 from maestro.paths import Paths
 from maestro.pending import pending
 from maestro.state import append_journal, read_state, write_state
@@ -41,11 +42,10 @@ DEP_MAP_PNG           = REPO / "docs" / "dependency_map.png"
 prep_actions = pending("prep_actions", "maestro.prep_actions")
 
 
-# `notify_telegram` and `notify_telegram_with_map` are mapped to `maestro.hitl.telegram`,
-# which is extracted after this module. `maybe_push_roadmap_map_change` calls the latter
-# unguarded — and it is what writes LAST_MAP_SIG on a successful push — so a `pending()`
-# placeholder would make this module untestable. Both bodies are copied verbatim here;
-# when `maestro.hitl.telegram` lands, one of the two copies becomes an import of the other.
+# `notify_telegram` and `notify_telegram_with_map` live in `maestro.hitl.telegram`, which
+# now exists; the stopgap copies that stood here during batch 2 are gone and the names are
+# imported above. `maestro.hitl.telegram` deliberately does not import this module, so
+# there is no cycle.
 
 def run_dep_map() -> None:
     """Regenerate the dependency map .md AND re-render the .png.
@@ -68,62 +68,12 @@ def run_dep_map() -> None:
                        capture_output=True, timeout=60)
 
 
-def notify_telegram(msg: str) -> None:
-    if NOTIFY_SH.exists():
-        subprocess.run(["bash", str(NOTIFY_SH), msg], capture_output=True, timeout=15)
-
-
 def _roadmap_signature() -> str:
     """Content hash of docs/ROADMAP.md — changes iff the task set/scope changes."""
     try:
         return hashlib.sha256(ROADMAP_FILE.read_bytes()).hexdigest()
     except Exception:
         return ""
-
-
-def notify_telegram_with_map(msg: str) -> None:
-    """Send a Telegram message and attach the dependency map PNG if it exists.
-
-    Records the signature of the ROADMAP the attached PNG reflects (callers render
-    the PNG from the current ROADMAP right before calling this), so the per-poll
-    change-detector (maybe_push_roadmap_map_change) treats this as the latest map Dan
-    has and only re-pushes on a *subsequent* ROADMAP change.
-    """
-    notify_telegram(msg)
-    if DEP_MAP_PNG.exists():
-        token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-        chat_id = os.environ.get("TELEGRAM_ALERT_CHAT_ID", "")
-        if token and chat_id:
-            # sendPhoto rejects images past Telegram's dimension limit (width+height
-            # > 10000 / ratio > 20) with PHOTO_INVALID_DIMENSIONS — and the dep-map PNG
-            # crosses that as the task graph grows. Fall back to sendDocument (no
-            # dimension cap, up to 50 MB) so a big map is always delivered. We check the
-            # response rather than fire-and-forget, since a silent failure here is exactly
-            # how Dan ended up never receiving an updated map.
-            photo = subprocess.run(
-                [
-                    "curl", "-s", "-F", f"chat_id={chat_id}",
-                    "-F", f"photo=@{DEP_MAP_PNG}",
-                    f"https://api.telegram.org/bot{token}/sendPhoto",
-                ],
-                capture_output=True, text=True, timeout=30,
-            )
-            if '"ok":true' not in (photo.stdout or ""):
-                subprocess.run(
-                    [
-                        "curl", "-s", "-F", f"chat_id={chat_id}",
-                        "-F", f"document=@{DEP_MAP_PNG}",
-                        f"https://api.telegram.org/bot{token}/sendDocument",
-                    ],
-                    capture_output=True, text=True, timeout=30,
-                )
-    # Record what roadmap this map reflects so the change-detector dedups against it.
-    sig = _roadmap_signature()
-    if sig:
-        try:
-            LAST_MAP_SIG.write_text(sig)
-        except Exception:
-            pass
 
 
 def maybe_push_roadmap_map_change() -> None:

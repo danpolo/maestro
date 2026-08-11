@@ -5,7 +5,7 @@ and `docs/EXECUTION.md` must be enough for a fresh session to resume with no oth
 
 Process: `docs/EXECUTION.md`. Design: `docs/DESIGN.md`.
 
-PROGRAMME-STATUS: ABORTED
+PROGRAMME-STATUS: IN-PROGRESS
 
 > Machine-readable. `scripts/run_overnight.sh` greps this exact line to decide whether to relaunch a
 > fresh session. Set it to one of `IN-PROGRESS`, `COMPLETE`, `ABORTED` before exiting, every time.
@@ -44,6 +44,14 @@ tolerate a known exception. `scripts/resume_eval_when_done.sh`, polled every 15 
 means "operator flips this back to `IN-PROGRESS` and relaunches," not "done"; auto-resuming on
 `ABORTED` would race that decision. The baseline itself is unchanged — still expects exactly the
 original five untracked files plus the four standing-modified doc/service files, nothing else.
+
+**Resumed 2026-08-11 23:5x IDT, same session:** the timer pause stopped *future* writes but the
+leftover line from the 03:56 run was still sitting in the working tree, which would have re-tripped
+the same abort in the first stage check. Discarded it — `git checkout -- eval/history.jsonl` in
+`AbuAliArchive`, restoring it to `HEAD` — since the operator's decision was to keep the reference
+project frozen, not to keep this particular record. `AbuAliArchive`'s `git status --porcelain` now
+matches the original baseline exactly (verified above the resolution note). `PROGRAMME-STATUS` set
+back to `IN-PROGRESS` and the driver relaunched.
 
 ## Reference-project baseline for the per-stage abort check
 

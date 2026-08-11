@@ -245,3 +245,63 @@ Pinned by `test_process_fix_leaves_the_diagnosis_on_disk_when_the_runner_raises`
 * `poll_control_commands` advances `_getUpdates_offset` for updates from foreign chats and
   for callback queries it then discards — correct for offset hygiene, but it means an update
   is consumed even when nothing acts on it.
+
+---
+
+## C16 — `/approve` reports the phase completion with a task definition it has just deleted
+
+`_process_approve` finalizes an accepted merge in this order (reference L2879-2896):
+
+```python
+remove_worktree(worktree)
+mark_roadmap_complete(task_id)
+...
+phase_report(task_id, get_task_by_id(task_id), smoke)
+```
+
+`mark_roadmap_complete` graduates the task by *stripping its yaml block out of
+ROADMAP.md*, and `get_task_by_id` reads ROADMAP.md. So by the time `phase_report` is
+handed a task definition, the lookup returns `None`. `phase_report` guards with
+`(task_def or {})`, so nothing raises — it just silently degrades: `short_desc` falls back
+to the bare task id and the `decisions_made` / "⏳ Veto window: 24 h" block is never
+emitted. The one report Dan gets on an approved task is the one that cannot see the task.
+(The autonomous completion path in `main` has the same ordering.)
+
+---
+
+## C17 — a failed canary deploy tells Dan nothing at all
+
+On the accepted path, when the merged branch `_touches_bot_files`, a non-zero canary
+deploy exits the finalize with only a journal line (reference L2891-2894):
+
+```python
+append_journal("canary_reverted", f"{task_id} canary deploy failed")
+run_dep_map(); run_status()
+return
+```
+
+There is no `notify_telegram`. Dan has already been sent "✅ Approved `<task>` — merging
+now…", so from Telegram the approval simply stops: no "merged & accepted", no warning, no
+error. The task is also left graduated out of ROADMAP.md and pushed to `main`, i.e. the
+revert the event name implies never happens here.
+
+Pinned by `test_process_approve_aborts_the_finalize_when_a_bot_file_canary_deploy_fails`.
+
+---
+
+## C18 — `/ask` and `/redo` build their tmux command by unquoted string interpolation
+
+Both handlers launch their helper as a single shell string (reference L3013-3016 and
+L3067-3070):
+
+```python
+tmux_cmd = (f"tmux new-window -t {TMUX_SESSION} -n {window} "
+            f"'cd {REPO} && {VENV_PYTHON} {helper} {req_path}'")
+subprocess.run(tmux_cmd, shell=True, check=True)
+```
+
+`window` is `f"ask-{task_id}"` and `req_path` embeds the same `task_id`, neither quoted nor
+validated. A ROADMAP task id containing a space, a quote or a shell metacharacter — or a
+repo path with a space — produces a malformed or injected command line. It fails loudly
+only because of `check=True`; the resulting `CalledProcessError` is reported to Dan as
+"⚠ /ask failed to launch", which does not hint at the cause.

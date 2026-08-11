@@ -34,6 +34,17 @@ unconditional and this would have been the *third* consecutive session to amend 
 rather than stop. **The operator must decide whether to widen the baseline; do not decide it for
 them.** Restarting is a one-line edit — see "To resume" below.
 
+**Operator resolution, 2026-08-11 23:4x IDT, out-of-band session:** decided against widening the
+baseline. Instead, `abuali-nightly-eval.timer` (the actual source of the drift) was paused —
+`systemctl --user disable --now abuali-nightly-eval.timer` — so `AbuAliArchive` is truly untouched
+again, matching the "READ-ONLY until M5" invariant literally rather than teaching the baseline to
+tolerate a known exception. `scripts/resume_eval_when_done.sh`, polled every 15 min via cron
+(`maestro-resume-eval` in the operator's crontab), re-enables it automatically once
+`PROGRAMME-STATUS` reaches `COMPLETE` — deliberately *not* on `ABORTED`, since an abort commonly
+means "operator flips this back to `IN-PROGRESS` and relaunches," not "done"; auto-resuming on
+`ABORTED` would race that decision. The baseline itself is unchanged — still expects exactly the
+original five untracked files plus the four standing-modified doc/service files, nothing else.
+
 ## Reference-project baseline for the per-stage abort check
 
 Compare against these exact values after every stage. Any difference aborts the programme.
@@ -386,20 +397,24 @@ AbuAliArchive unnoticed. So the call goes to the operator.
 
 #### To resume
 
-If the operator agrees `eval/history.jsonl` is the nightly timer and not damage:
+**Done as of the 2026-08-11 23:4x IDT operator resolution above** — `abuali-nightly-eval.timer` is
+paused (not the baseline), so `AbuAliArchive`'s `git status --porcelain` is back to exactly the
+original baseline with nothing new. Remaining steps:
 
-1. Add ` M eval/history.jsonl` to the baseline list above — **and note it is expected to change every
-   night at ~01:00**, so unlike the other entries a *changed* mtime there is not by itself an abort.
-   Decide the same question for M5 (see point 1 above).
-2. Set `PROGRAMME-STATUS:` back to `IN-PROGRESS`.
-3. Relaunch `scripts/run_overnight.sh`.
+1. Set `PROGRAMME-STATUS:` back to `IN-PROGRESS`.
+2. Relaunch (`sudo systemctl restart maestro-build.service`, or `bash scripts/run_overnight.sh`
+   directly).
 
-**The real blocker is not this abort — it is the monthly spend limit.** Twenty-two of the last
-twenty-four driver sessions did zero work. Until that is resolved, relaunching produces 598-byte logs
-and the 2-consecutive-stale guard stops the chain. `run_overnight.sh`'s retry regex
-(`usage limit|hit your limit|rate.?limit|resets at`) still does not match
-`You've hit your monthly spend limit`, so the driver treats a spend-limited session as stale progress
-rather than as something to wait out.
+Decide the same nightly-write question for M5's post-cutover baseline comparison before that stage —
+see point 1 further up. `abuali-nightly-eval.timer` re-enables itself automatically on `COMPLETE`; if
+the programme is abandoned instead (a standing `ABORTED` with no relaunch), re-enable it by hand:
+`systemctl --user enable --now abuali-nightly-eval.timer`.
+
+**The monthly-spend-limit / weekly-quota blocker that stalled 22 of the 24 sessions before this abort
+is already fixed** (commits `9f23441`, `14252ca`, same day) — the driver now reads the Anthropic usage
+API for the real reset time and sleeps until then instead of a flat hourly retry, and no longer
+mistakes a session's own past-tense mention of a limit hit for a fresh one. Use
+`bash scripts/loop_status.sh` to check progress without re-deriving all of this.
 
 **Next action after that:** M1 batch-3 wave B for the remaining four modules, in dependency order —
 `hitl/commands` → `selfheal` → `parking` → `orchestrator`. Wave-A tests for all four already exist

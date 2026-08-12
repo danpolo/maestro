@@ -24,8 +24,9 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M6 — Live switching validation | pending | — | — |
 
 **Current stage:** M2 — backend drivers and mid-work switching. M1 closed green on 2026-08-12.
-M2 has no detailed plan in `docs/plans/`, so per EXECUTION.md the first action of the stage is to
-write one.
+M2's research fan-out is **done** and its plan is **written**:
+`docs/plans/2026-08-12-m2-backends.md`. **The next session executes that plan starting at its
+Task 1** — the research is already paid for and must not be repeated.
 
 **ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
 ` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
@@ -466,13 +467,91 @@ implementer, merge, hitl/telegram, hitl/commands, selfheal, parking, orchestrato
   untracked + four standing-modified), `.orchestrator/state.json` `888 1786256976` unchanged,
   `.orchestrator/HALT` still in place from 2026-08-09 09:07. No abort condition.
 
+### Session 2026-08-12 (cont.) — **M2 research done, M2 plan written**
+
+Ran M2's research fan-out as one workflow, 4 parallel agents, **403K subagent tokens, 243 tool
+calls, 20 min** (run `wf_a93306d7-f93`). Everything below was verified against the tooling actually
+installed on this machine, not recalled. The full evidence is in
+**`docs/plans/2026-08-12-m2-backends.md`**, which is now written and ready to execute.
+
+**Both M2 open questions are answered, and two DESIGN.md premises turned out to be wrong.**
+
+1. **`native_resume = True` for Codex** (resolves the §13 open question). The handle is the
+   `thread_id` on the first `codex exec --json` event (`{"type":"thread.started","thread_id":…}`),
+   documented verbatim in the official Codex SDK as *"Can be used to resume the thread later."*
+   Verified end to end: the same thread id came back and history replayed (`input_tokens` 19050 →
+   44304 → 70172 over three turns). Three gotchas are now encoded in the plan: exec-level flags must
+   go **before** the `resume` subcommand; **`--last` hangs 150s+** scanning 17,794 rollout files and
+   must never be used in automation; a bogus id fails fast and free (exit 1, no quota).
+2. **Codex usage telemetry: DESIGN.md §6's mechanism does not exist.** `context-used`,
+   `five-hour-limit` and `weekly-limit` are internal **TUI status-line enum variants** — no external
+   command, no JSON payload, no file, and no status-line hook (Codex has 11 hook events; none fits),
+   so the Claude sampler pattern cannot be ported. **The parity conclusion survives** via two other
+   verified routes: the per-run rollout JSONL (`token_count` records carry a full `rate_limits`
+   snapshot, confirmed on a `codex_exec` rollout) and `codex app-server`'s `account/rateLimits/read`.
+3. **DESIGN.md §6's claude flag list is also wrong.** `--strict-mcp-config`, `--mcp-config`,
+   `--add-dir` and `--dangerously-skip-permissions` appear **nowhere** in the reference. The real
+   argv is `claude -p --model <id> --session-id <uuid4> [--system-prompt-file <abs>] <brief>`, brief
+   positional and last, with `--resume` *replacing* `--session-id`.
+
+Both corrections are recorded as an appended **"Correction (M2 research, 2026-08-12)"** note in
+`docs/DESIGN.md` §6 — appended, not a silent rewrite, so the original claim and its refutation stay
+visible together. **No §2 decision was touched**; D1/D2/D3 all stand.
+
+**Three findings that will change M2's code and would be expensive to rediscover:**
+
+- **There is no five-hour window on this account.** Every rate-limit record sampled shows
+  `window_minutes: 10080` with `secondary: null`. Usage windows must be keyed by `window_minutes`,
+  never by the names `five_hour`/`weekly` — otherwise a five-hour threshold that can never fire
+  silently disables switching.
+- **`create_worktree` force-removes and re-adds**, so a switch that calls it destroys exactly the
+  uncommitted work D3 exists to preserve. Reuse is simply *not* calling it —
+  `worktree_path_for(task_id)` is a pure function of the task id. (`_do_retry` at
+  `orchestrator.py:609-621` already recreates the worktree today.)
+- **`append_journal` writes a five-field record whose shape is test-pinned**, so
+  `backend_switch {task, from, to, reason}` must be flattened into the free-text `detail`, not added
+  as a sixth field.
+
+**Conservative judgement calls in this session, for morning review:**
+
+- **Applied the DESIGN.md §6 corrections immediately** rather than deferring them to M2's close-out
+  as the plan's own Task 8 says. Leaving a known-wrong argv in the design authority for a whole
+  session invites the next session to build from it. The plan still lists them as Task 8 items; they
+  are already done.
+- **Bumped `__version__` 0.1.0 → 0.2.0** — the M0–M1 plan's Definition of Done requires it on M1
+  completion and it had been missed. `test_package.py` only checks semver shape, so nothing was
+  masking it.
+- **Declared the three judge call sites out of M2 scope** (`gates.py:117`,
+  `selfheal/diagnose.py:62`, `merge.py:147` all invoke `claude -p` directly). They are
+  model-selection, not session-lifecycle, concerns and belong with M3's model work. Recorded in the
+  plan's Global Constraints so it reads as a decision, not an oversight.
+- **Left the five `docs/found_bugs_inbox/*.md` files in place** rather than deleting them after the
+  `FOUND_BUGS.md` merge, since I did not verify the merge entry by entry.
+
+**Also worth the operator's attention:** there are **two `codex` binaries on PATH** —
+`~/.local/bin/codex` is `0.147.0` and `/usr/bin/codex` is `0.122.0`. `~/.local/bin` wins today, but a
+PATH change would silently swap versions under the driver. The plan has the driver resolve and pin
+an absolute path plus version. Separately, `~/.codex/config.toml:74` lists status-line items
+(`weekly-used`, `weekly-reset`) that the installed 0.147.0 does not know — harmless, but it means
+that config line is a no-op.
+
+**Nothing in `~/.codex/` was written to.** The research agents read it and ran read-only `codex`
+invocations; the one live probe was a trivial `"Reply with exactly: hi"` in `/tmp/codexprobe`.
+
 ## Open questions
 
 Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the answer here.
 
-- **M2** — Does `codex exec` expose a resume handle stable enough for `native_resume = True`, or must
-  the Codex driver always re-brief?
-- **M2** — Can the Codex statusline be sampled on the same cadence as Claude's, or does it need polling?
+- ~~**M2** — Does `codex exec` expose a resume handle stable enough for `native_resume = True`, or must
+  the Codex driver always re-brief?~~ **ANSWERED 2026-08-12: yes — `native_resume = True`.** The
+  handle is the `thread_id` on the `thread.started` event of `codex exec --json`; it is a documented
+  public contract in the official Codex SDK and was verified working end to end on this machine.
+  See the 2026-08-12 finding below and `docs/plans/2026-08-12-m2-backends.md` F1.
+- ~~**M2** — Can the Codex statusline be sampled on the same cadence as Claude's, or does it need polling?~~
+  **ANSWERED 2026-08-12: the statusline cannot be sampled at all — but usage can.** Codex has no
+  statusline hook and no external statusline command. Two other verified routes give parity: the
+  per-run rollout JSONL (passive, per-turn) and `codex app-server`'s `account/rateLimits/read`
+  (poll). See the 2026-08-12 finding below and plan F3.
 - **M2/M6** — Calibration of the default usage-threshold percentages (currently 85% five-hour,
   90% weekly) once switching has run for real.
 - **M3** — Exact stall-detection window and the definition of journal progress for the generic watchdog.

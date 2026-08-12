@@ -236,6 +236,47 @@ written by the statusline sampler. Quota exhaustion detected from stdout text wi
 `context-used`, `five-hour-limit` and `weekly-limit`, so usage telemetry is at parity and threshold
 switching works in both directions.
 
+> ### Correction (M2 research, 2026-08-12)
+>
+> The two driver paragraphs above describe tool behaviour that was **verified wrong** during M2's
+> research pass. The **decisions** in §2 are unaffected — D1, D2 and D3 all stand. Only the factual
+> premises are corrected. Full evidence lives in
+> `docs/plans/2026-08-12-m2-backends.md` §"Research findings"; the original text is left in place so
+> the claim and its refutation stay visible together.
+>
+> **C1 — the claude invocation.** Four of the seven flags listed above appear **nowhere** in the
+> reference implementation: there is no `--strict-mcp-config`, no `--mcp-config`, no `--add-dir`, and
+> no `--dangerously-skip-permissions`. The real argv, brief positional and last, is:
+>
+> ```
+> claude -p --model <model_id> --session-id <uuid4> [--system-prompt-file <abs>] <brief>
+> ```
+>
+> `--system-prompt-file` is emitted only when the file exists, and `--resume <uuid>` **replaces**
+> `--session-id` rather than accompanying it. The launch is also indirect — a generated `launch.py`
+> run in a tmux window — and stderr is merged into stdout.
+>
+> **C2 — Codex usage telemetry.** Codex does **not** emit `context-used` / `five-hour-limit` /
+> `weekly-limit`. Those are internal TUI status-line item identifiers (a Rust enum) rendered only
+> inside the interactive TUI: no external status-line command, no JSON payload, no file, and no
+> status-line hook (Codex's 11 hook events do not include one). There is no `codex usage` subcommand,
+> and `codex exec --json` carries per-turn token counts only.
+>
+> **The conclusion nevertheless survives** — telemetry parity is reachable by two other verified
+> routes: the per-run **rollout JSONL** (`~/.codex/sessions/…/rollout-*-<thread_id>.jsonl`, whose
+> `token_count` records carry a full `rate_limits` snapshot) and **`codex app-server`**'s
+> `account/rateLimits/read` JSON-RPC method.
+>
+> **C2a — do not key usage windows by name.** This account has no five-hour window at all: every
+> sampled record shows `window_minutes: 10080` with `secondary: null`. Windows must be mapped by
+> `window_minutes`, never by the labels `five_hour`/`weekly` — otherwise a threshold that can never
+> fire silently disables switching.
+>
+> **C2b — one open question resolved early.** §13 asks whether `codex exec` exposes a resume handle
+> stable enough for `native_resume = True`. **It does.** The `thread_id` from the `thread.started`
+> event is a documented public contract, verified working end to end. The Codex driver declares
+> `native_resume = True`.
+
 ---
 
 ## 7. Mid-work switching (D2, D3)

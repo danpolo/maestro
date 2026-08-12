@@ -1,0 +1,1258 @@
+"""The event loop itself: `main`, the per-poll reconcilers and the proposal cycle.
+
+Extracted verbatim from the reference orchestrator. Bodies are unchanged — only the
+import block and the derivation of the module-level path globals differ. `main` is
+copied exactly as it stands (592 lines, cyclomatic complexity 249); splitting or tidying
+it would be a behaviour change, so it is left alone. Behavioural surprises are catalogued
+in `docs/found_bugs_inbox/orchestrator.md` and pinned by
+`tests/characterization/test_orchestrator.py`; none of them is fixed here — including
+`_do_retry` silently ignoring the `retry_counts` argument it is handed.
+
+Nothing in this module reaches the network or spawns a process for real in the tests: the
+tmux probe and the async-job launcher go through this module's `subprocess` reference, the
+launch clock through its `time` reference, and every operator-facing message through
+`notify_telegram`, all of which the characterisation tests swap.
+"""
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import time
+from datetime import datetime, timezone
+from pathlib import Path
+
+import yaml  # PyYAML
+
+from maestro.docs.roadmap import (
+    get_completed_task_ids,
+    get_task_by_id,
+    mark_roadmap_complete,
+    maybe_push_roadmap_map_change,
+    parse_prep_tasks,
+    parse_runnable_tasks,
+    run_dep_map,
+)
+from maestro.gates import (
+    AWAIT_VERIFY_TIMEOUT_SEC,
+    SMOKE_TIMEOUT,
+    _await_timed_out,
+    _classify_verifications,
+    run_verification_gate,
+    sonnet_review_proofs,
+)
+from maestro.hitl.commands import poll_control_commands, run_status
+from maestro.hitl.telegram import (
+    _danreq,
+    _send_hitl_reminders,
+    notify_telegram,
+    phase_report,
+)
+from maestro.implementer import (
+    _questions_ready,
+    _synthesize_sentinel,
+    launch_implementer,
+)
+from maestro.merge import _touches_bot_files, merge_and_eval
+from maestro.parking import (
+    _graduate_manual_action,
+    handle_incomplete,
+    handle_prep_done,
+    park_failed,
+    park_for_dan,
+    park_regression,
+)
+from maestro.paths import Paths
+from maestro.quota import (
+    CONCURRENCY_CAP,
+    PAUSE_92_PCT,
+    _paused_until_epoch,
+    _scan_impl_log_for_limit,
+    _tail_text,
+    get_effective_cap,
+)
+from maestro.selfheal.diagnose import _judge_complete
+from maestro.selfheal.redo import apply_ready_redo
+from maestro.selfheal.selffix import apply_ready_self_fixes
+from maestro.state import (
+    _persist_launch_time,
+    append_journal,
+    now_iso,
+    read_state,
+    write_state,
+)
+from maestro.worktree import (
+    TMUX_SESSION,
+    _kill_tmux_window,
+    create_worktree,
+    remove_worktree,
+    tmux_window_exists,
+    worktree_path_for,
+)
+
+_PATHS = Paths.from_env()
+
+REPO                  = _PATHS.repo
+WORKSPACES            = _PATHS.workspaces
+HALT_FILE             = REPO / ".orchestrator" / "HALT"
+ROADMAP_FILE          = REPO / "docs" / "ROADMAP.md"
+VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
+QUESTIONS_DIR         = REPO / ".orchestrator" / "questions"
+CANARY_DEPLOY         = REPO / "scripts" / "canary_deploy.py"
+
+POLL_INTERVAL = 30
+TASK_TIMEOUT  = 10800
+
+# B7: by default the orchestrator does NOT auto-propose on an empty queue. Dan
+# runs the proposal test by hand at the right time (richer done-task context →
+# better proposals) via handoffs/proposal_system_test.md. Set ORCH_AUTO_PROPOSE=1
+# to restore the B6 auto-propose-on-empty behavior.
+AUTO_PROPOSE          = os.environ.get("ORCH_AUTO_PROPOSE", "0") == "1"
+PROPOSAL_TEST_HANDOFF = "handoffs/proposal_system_test.md"
+
+# ── Stale in_flight reconcile helper (B10) ──
+
+# Zombie-implementer guard (P8B2 hang, 2026-06-20): an implementer can write result.json
+# as its near-final step and then hang/idle WITHOUT dropping the DONE/FAILED sentinel and
+# (with `remain-on-exit off`) without its tmux window closing. reconcile then re-adopts it
+# as "running" forever. After this many consecutive polls in that state we synthesize the
+# missing sentinel from result.json so the main loop's completion handlers converge.
+RECONCILE_DONE_GRACE_POLLS = 2
+_reconcile_zombie_polls: dict[str, int] = {}
+
+# Idle heartbeat: when the loop has nothing in-flight and nothing launchable (every
+# runnable task is gated by a resume cooldown / parked / resource mutex), it must keep
+# polling so it auto-launches the instant a gate clears — but it would otherwise write no
+# journal events, and the watchdog's 20-min journal-silence stall detector (3 strikes →
+# HALT) would kill the healthy idle loop. A throttled heartbeat keeps the journal advancing.
+IDLE_HEARTBEAT_S      = 600      # ≤ watchdog STALL_WINDOW (20min) with wide margin
+_last_idle_heartbeat  = 0.0
+
+
+# ── Bodies this module has to own rather than import ──
+#
+# `_pause_for_usage_limit` (mapped to `maestro.quota`) and `_surface_await_failure`
+# (`maestro.parking`) are already extracted, but both ping Dan, and the reference resolves
+# `notify_telegram` in ONE flat namespace. `reconcile_in_flight` and
+# `poll_awaiting_verifications` reach them on paths the characterisation tests exercise
+# unstubbed, pinning the message through *this* module's `notify_telegram` reference —
+# importing them would send those pings through a sibling module's reference instead, i.e.
+# at a real `bash notify_telegram.sh` (or, in quota's case, at its `pending()` placeholder).
+# Both bodies are copied verbatim; each is one half of a pair whose other half becomes an
+# import once the modules can share a single notification seam.
+def _pause_for_usage_limit(task_id: str, reset_iso: str, evidence: str,
+                           workspace: Path) -> None:
+    """Reactive net: pause Maestro until the quota resets instead of failing the
+    task. Reuses the same `paused_until` mechanism as the proactive launcher path
+    (launch_orchestrator.py); the main loop honors it and the watchdog reschedules
+    a resume at the reset time. Notifies Dan once per workspace (dedup sentinel)."""
+    sentinel = workspace / "USAGE_LIMIT_PARKED"
+    first = not sentinel.exists()
+    try:
+        sentinel.write_text(reset_iso)
+    except Exception:
+        pass
+    state = read_state()
+    cur = state.get("paused_until")  # never shorten an existing later pause
+    if not cur or str(cur) < reset_iso:
+        state["paused_until"] = reset_iso
+    write_state(state)
+    append_journal("usage_limit_backoff",
+                   f"{task_id} paused_until={reset_iso} ev={evidence[:80]}",
+                   session_id=workspace.name)
+    if first:
+        try:
+            local = datetime.strptime(reset_iso, "%Y-%m-%dT%H:%M:%SZ")\
+                .replace(tzinfo=timezone.utc).astimezone().strftime("%H:%M")
+        except Exception:
+            local = reset_iso
+        notify_telegram(
+            f"⏳ *Maestro* paused until {local} — Claude usage limit hit during "
+            f"`{task_id}`. It will resume automatically; no action needed.")
+
+
+def _surface_await_failure(dan_id_str: str, parked: dict, failing_ids: list[str],
+                           reason: str) -> None:
+    """An awaiting-verification check resolved to a genuine failure (`reason='gate'`,
+    the awaited row landed but is below threshold) or the wait timed out
+    (`reason='timeout'`). Revert the entry to `manual-action` so HITL reminders resume
+    and Dan can /approve-retry or /reject, and ping him once. Reverting the kind also
+    makes this idempotent — the poller no longer matches it, so no per-poll re-ping."""
+    task_id = parked.get("task_id", "")
+    state   = read_state()
+    waiting = state.get("waiting_on_dan", {})
+    info    = waiting.get(dan_id_str)
+    if not info:
+        return
+    info["kind"]                = "manual-action"
+    info["await_failed_reason"] = reason
+    info.pop("reminded_at", None)
+    waiting[dan_id_str] = info
+    state["waiting_on_dan"] = waiting
+    write_state(state)
+    append_journal("await_verify_surfaced", f"{task_id} reason={reason} {','.join(failing_ids)}")
+    if reason == "timeout":
+        notify_telegram(
+            f"⏰ *{task_id}* (ID {dan_id_str}): awaited verification "
+            f"({', '.join(failing_ids)}) never landed within "
+            f"{AWAIT_VERIFY_TIMEOUT_SEC // 3600} h. Check the eval/job, then "
+            f"/approve {dan_id_str} to retry or /reject {dan_id_str}."
+        )
+    else:
+        notify_telegram(
+            f"⚠ *{task_id}* (ID {dan_id_str}): awaited verification landed but FAILED "
+            f"({', '.join(failing_ids)}) — present, below threshold, not still-running. "
+            f"Investigate, then /approve {dan_id_str} to retry or /reject {dan_id_str}."
+        )
+
+
+def _notify_proposal_test_due() -> None:
+    """Queue empty + auto-propose off: ping Dan once to run the proposal test at
+    the right time, then park the loop so it neither auto-proposes nor repeats
+    the ping every poll. Resume by clearing paused_by_user (and
+    proposal_test_notified) once new tasks are queued."""
+    state = read_state()
+    if state.get("proposal_test_notified"):
+        return
+    notify_telegram(
+        "✅ All queued tasks are done. When the timing is right, run the proposal "
+        f"test for context-aware proposals — see `{PROPOSAL_TEST_HANDOFF}`."
+    )
+    append_journal("proposal_test_due", PROPOSAL_TEST_HANDOFF)
+    state["paused_by_user"] = True
+    state["proposal_test_notified"] = True
+    write_state(state)
+
+
+def generate_proposals() -> None:
+    """When queue is empty: brainstorm proposals and send multi-select approval to Dan."""
+    print("  [proposals] Queue empty — generating proposals for Dan …")
+    notify_telegram("🤔 Queue is empty. Generating improvement proposals…")
+
+    try:
+        roadmap_text = ROADMAP_FILE.read_text(encoding="utf-8")[:8000]
+        project_text = (REPO / "docs" / "PROJECT.md").read_text(encoding="utf-8")[:4000]
+    except Exception as exc:
+        notify_telegram(f"⚠ Could not read docs for proposal generation: {exc}")
+        return
+
+    try:
+        # Roadmap-shaping is the highest-leverage judgment call in the loop — it
+        # decides where the project goes and what future tokens get spent on — so
+        # it runs on the strong judge (Opus now, Fable when CLI access returns),
+        # never a cheap model. Low volume (queue-exhaustion only) keeps it cheap.
+        raw = _judge_complete(
+            system=(
+                "You are the autonomous orchestrator for an Arabic/Hebrew Telegram RAG archive bot. "
+                "Generate up to 10 concrete improvement proposals based on the current project state. "
+                "Each proposal must be grounded in: eval weaknesses, latency hotspots, parked tasks, "
+                "or clear TODOs. Output JSON array of objects, each with fields: "
+                "title, why_and_expected_impact, est_hours (int), "
+                "mode (autonomous|needs-dan), deps (list of task IDs or [])."
+                "Sort by expected impact descending. Max 10 items."
+            ),
+            user=(
+                f"ROADMAP (truncated):\n{roadmap_text}\n\nPROJECT STATE:\n{project_text}\n\n"
+                "Output JSON array only."
+            ),
+        )
+        m = re.search(r'\[.*\]', raw, re.DOTALL)
+        proposals = json.loads(m.group(0)) if m else []
+    except Exception as exc:
+        notify_telegram(f"⚠ Proposal generation error: {exc}")
+        return
+
+    if not proposals:
+        notify_telegram("No proposals generated. Parking — ping Dan.")
+        return
+
+    lines = ["📋 *Proposed next tasks* — reply with numbers to approve:\n"]
+    for i, p in enumerate(proposals[:10], 1):
+        mode_icon = "🤖" if p.get("mode") == "autonomous" else "👤"
+        lines.append(
+            f"{i}. {mode_icon} *{p['title']}* (~{p.get('est_hours','?')}h)\n"
+            f"   {p.get('why_and_expected_impact','')[:120]}"
+        )
+    lines.append("\nReply with comma-separated numbers (e.g. `1,3`) to approve and add to ROADMAP.")
+
+    # Save proposals to .orchestrator/questions/<id>.json for the answer-poller
+    q_id = f"proposals-{now_iso().replace(':','').replace('-','')[:15]}"
+    QUESTIONS_DIR.mkdir(parents=True, exist_ok=True)
+    q_path = QUESTIONS_DIR / f"{q_id}.json"
+    q_path.write_text(json.dumps({
+        "id": q_id, "type": "phase-approval",
+        "proposals": proposals, "created_at": now_iso(),
+    }, indent=2))
+
+    notify_telegram("\n".join(lines))
+    append_journal("proposals_sent", f"{len(proposals)} proposals sent to Dan, q_id={q_id}")
+
+    # Park: set paused_by_user=True until Dan replies
+    state = read_state()
+    state["paused_by_user"] = True
+    state["pending_proposal_qid"] = q_id
+    write_state(state)
+
+
+def poll_proposal_answer() -> None:
+    """Check if Dan answered a pending proposal request; if so, append approved proposals to ROADMAP."""
+    state = read_state()
+    q_id = state.get("pending_proposal_qid", "")
+    if not q_id:
+        return
+
+    answer_path = QUESTIONS_DIR / f"{q_id}.answer"
+    if not answer_path.exists():
+        return
+
+    answer_text = answer_path.read_text().strip()
+    q_path = QUESTIONS_DIR / f"{q_id}.json"
+    try:
+        q_data = json.loads(q_path.read_text())
+    except Exception:
+        return
+
+    proposals = q_data.get("proposals", [])
+    try:
+        chosen_indices = [int(x.strip()) - 1 for x in answer_text.split(",") if x.strip().isdigit()]
+    except Exception:
+        chosen_indices = []
+
+    chosen = [proposals[i] for i in chosen_indices if 0 <= i < len(proposals)]
+    if chosen:
+        # Append approved proposals to ROADMAP as pending tasks
+        roadmap_path = ROADMAP_FILE
+        roadmap_text = roadmap_path.read_text(encoding="utf-8")
+        new_blocks = []
+        for p in chosen:
+            new_id = f"P-{p['title'][:20].replace(' ', '_')}"
+            block = (
+                f"\n```yaml\n"
+                f"id: {new_id}\nshort_desc: \"{p['title']}\"\n"
+                f"mode: {p.get('mode','autonomous')}\nstatus: pending\n"
+                f"deps: {json.dumps(p.get('deps', []))}\n"
+                f"```\n"
+            )
+            new_blocks.append(block)
+        roadmap_path.write_text(roadmap_text.rstrip() + "\n" + "".join(new_blocks) + "\n")
+        notify_telegram(f"✅ Added {len(chosen)} approved proposals to ROADMAP.")
+        append_journal("proposals_approved", f"{[p['title'] for p in chosen]}")
+
+    # Clear the pending state and resume
+    state = read_state()
+    state["paused_by_user"] = False
+    state.pop("pending_proposal_qid", None)
+    write_state(state)
+    answer_path.unlink(missing_ok=True)
+
+
+def _resource_set(task: dict) -> set[str]:
+    """Normalise a task's optional `resource` field to a set of strings.
+
+    Accepts: absent/None → empty set, a bare string, or a list of strings.
+    Mirrors how `deps` is normalised in parse_runnable_tasks (~L730-732).
+    """
+    raw = task.get("resource")
+    if not raw:
+        return set()
+    if isinstance(raw, str):
+        return {raw}
+    return {str(r) for r in raw if r}
+
+
+def _resources_conflict(
+    candidate_task: dict,
+    held_resources: set[str],
+    claimed_this_cycle: set[str],
+) -> bool:
+    """Return True when launching *candidate_task* would violate the resource mutex.
+
+    A candidate conflicts if any of its resource labels:
+    - is already held by a currently in-flight task, OR
+    - was claimed by a task launched earlier in this same poll cycle.
+
+    Tasks with no `resource` tag never conflict (empty intersection → False).
+    """
+    candidate_resources = _resource_set(candidate_task)
+    if not candidate_resources:
+        return False
+    return bool(candidate_resources & (held_resources | claimed_this_cycle))
+
+
+def launch_async_job(task: dict) -> bool:
+    """`dispatch: async-job` — a long, read-only job (e.g. P8B6's ~5 h eval) that the
+    orchestrator launches and self-monitors *itself*, without a babysitting Claude
+    implementer session.
+
+    The job's `launch_cmd` is a plain shell command that fires the work in a *detached*
+    tmux window and returns immediately (see scripts/p8b6_run_eval.sh). We run it
+    synchronously only to detach it, then park the task as `awaiting-verification` —
+    exactly the lane a manual-action enters once its async job is kicked off
+    (`_park_awaiting_verification`). The poller (`poll_awaiting_verifications`) re-runs the
+    task's `await: true` gate each cycle and finalizes when the eval row lands.
+
+    Crucially this consumes NO in_flight slot / session mutex and creates NO worktree, so
+    it is invisible to `_timeout_expired` (the 3 h implementer reaper). Its only clock is
+    AWAIT_VERIFY_TIMEOUT_SEC (8 h), enforced by the poller. Returns True if the job
+    launched and parked; False if it could not be launched (then it is park_failed'd)."""
+    task_id = task["id"]
+    cmd = (task.get("launch_cmd") or "").strip()
+    if not cmd:
+        append_journal("async_job_no_cmd", f"{task_id} missing launch_cmd")
+        park_failed(task_id, "`dispatch: async-job` task has no `launch_cmd`")
+        return False
+
+    rcmd = re.sub(r"^(python3?)\b", str(VENV_PYTHON), cmd)
+    try:
+        # The launch_cmd must DETACH (tmux new-window) and return promptly; SMOKE_TIMEOUT
+        # bounds only the detach/setup (e.g. importing FT vectors), never the eval itself.
+        r = subprocess.run(rcmd, shell=True, cwd=str(REPO),
+                           capture_output=True, text=True, timeout=SMOKE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        append_journal("async_job_launch_timeout", f"{task_id} launch cmd exceeded {SMOKE_TIMEOUT}s")
+        park_failed(task_id, f"async-job launch cmd did not detach within {SMOKE_TIMEOUT}s")
+        return False
+    if r.returncode != 0:
+        err = (r.stderr or r.stdout or "")[-300:]
+        append_journal("async_job_launch_failed", f"{task_id} {err[:160]}")
+        park_failed(task_id, f"async-job launch failed (exit {r.returncode}): {err[:200]}")
+        return False
+
+    # Park `awaiting-verification` directly — no manual-action middle step (Dan performs
+    # nothing for a read-only eval). The awaited checks are the task's `await: true` autos.
+    verifs    = task.get("verifications") or []
+    await_ids = [str(v.get("id", "")) for v in verifs
+                 if v.get("kind") == "auto" and v.get("await")]
+    state   = read_state()
+    dan_id  = state.get("dan_id_counter", 0) + 1
+    state["dan_id_counter"] = dan_id
+    waiting = state.get("waiting_on_dan", {})
+    waiting[str(dan_id)] = {
+        "task_id":          task_id,
+        "session_id":       "",            # no implementer session / workspace
+        "branch":           "",
+        "worktree":         "",
+        "parked_at":        now_iso(),
+        "kind":             "awaiting-verification",
+        "await_started_at": now_iso(),
+        "await_checks":     await_ids,
+        "summary":          f"async job launched: {cmd[:160]}",
+    }
+    state["waiting_on_dan"] = waiting
+    write_state(state)
+    append_journal("async_job_launched", f"{task_id} dan_id={dan_id} cmd={cmd[:120]}")
+    notify_telegram(
+        f"🚀 *{task_id}*: launched the long read-only job myself (detached) — `{cmd}`.\n"
+        f"No action needed: I'll re-check {', '.join(await_ids) or 'its eval gate'} every "
+        f"poll and finalize automatically when the result lands — or surface it if it "
+        f"fails or runs past {AWAIT_VERIFY_TIMEOUT_SEC // 3600} h."
+    )
+    return True
+
+
+def poll_awaiting_verifications(in_flight: list) -> None:
+    """Main-loop hook: re-run the gate for tasks parked as `awaiting-verification`.
+    Pass → graduate; awaited row present-but-failing → surface; still absent → keep
+    waiting unless the bound elapsed (then surface as a timeout)."""
+    state   = read_state()
+    waiting = state.get("waiting_on_dan", {})
+    if not waiting:
+        return
+    for dan_id_str, parked in list(waiting.items()):
+        if parked.get("kind") != "awaiting-verification":
+            continue
+        task_id = parked.get("task_id", "")
+        verifs  = (get_task_by_id(task_id) or {}).get("verifications") or []
+        pending, hard = _classify_verifications(verifs, REPO)
+        if not pending and not hard:
+            append_journal("await_verify_passed", f"{task_id} dan_id={dan_id_str}")
+            notify_telegram(f"✅ {task_id}: awaited verification landed and passed — finalizing.")
+            _graduate_manual_action(task_id, dan_id_str, parked.get("session_id", ""), in_flight)
+        elif hard:
+            _surface_await_failure(dan_id_str, parked, hard, reason="gate")
+        elif _await_timed_out(parked.get("await_started_at", "")):
+            _surface_await_failure(dan_id_str, parked, pending, reason="timeout")
+        # else: still absent within the bound — keep waiting silently.
+
+
+def _timeout_expired(entry: dict, launch_times: dict) -> bool:
+    """True if this in_flight entry has exceeded TASK_TIMEOUT with no DONE sentinel.
+
+    Bug #1 (2026-06-26): on FIRST detection this also writes the FAILED sentinel AND
+    kills the orphaned implementer tmux window, so its `claude -p` child stops burning
+    the shared Claude quota and can't later write DONE/FAILED into an unmonitored
+    workspace. Best-effort kill, guarded by the `not FAILED.exists()` so it runs once.
+    """
+    sid       = entry["session_id"]
+    workspace = WORKSPACES / sid
+    elapsed   = time.time() - launch_times.get(sid, time.time())
+    if elapsed <= TASK_TIMEOUT or (workspace / "DONE").exists():
+        return False
+    if not (workspace / "FAILED").exists():
+        (workspace / "FAILED").write_text(f"timeout after {TASK_TIMEOUT // 3600}h")
+        win = entry.get("window", "")
+        if win:
+            _kill_tmux_window(win)
+            append_journal("timeout_window_killed",
+                           f"{entry['task_id']} window={win}", session_id=sid)
+    return True
+
+
+def reconcile_in_flight(state: dict, launch_times: dict) -> list:
+    """Reconcile in_flight entries against live tmux windows + workspace sentinels.
+
+    Runs at startup AND once per poll cycle so stale entries (window gone, no
+    sentinel) are reaped within one poll rather than persisting for the whole
+    session.  Mutates launch_times for newly-adopted entries.  Returns the
+    surviving in_flight list (entries to keep tracking).
+    """
+    surviving: list[dict] = []
+    # Bug #2 (2026-06-26): restore each survivor's persisted launch epoch instead of
+    # resetting the clock to now. At startup `state` is the full read_state() (has
+    # launch_times); the per-poll call passes only {"in_flight": ...}, where launch_times
+    # is already populated in memory so the setdefault is a no-op.
+    persisted = state.get("launch_times", {})
+    for entry in state.get("in_flight", []):
+        window    = entry.get("window", "")
+        workspace = WORKSPACES / entry["session_id"]
+        sid       = entry["session_id"]
+        task_id   = entry["task_id"]
+
+        if tmux_window_exists(window):
+            if workspace.exists():
+                # Zombie guard: implementer wrote result.json but left no sentinel and its
+                # window is still alive (hung/idle). Don't re-adopt forever — after a short
+                # grace, synthesize the sentinel from result.json, kill the dead window, and
+                # let the main loop's completion handlers (incl. resumable handle_incomplete)
+                # run. See RECONCILE_DONE_GRACE_POLLS note above.
+                has_sentinel = any((workspace / s).exists()
+                                   for s in ("DONE", "FAILED", "PAUSED"))
+                if not has_sentinel and (workspace / "result.json").exists():
+                    n = _reconcile_zombie_polls.get(sid, 0) + 1
+                    _reconcile_zombie_polls[sid] = n
+                    if n >= RECONCILE_DONE_GRACE_POLLS:
+                        synth = _synthesize_sentinel(workspace)
+                        _kill_tmux_window(window)
+                        _reconcile_zombie_polls.pop(sid, None)
+                        print(f"  [reconcile] {task_id}: result.json but no sentinel for "
+                              f"{n} polls — synthesized {synth}, killed zombie window {window}")
+                        append_journal("reconcile_synth_sentinel",
+                                       f"{task_id} window={window} synth={synth} polls={n}",
+                                       session_id=sid)
+                        surviving.append(entry)
+                        launch_times.setdefault(sid, persisted.get(sid, time.time()))
+                        continue
+                    print(f"  [reconcile] {task_id}: result.json present, no sentinel "
+                          f"(grace {n}/{RECONCILE_DONE_GRACE_POLLS})")
+                else:
+                    _reconcile_zombie_polls.pop(sid, None)
+                print(f"  [adopt] Re-adopted running: {task_id} @ {window}")
+                append_journal("re_adopted", f"{task_id} window={window}", session_id=sid)
+                surviving.append(entry)
+                launch_times.setdefault(sid, persisted.get(sid, time.time()))
+            else:
+                # Window alive but workspace missing — zombie; mark FAILED
+                print(f"  [reconcile] {task_id}: window alive but workspace missing — FAILED")
+                append_journal("reconcile_stale",
+                               f"{task_id} window={window} no_workspace", session_id=sid)
+                workspace.mkdir(parents=True, exist_ok=True)
+                (workspace / "FAILED").write_text("workspace missing at orchestrator restart")
+                surviving.append(entry)
+                launch_times.setdefault(sid, persisted.get(sid, time.time()))
+        elif (workspace / "DONE").exists():
+            print(f"  [adopt] {task_id} window gone, DONE present — will merge")
+            append_journal("reconcile_done_present",
+                           f"{task_id} window={window}", session_id=sid)
+            surviving.append(entry)
+            launch_times.setdefault(sid, persisted.get(sid, time.time()))
+        elif (workspace / "FAILED").exists():
+            print(f"  [adopt] {task_id} window gone, FAILED present — will retry/escalate")
+            append_journal("reconcile_failed_present",
+                           f"{task_id} window={window}", session_id=sid)
+            surviving.append(entry)
+            launch_times.setdefault(sid, persisted.get(sid, time.time()))
+        else:
+            # Window gone, no sentinel. Before failing, read impl.log (Fix A capture).
+            workspace.mkdir(parents=True, exist_ok=True)
+            # B — reactive net: if `claude -p` exited because Dan's Claude usage limit
+            # was hit, DON'T fail/retry/escalate (a retry just re-hits the same wall).
+            # Pause Maestro until the limit resets; the task is dropped from in_flight
+            # and relaunches fresh on resume, retry_counts untouched.
+            scan = _scan_impl_log_for_limit(workspace)
+            if scan["limit"]:
+                _pause_for_usage_limit(task_id, scan["reset_iso"], scan["evidence"], workspace)
+                print(f"  [reconcile] {task_id}: usage limit on exit — paused until "
+                      f"{scan['reset_iso']} (no retry burned)")
+                continue  # drop from in_flight; do NOT mark FAILED
+            # C — carry the real error forward so non-limit crashes are diagnosable by
+            # Dan and by the ORCH_DIAGNOSE pass, instead of an opaque "window gone".
+            reason = "window gone — stale in_flight entry cleared"
+            tail = _tail_text(workspace / "impl.log", 15)
+            if tail:
+                reason += f"\n--- impl.log tail ---\n{tail}"
+            print(f"  [reconcile] {task_id}: no window, no sentinel — stale entry; marking FAILED")
+            append_journal("reconcile_stale",
+                           f"{task_id} window={window} no_sentinel (cleared stale in_flight)",
+                           session_id=sid)
+            (workspace / "FAILED").write_text(reason)
+            # Keep in surviving so the failure handler can park/retry it this cycle.
+            surviving.append(entry)
+            launch_times.setdefault(sid, persisted.get(sid, time.time()))
+
+    return surviving
+
+
+def _do_retry(task_id: str, entry: dict, reason: str,
+              retry_counts: dict, in_flight: list) -> None:
+    """Launch a retry implementer. Mutates in_flight and writes state."""
+    ts_str     = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+    new_sid    = f"impl-{task_id}-{ts_str}"
+    new_ws     = WORKSPACES / new_sid
+    new_ws.mkdir(parents=True, exist_ok=True)
+    new_branch = f"impl-{task_id.lower()}-{ts_str}"
+    worktree   = worktree_path_for(task_id)
+    tasks_by_id = {t["id"]: t for t in parse_runnable_tasks()}
+    task = tasks_by_id.get(task_id,
+        {"id": task_id, "title": task_id, "short_desc": "", "mode": "autonomous"})
+    try:
+        create_worktree(task_id, worktree, new_branch)
+        launch_implementer(task, new_sid, new_ws, worktree,
+            retry_note=f"Previous attempt failed: {reason}. Try a different approach.")
+        new_entry: dict = {
+            "session_id": new_sid, "task_id": task_id, "role": "implementer",
+            "worktree": str(worktree), "window": f"impl-{task_id}",
+            "branch": new_branch, "started_at": now_iso(), "status": "running",
+        }
+        in_flight.append(new_entry)
+        state = read_state()
+        state["in_flight"] = [e for e in state.get("in_flight", [])
+                               if e["session_id"] != entry["session_id"]] + [new_entry]
+        write_state(state)
+        append_journal("implementer_retry", f"{task_id} reason={reason[:100]}",
+                       session_id=entry["session_id"])
+    except Exception as exc:
+        print(f"  [error] Retry launch failed for {task_id}: {exc}")
+        park_failed(task_id, f"retry launch failed: {exc}")
+        state = read_state()
+        state["in_flight"] = [e for e in state.get("in_flight", [])
+                               if e["session_id"] != entry["session_id"]]
+        write_state(state)
+
+
+def _remove_from_state(entry: dict) -> None:
+    state = read_state()
+    sid = entry["session_id"]
+    state["in_flight"] = [e for e in state.get("in_flight", [])
+                           if e["session_id"] != sid]
+    # Bug #2: drop the persisted launch time for this finished session.
+    state["launch_times"] = {k: v for k, v in state.get("launch_times", {}).items()
+                             if k != sid}
+    write_state(state)
+
+
+def _idle_heartbeat_maybe(runnable: list) -> None:
+    """Throttled journal/stdout heartbeat for an idle-but-gated loop (see note above)."""
+    global _last_idle_heartbeat
+    now = time.monotonic()
+    if now - _last_idle_heartbeat < IDLE_HEARTBEAT_S:
+        return
+    _last_idle_heartbeat = now
+    ids = ",".join(t["id"] for t in runnable) or "none"
+    append_journal("idle_gated", f"no launchable task (all gated: {ids}); polling")
+    print(f"  [idle] all runnable tasks gated ({ids}); next poll in {POLL_INTERVAL}s", flush=True)
+
+
+def main() -> int:
+    print("=" * 62)
+    print("  B5.1 ORCHESTRATOR — Verification-Gated Parallelism")
+    print("=" * 62)
+    if subprocess.run(["tmux", "has-session", "-t", TMUX_SESSION],
+                      capture_output=True).returncode != 0:
+        print(f"[ERROR] tmux session '{TMUX_SESSION}' not found.")
+        return 1
+
+    state = read_state()
+
+    # Problem 9 — belt-and-suspenders: launcher already checked halted; check again.
+    # paused_by_user alone: stay alive in a Telegram-only poll loop so /resume and
+    # /approve can be received while the orchestrator is parked.
+    if state.get("halted"):
+        print(f"[halt] halted=True — exiting.")
+        append_journal("halt_respected", "halted=True")
+        return 0
+    if state.get("paused_by_user"):
+        print("[paused] paused_by_user=True — entering Telegram poll loop.")
+        append_journal("paused_poll_start", "paused_by_user=True waiting for /resume or /approve")
+        while True:
+            _pstate = read_state()
+            if _pstate.get("halted"):
+                append_journal("halt_respected", "halted=True during paused poll")
+                return 0
+            if not _pstate.get("paused_by_user"):
+                print("[paused] paused_by_user cleared — resuming main loop.")
+                break
+            _pfl = _pstate.get("in_flight", [])
+            poll_control_commands(_pfl)
+            time.sleep(POLL_INTERVAL)
+        state = read_state()
+
+    # B10 — reconcile in_flight against live tmux windows + workspace sentinels at startup
+    # (also runs every poll cycle via reconcile_in_flight call inside the event loop)
+    launch_times: dict[str, float] = {}
+    in_flight: list[dict] = reconcile_in_flight(state, launch_times)
+
+    state["in_flight"] = in_flight
+    state["skeleton_version"] = "B7"
+    write_state(state)
+    run_dep_map()
+    run_status()
+
+    # B11: load persistent retry_counts from state.json instead of
+    # starting fresh — prevents infinite loops on process restart.
+    retry_counts: dict[str, int]   = read_state().get("retry_counts", {})
+    prev_cap = -1
+    print(f"\n  Event loop starting (default cap={CONCURRENCY_CAP}) …\n")
+
+    while True:
+        # Problem 9 — check halt flags at top of every iteration (re-read state each time)
+        state = read_state()
+        if state.get("halted") or state.get("paused_by_user"):
+            print(f"[halt] halted={state.get('halted')} paused_by_user={state.get('paused_by_user')} — stopping.")
+            append_journal("halt_respected",
+                           f"halted={state.get('halted')} paused_by_user={state.get('paused_by_user')}")
+            break
+
+        if HALT_FILE.exists():
+            print("[HALT] HALT sentinel — stopping.")
+            append_journal("halt_detected", "")
+            break
+
+        # B — usage-limit reactive net: if an implementer's quota-exhausted exit (or
+        # the proactive launcher path) set paused_until, stop the loop so the process
+        # exits and the watchdog reschedules a resume at the reset time. Mirrors the
+        # existing cap==0 rate-limit break below.
+        pu_epoch = _paused_until_epoch(state)
+        if pu_epoch and datetime.now(timezone.utc).timestamp() < pu_epoch:
+            print(f"[paused] paused_until={state.get('paused_until')} — stopping; "
+                  f"watchdog will resume at reset.")
+            append_journal("paused_until_break", f"paused_until={state.get('paused_until')}")
+            break
+
+        # B6: poll Telegram control commands (/status /pause /resume /halt)
+        poll_control_commands(in_flight)
+        _send_hitl_reminders()
+        # B6: check if Dan answered a pending proposal
+        poll_proposal_answer()
+        # D: merge/surface any self-fix branches the runner has gate-passed (the
+        # orchestrator is the single git owner, so the merge happens here).
+        apply_ready_self_fixes()
+        # /redo: land gate-passed deliverable rewrites the same way (single git owner).
+        apply_ready_redo()
+        # Handoff B: re-check tasks parked on an async verification; finalize when the
+        # awaited eval/artifact lands, surface genuine failures + timeouts.
+        poll_awaiting_verifications(in_flight)
+        # Push a refreshed dependency map whenever ROADMAP.md changed since the last map
+        # we sent — manual edits / re-scopes don't hit the completion-event path that
+        # normally ships the map, so without this Dan can hold a map missing new tasks.
+        maybe_push_roadmap_map_change()
+
+        cap, five_pct = get_effective_cap()
+        if cap != prev_cap:
+            if prev_cap >= 0 and cap < CONCURRENCY_CAP:
+                append_journal("concurrency_throttled", f"cap={cap} five_h={five_pct:.0f}%")
+                print(f"  [throttle] Concurrency cap={cap} (5h={five_pct:.0f}%)")
+            prev_cap = cap
+        if cap == 0:
+            print(f"  [throttle] 5h={five_pct:.0f}% >= {PAUSE_92_PCT}% — pausing.")
+            append_journal("rate_limit_pause", f"five_h={five_pct:.0f}%")
+            break
+
+        still_running: list[dict] = []
+        newly_done:    list[dict] = []
+        newly_failed:  list[dict] = []
+
+        # B10 — per-poll stale reconcile: reap entries whose tmux window is gone with
+        # no sentinel so zombies are caught within one cycle, not only at startup.
+        in_flight = reconcile_in_flight({"in_flight": in_flight}, launch_times)
+
+        # B — if reconcile just set paused_until (a usage-limit exit), stop now so we
+        # don't launch a fresh task into the same wall. The watchdog resumes at reset.
+        if _paused_until_epoch(read_state()) > datetime.now(timezone.utc).timestamp():
+            print("  [paused] usage-limit backoff set this poll — stopping; watchdog resumes at reset.")
+            append_journal("paused_until_break", "set by reconcile usage-limit net")
+            break
+
+        for entry in in_flight:
+            sid       = entry["session_id"]
+            workspace = WORKSPACES / sid
+            if _timeout_expired(entry, launch_times):
+                print(f"  [timeout] {entry['task_id']} timed out")
+                append_journal("implementer_timeout", entry["task_id"], session_id=sid)
+            if (workspace / "PAUSED").exists():
+                still_running.append(entry)
+            elif (workspace / "DONE").exists():
+                newly_done.append(entry)
+            elif (workspace / "FAILED").exists():
+                newly_failed.append(entry)
+            else:
+                still_running.append(entry)
+        in_flight = still_running
+
+        # ── Handle failures ──
+        for entry in newly_failed:
+            task_id   = entry["task_id"]
+            workspace = WORKSPACES / entry["session_id"]
+            reason    = ((workspace / "FAILED").read_text()[:200]
+                         if (workspace / "FAILED").exists() else "unknown")
+            # B10 — don't blind-retry a timeout-with-no-progress death.
+            # A task that ran until the ceiling (no DONE, no INCOMPLETE) showed no
+            # forward progress; relaunching it immediately would just time out again.
+            # Escalate / park instead of burning the one retry allowance.
+            if reason.startswith("timeout after"):
+                print(f"  [park] {task_id}: timed out with no progress — parking (not retrying)")
+                append_journal("timeout_no_progress_parked",
+                               f"{task_id} reason={reason}", session_id=entry["session_id"])
+                park_failed(task_id, reason)
+                _remove_from_state(entry)
+            elif retry_counts.get(task_id, 0) < 1:
+                retry_counts[task_id] = retry_counts.get(task_id, 0) + 1
+                # B11: persist retry_counts to survive process restarts
+                _rc_state = read_state()
+                _rc_state["retry_counts"] = retry_counts
+                write_state(_rc_state)
+                print(f"  [retry] {task_id}: retry #{retry_counts[task_id]}")
+                append_journal("implementer_retry", f"{task_id} reason={reason}",
+                               session_id=entry["session_id"])
+                _do_retry(task_id, entry, reason, retry_counts, in_flight)
+            else:
+                print(f"  [escalate] {task_id}: escalating to Dan")
+                append_journal("implementer_failed_escalated",
+                               f"{task_id} reason={reason}", session_id=entry["session_id"])
+                park_failed(task_id, reason)
+                _remove_from_state(entry)
+
+        # ── Handle completions ──
+        for entry in newly_done:
+            task_id   = entry["task_id"]
+            workspace = WORKSPACES / entry["session_id"]
+            worktree  = Path(entry["worktree"])
+
+            result_path = workspace / "result.json"
+            if not result_path.exists():
+                print(f"  [error] {task_id}: DONE but no result.json — escalating")
+                append_journal("missing_result_json", task_id, session_id=entry["session_id"])
+                park_failed(task_id, "DONE sentinel present but result.json missing")
+                _remove_from_state(entry)
+                continue
+
+            impl = json.loads(result_path.read_text())
+            print(f"\n  [done] {task_id}: tests.pass={impl.get('tests',{}).get('pass')} "
+                  f"summary={impl.get('summary','')[:80]}")
+
+            # Problem 10 — self-modifying tasks must be merged manually by Dan
+            task_def = get_task_by_id(task_id)
+
+            # B14 auto-prep: a dispatch:manual task that reaches DONE was a PREP run (the
+            # human step is still Dan's). Harvest its single dan_action, merge the prep,
+            # and park as a manual-action — do NOT run the eval gate or graduate yet.
+            if task_def and task_def.get("dispatch") == "manual":
+                handle_prep_done(task_id, task_def, entry, impl)
+                continue
+
+            if task_def and task_def.get("self_modifying"):
+                print(f"  [self_modifying] {task_id}: escalating to Dan for manual merge")
+                append_journal("self_modifying_escalated",
+                               f"{task_id} requires manual out-of-band merge + relaunch",
+                               session_id=entry["session_id"])
+                _danreq(
+                    f"Task {task_id} is self-modifying (edits orchestrator runtime). "
+                    f"Merge manually: git merge {entry.get('branch','<branch>')} "
+                    f"then restart watchdog.",
+                    ["Merge + restart watchdog", "Shelve task"]
+                )
+                _remove_from_state(entry)
+                continue
+
+            # Run verification gate (double gate — implementer can't bypass by writing DONE early)
+            gate_ok, gate_msg = run_verification_gate(task_id, workspace, worktree)
+            print(f"  [verify] {task_id}: gate={'OK' if gate_ok else 'FAILED'} — {gate_msg[:120]}")
+            if not gate_ok:
+                (workspace / "DONE").unlink(missing_ok=True)
+                reason = f"verification gate: {gate_msg}"
+                append_journal("verification_gate_failed",
+                               f"{task_id} {reason[:200]}", session_id=entry["session_id"])
+                # Resumable (multi-day/quota-bound): a failed coverage gate is expected
+                # mid-job. If the sitting advanced the work, save it + re-queue after a
+                # cooldown instead of retrying (can't beat a daily quota) or failing.
+                if (task_def or {}).get("resumable"):
+                    handle_incomplete(task_id, task_def or {}, entry, gate_msg)
+                    continue
+                # kind:script tasks have no LLM implementer to re-brief — the `run:` cmd is
+                # authored in ROADMAP. A fresh Sonnet implementer would brute-force the gate
+                # (defeating the deterministic canary), so park for Dan to revise the script.
+                if (task_def or {}).get("kind") == "script":
+                    park_failed(task_id, reason)
+                    _remove_from_state(entry)
+                elif retry_counts.get(task_id, 0) < 1:
+                    retry_counts[task_id] = retry_counts.get(task_id, 0) + 1
+                    print(f"  [verify] Re-briefing {task_id} with gate failures")
+                    _do_retry(task_id, entry, reason, retry_counts, in_flight)
+                else:
+                    park_failed(task_id, reason)
+                    _remove_from_state(entry)
+                continue
+
+            # Sonnet proof review for manual verifications
+            verifications = (task_def.get("verifications") or []) if task_def else []
+            impl_verifs   = impl.get("verifications", {})
+            sonnet_ok, sonnet_msg = sonnet_review_proofs(task_id, verifications, impl_verifs)
+            if not sonnet_ok:
+                print(f"  [verify] {task_id}: Sonnet proof review failed — re-briefing")
+                (workspace / "DONE").unlink(missing_ok=True)
+                reason = f"Sonnet proof review: {sonnet_msg}"
+                append_journal("sonnet_review_failed",
+                               f"{task_id} {reason[:200]}", session_id=entry["session_id"])
+                if retry_counts.get(task_id, 0) < 1:
+                    retry_counts[task_id] = retry_counts.get(task_id, 0) + 1
+                    _do_retry(task_id, entry, reason, retry_counts, in_flight)
+                else:
+                    park_failed(task_id, reason)
+                    _remove_from_state(entry)
+                continue
+
+            # Merge and eval (Problem 11 no-op refusal is inside merge_and_eval)
+            # HITL gate: pause before merge when global hitl_mode is on, or when the
+            # task itself is mode=needs-dan (its brief promises Dan reviews before merge)
+            impl_summary = impl.get("summary", "")[:200] if isinstance(impl, dict) else ""
+            task_mode = (task_def or {}).get("mode", "autonomous")
+            if read_state().get("hitl_mode", False) or task_mode == "needs-dan":
+                park_for_dan(entry, impl_summary)
+                still_running.append(entry)
+                continue
+            accepted, smoke = merge_and_eval(entry)
+            r5 = smoke.get("metrics", {}).get("recall_at_5", "?")
+            _remove_from_state(entry)
+            if accepted:
+                print(f"  ✓ {task_id} merged and accepted (Recall@5={r5})")
+                append_journal("task_complete", f"{task_id} recall@5={r5}",
+                               session_id=entry["session_id"])
+                remove_worktree(worktree)
+                mark_roadmap_complete(task_id)
+                # Resumable task finally reached 100% coverage → drop its cooldown record.
+                _st = read_state()
+                if _st.get("resume_state", {}).pop(task_id, None) is not None:
+                    write_state(_st)
+                subprocess.run(["git", "push", "origin", "main"],
+                               cwd=str(REPO), capture_output=True)
+                # B6: canary deploy if bot files were touched
+                branch = entry.get("branch", "")
+                if branch and _touches_bot_files(branch):
+                    canary_ok = subprocess.run(
+                        [str(VENV_PYTHON), str(CANARY_DEPLOY), task_id],
+                        cwd=str(REPO), capture_output=True,
+                    ).returncode == 0
+                    if not canary_ok:
+                        append_journal("canary_reverted", f"{task_id} canary deploy failed")
+                        # canary_deploy.py already sent Telegram alert; skip phase_report
+                        run_dep_map(); run_status()
+                        continue
+                # B6: phase completion report + dep map attachment
+                phase_report(task_id, get_task_by_id(task_id), smoke)
+            else:
+                reason_merge = smoke.get("reason", "")
+                print(f"  ✗ {task_id} smoke/merge failed (Recall@5={r5}) — {reason_merge[:80]}")
+                notify_telegram(f"⚠ {task_id} smoke/merge failed (Recall@5={r5}), reverted.")
+                park_regression(task_id, smoke)
+                remove_worktree(worktree)
+            run_dep_map()
+            run_status()
+
+        # ── Launch new tasks ──
+        # B14: prep tasks (dispatch:manual) append after real runnable work so autonomous
+        # tasks fill slots first; they flow through the SAME machinery — the prep brief is
+        # routed inside _make_brief, and completion routes via the dispatch:manual check.
+        runnable         = parse_runnable_tasks() + parse_prep_tasks()
+        running_task_ids = {e["task_id"] for e in in_flight}
+
+        # Problem 12 — build the full complete set to dedup against
+        complete_ids = get_completed_task_ids()
+        try:
+            content = ROADMAP_FILE.read_text(encoding="utf-8")
+            for raw in re.findall(r"```yaml\n(.*?)```", content, re.DOTALL):
+                t = yaml.safe_load(raw)
+                if isinstance(t, dict) and t.get("status") == "complete":
+                    complete_ids.add(str(t["id"]))
+        except Exception:
+            pass
+
+        free_slots   = cap - len(in_flight)
+        launched_any = False
+        _launch_state = read_state()
+        resume_state = _launch_state.get("resume_state", {})
+        # B11: parked tasks — read once per cycle, not per candidate
+        parked_tasks = set(_launch_state.get("parked_tasks", []))
+        now_utc      = datetime.now(tz=timezone.utc)
+        # Tasks with ANY live waiting_on_dan entry (awaiting-verification, or reverted to
+        # manual-action after a surfaced failure). An async-job lives here from launch
+        # until Dan resolves it, so this set is what stops it relaunching every poll —
+        # it is in waiting_on_dan, not in_flight, so running_task_ids would miss it.
+        waiting_task_ids = {
+            p.get("task_id") for p in _launch_state.get("waiting_on_dan", {}).values()
+        }
+
+        # B8: resource-mutex — collect labels held by every currently in-flight task.
+        held_resources: set[str] = set()
+        for _e in in_flight:
+            _t = get_task_by_id(_e["task_id"])
+            if _t:
+                held_resources |= _resource_set(_t)
+        # Async read-only jobs hold their resource label too (e.g. eval-cpu), but live in
+        # waiting_on_dan rather than in_flight — fold them in so a second eval-cpu task
+        # can't thrash the CPU while a self-monitored eval is still running.
+        for _p in _launch_state.get("waiting_on_dan", {}).values():
+            if _p.get("kind") == "awaiting-verification":
+                _t = get_task_by_id(_p.get("task_id", ""))
+                if _t:
+                    held_resources |= _resource_set(_t)
+        # Labels claimed by tasks launched earlier in THIS poll cycle (before in_flight
+        # is updated in state.json); prevents two tasks from claiming the same label in
+        # the same poll when the cap allows multiple launches.
+        claimed_this_cycle: set[str] = set()
+
+        for task in runnable:
+            task_id  = task["id"]
+            is_async = task.get("dispatch") == "async-job"
+            # Async read-only jobs hold no Claude session / slot — a full slate of
+            # implementer slots must not block launching one. Gate everything else on
+            # free_slots as before.
+            if not is_async and free_slots <= 0:
+                break
+            if task_id in running_task_ids:
+                continue
+            # An async job already launched + parked (or surfaced) owns itself via the
+            # poller / Dan — skip early, before the resource check would log a confusing
+            # "conflict" against the eval-cpu label the parked job itself is holding.
+            if is_async and task_id in waiting_task_ids:
+                continue
+            if task_id in complete_ids:  # Problem 12 — skip already-complete tasks
+                append_journal("launch_skipped_complete", f"{task_id} already complete")
+                continue
+            # B11: skip tasks parked after failure — they need /unpark before relaunch
+            if task_id in parked_tasks:
+                continue
+            # Resumable task in cooldown after an INCOMPLETE sitting — re-queue later.
+            _ra = resume_state.get(task_id, {}).get("resume_after")
+            if _ra:
+                try:
+                    if datetime.fromisoformat(_ra) > now_utc:
+                        continue
+                except ValueError:
+                    pass
+
+            # B8: resource-mutex — skip this candidate if any of its resource labels is
+            # already held by an in-flight task OR was claimed earlier in this cycle.
+            if _resources_conflict(task, held_resources, claimed_this_cycle):
+                append_journal(
+                    "launch_skipped_resource",
+                    f"{task_id} waiting — resource conflict: {_resource_set(task) & (held_resources | claimed_this_cycle)}",
+                )
+                continue
+
+            # B12: pre-implementation question gate. If the task declares a
+            # questions: block, every question must be answered by Dan before we
+            # launch. _questions_ready asks the next unanswered one (idempotent)
+            # and returns False, parking the task without consuming a launch slot.
+            if not _questions_ready(task):
+                append_journal("launch_skipped_questions",
+                               f"{task_id} waiting for Dan's answers")
+                continue
+
+            # Long async read-only job: the orchestrator launches the job itself (detached
+            # tmux) and parks `awaiting-verification` — no Claude session, no worktree, no
+            # in_flight slot. Re-checked by poll_awaiting_verifications, reaper-exempt.
+            # (Already-parked async jobs were skipped early, above the resource check.)
+            if is_async:
+                print(f"\n  [async-job] {task_id}: {task.get('title','')}")
+                notify_telegram(f"▶ Launching async job {task_id}: {task.get('title','')}")
+                if launch_async_job(task):
+                    waiting_task_ids.add(task_id)  # dedup within this same cycle
+                continue
+
+            ts_str    = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+            sid       = f"impl-{task_id}-{ts_str}"
+            workspace = WORKSPACES / sid
+            workspace.mkdir(parents=True, exist_ok=True)
+            branch    = f"impl-{task_id.lower()}-{ts_str}"
+            worktree  = worktree_path_for(task_id)
+            print(f"\n  [launch] {task_id}: {task.get('title','')}")
+            try:
+                create_worktree(task_id, worktree, branch)
+            except subprocess.CalledProcessError as exc:
+                # Park (idempotent → escalates to Dan exactly once) instead of a bare
+                # continue. A bare continue retried every poll and re-sent the Telegram
+                # "Starting" line each time — the TUNE1 spam-storm of 2026-06-26.
+                print(f"  [error] Worktree creation failed for {task_id}: {exc}")
+                append_journal("worktree_create_failed", f"{task_id} {str(exc)[:160]}")
+                park_failed(task_id, f"Worktree creation failed: {str(exc)[:200]}")
+                continue
+            # Notify only after the worktree exists, so a failure never spams Telegram.
+            _verb = "Preparing" if task.get("dispatch") == "manual" else "Starting"
+            notify_telegram(f"▶ {_verb} {task_id}: {task.get('title','')}")
+
+            # B8: kind:script — zero-LLM deterministic execution path.
+            # Run the task's `run:` shell command, commit, then register in in_flight
+            # so the UNCHANGED gate (verification/smoke/merge) adopts it normally.
+            if task.get("kind") == "script":
+                run_cmd = task.get("run", "").strip()
+                if not run_cmd:
+                    print(f"  [script] {task_id}: missing `run:` field — parking for Dan")
+                    append_journal("script_task_no_cmd", f"{task_id} missing run field")
+                    park_failed(task_id, "`kind: script` task has no `run:` command")
+                    remove_worktree(worktree)
+                    continue
+
+                print(f"  [script] {task_id}: running cmd={run_cmd!r}")
+                append_journal("script_task_ran", f"{task_id} cmd={run_cmd[:120]}", session_id=sid)
+                notify_telegram(f"⚙ {task_id}: running script task …")
+                try:
+                    proc = subprocess.run(
+                        run_cmd, shell=True, cwd=str(worktree),
+                        capture_output=True, text=True, timeout=1800,
+                    )
+                    script_ok     = (proc.returncode == 0)
+                    script_stdout = proc.stdout[-4000:] if proc.stdout else ""
+                    script_stderr = proc.stderr[-1000:] if proc.stderr else ""
+                except subprocess.TimeoutExpired:
+                    script_ok     = False
+                    script_stdout = ""
+                    script_stderr = "script timed out after 1800 s"
+
+                if script_ok:
+                    # Stage + commit any changes inside the worktree (no-op if nothing changed).
+                    subprocess.run(
+                        ["git", "-C", str(worktree), "add", "-A"],
+                        capture_output=True,
+                    )
+                    commit_msg = f"{task_id}: {task.get('title', '')} (script task)"
+                    commit_proc = subprocess.run(
+                        ["git", "-C", str(worktree), "commit", "-m", commit_msg],
+                        capture_output=True, text=True,
+                    )
+                    if commit_proc.returncode not in (0, 1):  # 1 = nothing to commit
+                        print(f"  [script] {task_id}: git commit warning: {commit_proc.stderr[:120]}")
+
+                    # Build result.json in the shape the gate expects.
+                    task_verifs = task.get("verifications") or []
+                    verif_proofs: dict[str, dict] = {}
+                    for v in task_verifs:
+                        vid  = v.get("id", "V1")
+                        kind = v.get("kind", "auto")
+                        # For auto items the gate re-runs the check itself; supply raw stdout
+                        # so proof is non-empty. For manual items, supply captured stdout.
+                        verif_proofs[vid] = {"proof": script_stdout[:600]}
+                    result_obj = {
+                        "summary":       f"Script task completed. exit=0",
+                        "tests":         {"pass": True},
+                        "verifications": verif_proofs,
+                        "script_stdout": script_stdout,
+                    }
+                    (workspace / "result.json").write_text(
+                        json.dumps(result_obj, ensure_ascii=False, indent=2), encoding="utf-8"
+                    )
+                    (workspace / "DONE").write_text("script task")
+                    print(f"  [script] {task_id}: done — wrote DONE + result.json")
+                    append_journal("script_task_done", f"{task_id}", session_id=sid)
+                else:
+                    fail_reason = f"Script exited non-zero: {script_stderr[:200]}"
+                    (workspace / "FAILED").write_text(fail_reason)
+                    print(f"  [script] {task_id}: FAILED — {fail_reason[:120]}")
+                    append_journal("script_task_failed", f"{task_id} {fail_reason[:120]}", session_id=sid)
+                    # A deterministic script won't be fixed by re-running, and the gate's
+                    # retry path would relaunch it as an LLM implementer (no real brief —
+                    # the very tokens this path exists to save). Park for Dan instead.
+                    park_failed(task_id, fail_reason)
+                    remove_worktree(worktree)
+                    run_dep_map()
+                    run_status()
+                    continue
+
+                new_entry = {
+                    "session_id": sid, "task_id": task_id, "role": "script",
+                    "worktree": str(worktree), "window": f"script-{task_id}",
+                    "branch": branch, "started_at": now_iso(), "status": "running",
+                }
+                in_flight.append(new_entry)
+                running_task_ids.add(task_id)
+                launch_times[sid] = time.time()
+                _persist_launch_time(sid, launch_times[sid])  # Bug #2
+                state = read_state()
+                state["in_flight"] = state.get("in_flight", []) + [new_entry]
+                state["phase"]     = {"id": task_id, "title": task.get("title", ""),
+                                      "status": "in_progress"}
+                state["skeleton_version"] = "B7"
+                write_state(state)
+                free_slots  -= 1
+                launched_any = True
+                claimed_this_cycle |= _resource_set(task)  # B8: hold this label for the rest of the cycle
+                run_dep_map()
+                run_status()
+                continue
+
+            launch_implementer(task, sid, workspace, worktree)
+            new_entry = {
+                "session_id": sid, "task_id": task_id, "role": "implementer",
+                "worktree": str(worktree), "window": f"impl-{task_id}",
+                "branch": branch, "started_at": now_iso(), "status": "running",
+            }
+            in_flight.append(new_entry)
+            running_task_ids.add(task_id)
+            launch_times[sid] = time.time()
+            _persist_launch_time(sid, launch_times[sid])  # Bug #2
+            state = read_state()
+            state["in_flight"] = state.get("in_flight", []) + [new_entry]
+            state["phase"]     = {"id": task_id, "title": task.get("title", ""),
+                                  "status": "in_progress"}
+            state["skeleton_version"] = "B7"
+            write_state(state)
+            append_journal("implementer_launched", f"{task_id} branch={branch}", session_id=sid)
+            free_slots  -= 1
+            launched_any = True
+            claimed_this_cycle |= _resource_set(task)  # B8: hold this label for the rest of the cycle
+        if launched_any:
+            run_dep_map()
+            run_status()
+
+        if not in_flight and not runnable and not read_state().get("waiting_on_dan", {}):
+            print("\n[done] Queue exhausted.")
+            append_journal("queue_exhausted", "")
+            state = read_state()
+            state["phase"] = {"id": None, "title": None, "status": "idle"}
+            write_state(state)
+            # B7: defer proposals by default — tell Dan to run the proposal test
+            # at the right time (richer context) instead of auto-proposing. Set
+            # ORCH_AUTO_PROPOSE=1 to restore B6 auto-propose-on-empty.
+            if AUTO_PROPOSE:
+                generate_proposals()
+            else:
+                _notify_proposal_test_due()
+            # Both paths park the loop via paused_by_user=True; it re-enters and
+            # waits for Dan (answer-poll for proposals, or manual resume otherwise).
+            time.sleep(POLL_INTERVAL)
+            continue
+
+        if in_flight:
+            ids = [e["task_id"] for e in in_flight]
+            print(f"  … {len(in_flight)} in-flight {ids}, next poll in {POLL_INTERVAL}s",
+                  flush=True)
+            time.sleep(POLL_INTERVAL)
+        elif not launched_any:
+            # Nothing in-flight and nothing launched: every runnable task is gated
+            # (resume cooldown / parked / resource mutex). Keep polling so the loop
+            # auto-launches when a gate clears; heartbeat so the watchdog doesn't
+            # stall-kill a healthy idle loop.
+            _idle_heartbeat_maybe(runnable)
+            time.sleep(POLL_INTERVAL)
+
+    run_status()
+    return 0

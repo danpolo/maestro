@@ -206,3 +206,46 @@ the gate runs. A branch whose only change is such a file reports "no files chang
 than "out of scope".
 
 Test: `test_redo_path_gate_ignores_the_runners_own_sidecars_by_basename`.
+
+## SH-22 — `JUDGE_MODEL` cannot be changed at runtime
+
+`def _judge_complete(system, user, model: str = JUDGE_MODEL, …)` (reference L702) binds the
+default at *definition* time. The comment directly above `JUDGE_MODEL` (reference L699)
+invites exactly the opposite — "Restore Fable by setting `JUDGE_MODEL = "claude-fable-5"`" —
+but rebinding the global afterwards (or monkeypatching it) has no effect on any call that
+does not pass `model=` explicitly. Every caller in the reference omits it.
+
+Test: `test_judge_defaults_to_the_module_judge_model`.
+
+## SH-23 — `attempt_self_fix` interpolates the task id into a `shell=True` command line
+
+Reference L2078–L2081: the tmux window name and the single-quoted inner command are built
+by f-string interpolation of `task_id`, `REPO`, `VENV_PYTHON` and the request path, then run
+with `shell=True, check=True`. A task id (or a repo path) containing a space, a single quote
+or a shell metacharacter either breaks the spawn or injects into it. Task ids come from
+`docs/ROADMAP.md`, so this is not an untrusted input today, but nothing validates it and the
+same pattern is repeated for the `/redo` runner (L3064).
+
+Pinned indirectly by `test_attempt_self_fix_spawns_a_detached_tmux_window_through_a_shell`,
+which asserts the string is assembled and passed through `shell=True`.
+
+## SH-24 — A self-fix or `/redo` that fails the merge gate deletes its own sidecar
+
+Reference L2156–L2157: the operator is told "Left for manual review", and then
+`ready.unlink(missing_ok=True)` runs unconditionally at the end of the loop body, so the
+`*.ready.json` describing the branch is destroyed. Nothing retries the merge on the next
+poll — the only surviving record is the Telegram message and the `self_fix_merge_failed`
+journal line. `apply_ready_redo` does the same at L2239.
+
+Tests: `test_apply_self_fixes_journals_a_failed_merge_and_cleans_nothing_up`,
+`test_apply_redo_journals_and_notifies_a_failed_merge` (both assert the sidecar is gone).
+
+## SH-25 — A future-dated journal entry rate-limits a class until it ages out
+
+Reference L2040: the loop breaker accepts a match when `ts >= cutoff`, so an entry stamped
+*ahead* of the current clock is treated as recent. Combined with SH-7 (the offset is chopped
+and the remainder read as UTC), a journal line written in a zone ahead of UTC — or after a
+clock correction — blocks self-fixes for that class for up to `SELF_FIX_MIN_HOURS` from a
+time that has not happened yet.
+
+Test: `test_rate_gate_window_boundary_is_greater_than_or_equal`.

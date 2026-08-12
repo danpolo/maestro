@@ -452,3 +452,674 @@ The try/except wraps only the JSON parse; the `_judge_complete(...)` call is out
 ### 88. The resumable merge paths push with both -C REPO and cwd=REPO and ignore the result
 
 `subprocess.run(["git", "-C", str(REPO), "push", "origin", "main"], cwd=str(REPO), capture_output=True)` in both _merge_data_only and _resumable_code_change_escalation: the redundancy is harmless, but the ignored returncode means a rejected or unauthenticated push still yields "ok", so main diverges from origin with no signal.
+
+## M1 — Telegram HITL transport (`hitl/telegram.py`)
+
+### 89. `_pending_danreqs` sorts `ts` as text, so a UTC-offset spelling lands in the wrong slot
+
+`out.sort(key=lambda r: r.get("ts", ""), reverse=True)` (L1831) compares ISO timestamps as raw
+strings. Any record whose `ts` is written with a non-Zulu offset is ordered by its wall-clock
+text rather than by the instant it names: `2026-01-01T01:00:00+05:00` (= 2025-12-31T20:00Z) sorts
+*above* `2026-01-01T00:00:00Z`, so the older request is reported as "newest first". The same
+string comparison mis-orders an unpadded month — `2026-1-01…` outranks every `2026-02-01…`
+because `"1" > "0"`. This is not cosmetic: `_route_freetext_answer` (L1885) falls back to
+`pend[0]` whenever the inbound message is not a reply, so an untargeted free-text answer from Dan
+is recorded against the wrong Dan-request, and `_record_danreq_answer` then flips that request to
+`answered` and writes its `.answer` sidecar. The producer side (`send_dan_request.py`) happens to
+emit one spelling today, so the bug is latent — the sort is only safe by convention, not by
+construction.
+
+### 90. Harness note (not reference code): the suite's own end-to-end callback test was reading the wrong argv element
+
+Not a reference bug, but worth recording because it hid what the test claimed to check:
+`_tg_api` (L1805) builds argv as `curl -s --max-time 5 <url>` and *then* appends a
+`--data-urlencode k=v` pair per parameter, so the endpoint URL is `argv[4]` and the last element
+is the final parameter value. The test asserted on `argv[-1]`, i.e. on
+`text=✅ Keep` / `reply_markup={"inline_keyboard": []}` instead of on the method names. The two
+Bot API calls that `_handle_danreq_callback` (L1851) issues on a successful tap
+(`answerCallbackQuery` then `editMessageReplyMarkup`) were therefore never actually verified by
+that test. It now asserts on `argv[4]` and additionally pins the encoded parameter pairs of both
+calls, which is what makes it an end-to-end check rather than a re-run of the `_tg_api` unit
+tests.
+
+## M1 — Telegram control plane (`hitl/commands.py`)
+
+### 91. `_process_reject` raises `NameError`: `REPO_ROOT` is never defined
+
+`_process_reject` finishes a non-manual-action rejection with:
+
+```python
+subprocess.run(["git", "worktree", "remove", "--force", worktree],
+               capture_output=True, cwd=REPO_ROOT)
+subprocess.run(["git", "branch", "-D", branch], capture_output=True, cwd=REPO_ROOT)
+```
+
+`REPO_ROOT` is referenced on exactly those two lines and assigned nowhere in the 4,567-line
+module (the real global is `REPO`). So **every `/reject` of a normal HITL-parked task raises
+`NameError`**, and it raises *after* the function has already:
+
+1. sent "❌ Rejected `<task>` — discarding branch `<branch>`" to Dan,
+2. appended `hitl_rejected` to the journal,
+3. deleted the waiting entry and persisted the new state,
+4. removed the workspace `PAUSED` sentinel.
+
+The branch and the worktree are therefore never deleted, but Dan is told they were. Because
+`poll_control_commands` swallows every exception, the operator sees the success message and
+no error at all — the leak is completely silent.
+
+Pinned by `test_process_reject_of_a_normal_parked_task_raises_a_name_error_on_repo_root`
+and `test_reject_of_a_normal_parked_task_is_swallowed_by_the_router`.
+
+### 92. One bad update kills the rest of the batch, and the lost updates never come back
+
+`poll_control_commands` has a single `try:` around the whole `for upd in data.get("result")`
+loop. There is no per-update guard, so any handler exception aborts the batch. The offset,
+however, is advanced at the *top* of each iteration:
+
+```python
+for upd in data.get("result", []):
+    _getUpdates_offset = upd["update_id"] + 1
+```
+
+So after a failure the offset already points past the failing update, and the following
+updates in the same batch are acknowledged-by-omission: the next `getUpdates` asks for
+`offset = failing_id + 1` and Telegram drops everything at or below it. Commands Dan sent
+are silently discarded with no reply of any kind.
+
+Trivially reachable: on a repo whose `state.json` does not exist yet, `/pause` raises inside
+`read_state()` and a `/halt` sent in the same batch is never executed.
+
+Pinned by `test_poll_swallows_a_handler_exception_and_abandons_every_later_update`.
+
+### 93. `/approve` and `/reject` are dispatched off the lower-cased text, `/fix` and `/unpark` are not
+
+The router lower-cases the message (`text = text_raw.lower()`) and then:
+
+| verb | argument transform |
+|---|---|
+| `/approve <id>` | `text.split(" ", 1)[1].strip()` — **stays lower case** |
+| `/reject <id>` | `text.split(" ", 1)[1].strip()` — **stays lower case** |
+| `/fix <id>` | `.upper()` |
+| `/unpark <id>` | `.upper()` |
+| `/detail <id>` | `.upper()` |
+| `/ask` / `/redo` | taken from `text_raw`, original case preserved |
+
+`_process_approve`/`_process_reject` look their argument up in `waiting_on_dan` by exact key
+and never fall back to a task-id match (unlike `_resolve_waiting`, which `/ask` and `/redo`
+use). The numeric dan_id is unaffected, but the affordance lines the bot itself prints in
+`_show_manual` / `_show_detail` are the only way a user learns the id — anyone who types
+`/approve P12C` instead gets "No pending item with ID p12c."
+
+Pinned by `test_approve_forwards_the_lowercased_id_and_the_live_in_flight_list`,
+`test_reject_forwards_the_lowercased_id_unchanged`,
+`test_fix_uppercases_its_argument_unlike_approve_and_reject`.
+
+### 94. `_show_manual` and `_show_detail` disagree about what "blocked" means
+
+* `_show_manual`: `blocked = [d for d in deps if d in pending_ids and d not in complete_ids]`
+  — a dep is blocking only if it is **still in ROADMAP.md**.
+* `_show_detail` (one-action view): `blocked = [d for d in deps if d not in complete]` —
+  completion is checked alone.
+
+`mark_task_complete.py` strips graduated tasks out of ROADMAP.md, and `completed_tasks.json`
+is a separate file. A dep that graduated before `completed_tasks.json` existed (or that was
+completed out-of-band) therefore reads as *ready* in `/manual` and *blocked* in `/detail`
+for the same task, in the same poll.
+
+Pinned by `test_show_manual_reports_blocked_deps_only_for_deps_still_present_in_the_roadmap`
+and `test_show_detail_blocks_on_any_dep_absent_from_completed_tasks_even_if_graduated`.
+
+### 95. `/progress` is answered with total silence when `docs/ROADMAP.md` is absent
+
+`_build_progress_report` calls `get_task_by_id(tid)` per in-flight task, and
+`get_task_by_id` does an unguarded `ROADMAP_FILE.read_text(...)`. With tasks in flight and no
+ROADMAP.md the report raises `FileNotFoundError`, which `poll_control_commands` swallows —
+so `/progress` produces no reply at all rather than an error. The empty-queue path returns
+before the read, so `/progress` "works" until the first task launches.
+
+Pinned by `test_progress_report_raises_when_the_roadmap_is_missing_and_poll_swallows_it`.
+
+### 96. `_process_reject` of a manual-action item also reads ROADMAP.md unguarded
+
+`(get_task_by_id(task_id) or {}).get("dispatch") == "async-job"` is evaluated *after* the
+waiting entry has been removed from the in-memory dict but *before* `write_state`. A missing
+ROADMAP.md raises there, so the item stays parked on disk (state was never written) while
+Dan gets no reply. Same swallowing as entry 92 applies through the router.
+
+Pinned by `test_process_reject_of_a_manual_action_raises_when_the_roadmap_is_missing`.
+
+### 97. `_show_waiting` raises `KeyError` on a waiting entry without `parked_at`
+
+`info['task_id']` and `info['parked_at'][:10]` are subscripted directly, unlike every other
+read of a waiting entry in the module (which uses `.get`). A single malformed entry makes
+`/waiting` reply with nothing at all — and because `/waiting` is the discovery mechanism for
+dan_ids, the operator loses the ability to approve *any* parked item.
+
+Pinned by `test_show_waiting_raises_on_a_waiting_entry_that_never_recorded_parked_at`.
+
+### 98. `_process_approve` drops the waiting entry before it attempts the merge
+
+The sequence is: notify → journal → `del waiting[dan_id]` → `write_state` → `merge_and_eval`.
+If the merge raises (or the process dies mid-merge), the item is already gone from
+`waiting_on_dan`, so it can never be re-approved; recovery needs a hand edit of `state.json`.
+
+Pinned by `test_process_approve_drops_the_waiting_entry_before_the_merge_is_attempted`.
+
+### 99. `_handle_redo` does not apply the vanished-worktree repair `_handle_ask` does
+
+`_handle_ask` recreates a missing worktree directory when a resumable session uuid exists
+(the Claude session JSONL is keyed to the worktree path), and otherwise falls back to `REPO`.
+`_handle_redo` copies `entry["worktree"]` verbatim with no existence check and no fallback,
+so `maestro_redo.py` can be handed a path that no longer exists — the exact failure mode the
+comment in `_handle_ask` says it was written to avoid.
+
+Pinned by `test_handle_redo_does_not_recreate_a_vanished_worktree_the_way_ask_does`.
+
+### 100. `_show_manual`'s "Could not parse ROADMAP" branch is unreachable
+
+`_show_manual` and `_show_detail` both wrap `_load_roadmap_tasks()` in
+`try/except Exception` and reply "Could not parse ROADMAP: {exc}". But `_load_roadmap_tasks`
+already catches `OSError` (→ `[]`) and `yaml.YAMLError` per block (→ skip), so a missing,
+unreadable or malformed roadmap silently produces an empty task list. `/manual` on a repo
+with no ROADMAP.md answers "No Dan-must-perform tasks in the queue.", and `/detail X`
+answers "No task X in ROADMAP (it may be graduated…)".
+
+Pinned by `test_show_manual_treats_a_missing_roadmap_as_an_empty_one` and
+`test_show_detail_treats_a_missing_roadmap_as_a_graduated_task`.
+
+### 101. Unknown commands, bare verbs and `/hitl <junk>` are all answered with silence
+
+* `/frobnicate` — falls through every branch; the final `elif text_raw and not
+  text_raw.startswith("/")` excludes it, so nothing is sent.
+* `/approve`, `/reject`, `/fix`, `/unpark`, `/hitl` with no argument — the branches match on
+  a trailing space (`text.startswith("/approve ")`), so the bare verb is also silent. There
+  is no usage hint, unlike `/detail`, `/ask` and `/redo` which do print one.
+* `/hitl maybe` — the `if arg == "on" / elif arg == "off"` chain has no `else`, so state is
+  read, nothing is changed, and nothing is sent.
+
+Pinned by `test_poll_ignores_an_unknown_slash_command_without_replying`,
+`test_poll_ignores_a_bare_verb_that_the_router_only_accepts_with_an_argument`,
+`test_hitl_with_any_other_argument_is_read_but_silently_ignored`.
+
+### 102. `_show_detail` prints a "Verifications:" header for a block with no usable entries
+
+`if verifications:` is truthy for any non-empty list, but the loop `continue`s over every
+non-dict element. A `verifications:` list of plain strings therefore renders a bare
+`Verifications:` header with nothing under it, instead of the "No structured verifications
+in this task block." message.
+
+Pinned by `test_show_detail_keeps_the_verifications_header_even_when_every_entry_is_skipped`.
+
+### 103. `/hitl on|off` mutates state without a journal entry
+
+Every other state-mutating control verb (`/pause`, `/resume`, `/halt`, `/unpark`) appends a
+`control_*` journal record. `/hitl` writes `hitl_mode` into `state.json` and sends a
+confirmation, but leaves no audit trail, so a run's merge behaviour can change with nothing
+in the journal explaining why.
+
+Pinned by `test_hitl_on_and_off_toggle_the_state_flag_without_journalling`.
+
+### 104. `run_status` runs the status script un-captured, un-timed and un-guarded
+
+`subprocess.run([VENV_PYTHON, STATUS_SCRIPT], cwd=REPO)` has no `capture_output`, no
+`timeout` and no `try`. The child's stdout/stderr go straight to the orchestrator's own
+terminal, a hung status script blocks the main loop forever, and a missing interpreter
+raises `FileNotFoundError` into the caller. It is called on both `_process_approve` exit
+paths, i.e. from the swallowing router.
+
+Pinned by `test_run_status_runs_the_status_script_in_the_repo_without_capturing_its_output`
+and `test_run_status_does_not_shield_the_caller_from_a_launch_failure`.
+
+### 105. `_process_fix` leaves the diagnosis on disk if the self-fix runner throws
+
+`attempt_self_fix(...)` is called before `f.unlink(missing_ok=True)`. The journal already
+records `fix_approved` and Dan has already been told the fix is being implemented, so a
+crash inside the runner leaves a re-approvable diagnosis and a misleading confirmation. (The
+converse ordering would be its own bug; recorded only as observed behaviour.)
+
+Pinned by `test_process_fix_leaves_the_diagnosis_on_disk_when_the_runner_raises`.
+
+### 106. `/approve` reports the phase completion with a task definition it has just deleted
+
+`_process_approve` finalizes an accepted merge in this order (reference L2879-2896):
+
+```python
+remove_worktree(worktree)
+mark_roadmap_complete(task_id)
+...
+phase_report(task_id, get_task_by_id(task_id), smoke)
+```
+
+`mark_roadmap_complete` graduates the task by *stripping its yaml block out of
+ROADMAP.md*, and `get_task_by_id` reads ROADMAP.md. So by the time `phase_report` is
+handed a task definition, the lookup returns `None`. `phase_report` guards with
+`(task_def or {})`, so nothing raises — it just silently degrades: `short_desc` falls back
+to the bare task id and the `decisions_made` / "⏳ Veto window: 24 h" block is never
+emitted. The one report Dan gets on an approved task is the one that cannot see the task.
+(The autonomous completion path in `main` has the same ordering.)
+
+### 107. A failed canary deploy tells Dan nothing at all
+
+On the accepted path, when the merged branch `_touches_bot_files`, a non-zero canary
+deploy exits the finalize with only a journal line (reference L2891-2894):
+
+```python
+append_journal("canary_reverted", f"{task_id} canary deploy failed")
+run_dep_map(); run_status()
+return
+```
+
+There is no `notify_telegram`. Dan has already been sent "✅ Approved `<task>` — merging
+now…", so from Telegram the approval simply stops: no "merged & accepted", no warning, no
+error. The task is also left graduated out of ROADMAP.md and pushed to `main`, i.e. the
+revert the event name implies never happens here.
+
+Pinned by `test_process_approve_aborts_the_finalize_when_a_bot_file_canary_deploy_fails`.
+
+### 108. `/ask` and `/redo` build their tmux command by unquoted string interpolation
+
+Both handlers launch their helper as a single shell string (reference L3013-3016 and
+L3067-3070):
+
+```python
+tmux_cmd = (f"tmux new-window -t {TMUX_SESSION} -n {window} "
+            f"'cd {REPO} && {VENV_PYTHON} {helper} {req_path}'")
+subprocess.run(tmux_cmd, shell=True, check=True)
+```
+
+`window` is `f"ask-{task_id}"` and `req_path` embeds the same `task_id`, neither quoted nor
+validated. A ROADMAP task id containing a space, a quote or a shell metacharacter — or a
+repo path with a space — produces a malformed or injected command line. It fails loudly
+only because of `check=True`; the resulting `CalledProcessError` is reported to Dan as
+"⚠ /ask failed to launch", which does not hint at the cause.
+
+### 109. Control-plane notes (observed, not obviously wrong)
+
+* `_build_progress_report` renders `pct: 0` because it tests `pj.get("pct") is not None`
+  rather than truthiness — the one place in this module that gets the falsy-zero case right.
+* `_resolve_waiting` resolves a dan_id key before a task_id, so a task literally named `9`
+  is shadowed by the waiting entry keyed `"9"`.
+* `/detail <id> full` is matched with `raw.upper().endswith(" FULL")`, and the router has
+  already upper-cased the argument, so any casing works.
+* `poll_control_commands` advances `_getUpdates_offset` for updates from foreign chats and
+  for callback queries it then discards — correct for offset hygiene, but it means an update
+  is consumed even when nothing acts on it.
+
+## M1 — self-heal: diagnose / self-fix / redo (`selfheal/`)
+
+### 110. `_self_fix_path_ok` / `_redo_path_ok`: `lstrip("./")` lets a parent traversal through the allowlist
+
+`files = [str(f).strip().lstrip("./") for f in ...]` strips a *character set*, not a prefix.
+`"../scripts/x.py"` normalises to `"scripts/x.py"` and passes the allowlist; so do
+`"../../../scripts/x.py"` and `"/scripts/x.py"`. The gate that is supposed to confine an
+unattended self-fix to the orchestrator's own surface therefore cannot see that a target
+points outside the repo at all. Both gates share the bug.
+
+Severity: this is the primary safety gate for unattended code edits.
+
+Tests: `test_self_fix_path_gate_lets_a_parent_traversal_in`,
+`test_redo_path_gate_lets_a_parent_traversal_in`.
+
+### 111. Both path gates iterate a bare string character by character
+
+`target_files` arriving as a string (an agent that answered `"target_files": "scripts/x.py"`
+instead of a list) is not detected. The comprehension iterates the characters, so the gate
+decides on the first letter: `_self_fix_path_ok("scripts/x.py")` returns
+`(False, "out-of-scope path: s")`. Fails closed here, but the reason is nonsense, and the
+same shape would fail *open* if the first characters happened to spell an allowed prefix.
+
+Tests: `test_self_fix_path_gate_iterates_a_bare_string_character_by_character`,
+`test_redo_path_gate_iterates_a_bare_string_character_by_character`.
+
+### 112. The deny lists are substring tests
+
+`any(d in fn for d in SELF_FIX_DENY)` matches anywhere in the path, so
+`docs/notes-about-main_bot.py.md` (a doc *about* the bot) is vetoed, and
+`scripts/requirements_helper.py` is vetoed by the `"requirements"` fragment. A denied
+fragment vetoes the whole change set, so one such false positive turns an auto-fix into an
+advisory. Same in `_redo_path_ok`.
+
+Test: `test_self_fix_path_gate_matches_a_denied_fragment_anywhere_in_the_path`.
+
+### 113. `_redo_path_ok(None)` raises; its self-fix twin does not
+
+`_self_fix_path_ok` guards with `for f in (files or [])`; `_redo_path_ok` iterates `files`
+directly, so a `None` change set raises `TypeError` out of the gate instead of returning
+`(False, …)`. The two functions are otherwise the same shape.
+
+Test: `test_redo_path_gate_crashes_on_none`.
+
+### 114. `_self_fix_rate_ok` matches the journal as raw text
+
+The loop-breaker does `if "self_fix_applied" not in ln or failure_class not in ln`. Both
+tests are substring tests on the un-parsed line, so:
+
+* a class that is a substring of another class rate-limits it (`"infra"` is blocked by a
+  `"transient-infra"` fix);
+* any record that merely *mentions* `self_fix_applied` in its detail counts as an applied
+  fix;
+* `failure_class == ""` matches every line (`"" in ln` is always true), so a class-less
+  diagnosis is rate-limited by any self-fix at all. `_self_fix_eligible` happens to reject
+  an empty class earlier, so today this is only reachable on a direct call.
+
+Tests: `test_rate_gate_matches_the_class_as_a_substring_of_the_raw_line`,
+`test_rate_gate_matches_the_event_name_as_a_substring_too`,
+`test_rate_gate_treats_an_empty_class_as_matching_every_self_fix`.
+
+### 115. `_self_fix_rate_ok` fails OPEN on an unreadable journal
+
+The whole read is wrapped in `try: … except Exception: pass` followed by `return True`. If
+the journal cannot be opened (permissions, or the path being a directory), the per-class
+rate limiter silently disappears and every self-fix is allowed. The only signal is that
+nothing is logged.
+
+Test: `test_rate_gate_allows_when_the_journal_cannot_be_opened`.
+
+### 116. `_self_fix_rate_ok` reads timestamps as UTC no matter what they say
+
+`datetime.strptime(json.loads(ln).get("ts","")[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=utc)`
+truncates to 19 characters, which discards any offset (`+05:00`) and then *asserts* UTC. A
+journal written by a differently-configured writer is mis-dated by the offset, which can
+put a recent fix outside the window (or a stale one inside it). Any unparseable `ts` — or a
+record with no `ts` — is skipped entirely, so that record can never rate-limit anything.
+
+Tests: `test_rate_gate_reads_only_the_first_nineteen_characters_of_the_timestamp`,
+`test_rate_gate_ignores_a_record_with_no_usable_timestamp`.
+
+### 117. `_self_fix_eligible` crashes on a non-string `failure_class`
+
+`cls = (diag.get("failure_class") or "").strip()` only defends against a *falsy* value. A
+diagnosis whose JSON gave a number or a list for `failure_class` raises `AttributeError`
+out of the gate — an agent-controlled input crashing the caller.
+
+Test: `test_eligibility_crashes_on_a_non_string_class`.
+
+### 118. `_diagnose_failure` / `_failure_looks_normal`: greedy `\{.*\}` loses both objects
+
+`re.search(r"\{.*\}", raw, re.DOTALL)` spans first-brace to last-brace. An agent that emits
+its answer twice (or emits one object plus an example) produces a span that is not valid
+JSON, so the pass returns `{}`. For `_failure_looks_normal` that empty result is the
+fail-open value — the skeptic veto is silently skipped and the auto-fix proceeds.
+
+Test: `test_judgment_pass_loses_both_objects_when_the_agent_prints_two`.
+
+### 119. Neither judgment pass validates the shape of what it parsed
+
+`{"totally": "unrelated"}` is returned verbatim; the callers' key expectations
+(`failure_class`, `verdict`, `confidence`) are never enforced at the parse boundary.
+
+Test: `test_judgment_pass_returns_whatever_keys_the_agent_invented`.
+
+### 120. `_judge_complete` reports a successful-but-silent agent as `rc=0`
+
+`if r.returncode == 0 and out` — an exit-0 call with blank stdout falls through to the
+diagnostic `print(… rc=0 stderr=…)` and returns `""`. The operator-facing line looks like a
+success being logged as a failure, and the caller cannot distinguish "agent said nothing"
+from "agent crashed".
+
+Test: `test_judge_returns_empty_on_blank_stdout_at_exit_zero`.
+
+### 121. `_persist_diagnosis` keeps an explicit `null`
+
+`diag.get("failure_class", "")` only defaults a *missing* key. An agent that answered
+`"failure_class": null` gets `null` written to the persisted diagnosis, which `/fix` later
+reads back. Same for `target_files`, which then is not a list.
+
+Test: `test_persist_keeps_an_explicit_none_rather_than_the_default`.
+
+### 122. `_persist_diagnosis` swallows every failure, losing the diagnosis
+
+A non-string `reason` (`reason[:800]` raises), an unserialisable `target_files`, or a
+`task_id` that is not a usable filename (`"A/B"` → a path whose parent does not exist) all
+land in `except Exception` and only print. The diagnosis is lost, nothing is journalled,
+and `/fix <task_id>` will report no diagnosis rather than an error. The `task_id` is
+interpolated straight into a path with no validation.
+
+Tests: `test_persist_swallows_an_unserialisable_diagnosis_and_writes_nothing`,
+`test_persist_swallows_a_non_string_reason`,
+`test_persist_swallows_a_task_id_that_is_not_a_usable_filename`.
+
+### 123. `attempt_self_fix` journals `class=None` while the request file says `""`
+
+The request JSON uses `diag.get("failure_class", "")`, but the journal line and the Telegram
+message use `diag.get('failure_class')` with no default. A diagnosis with no class produces
+the operator-facing text `class=None` and a request file with an empty class — two different
+answers to the same question, in the same function.
+
+Test: `test_attempt_self_fix_journals_the_class_as_none_when_absent`.
+
+### 124. A failed self-fix spawn leaves an orphan request and no record
+
+The request file is written *before* `subprocess.run(tmux …, check=True)`. If the spawn
+fails, the `except` only prints `[self-fix] spawn failed: …`: the request file stays on
+disk forever, nothing is journalled, and no Telegram message is sent. The operator sees
+nothing at all, and the orphan is never retried or cleaned up.
+
+Test: `test_attempt_self_fix_leaves_the_request_behind_when_the_spawn_fails`.
+
+### 125. `apply_ready_self_fixes` ignores the `ORCH_SELF_FIX` kill switch
+
+Only `ORCH_SELF_FIX_MERGE` is consulted in the apply loop. Turning the master kill switch
+off stops new self-fixes from being *prepared*, but a branch the runner already gate-passed
+is still merged onto main on the next poll.
+
+Test: `test_apply_self_fixes_ignores_the_master_kill_switch`.
+
+### 126. The runner worktree path is derived by chopping eight characters
+
+`fid = branch[len("selffix-"):]` never checks the prefix. A branch not named `selffix-…`
+(hand-created, or renamed) yields a worktree path built from the branch minus its first
+eight characters, so `git worktree remove` targets a path that does not exist and the real
+stale worktree is left behind. The failure is invisible: the cleanup runs with
+`capture_output=True` and its exit code is never inspected.
+
+Test: `test_apply_self_fixes_derives_the_worktree_by_chopping_eight_characters`.
+
+### 127. A parked self-fix is renamed with `with_suffix`, so it is never retried
+
+`ready.with_suffix(".notified")` turns `T1.ready.json` into `T1.ready.notified` (only the
+last suffix is replaced). That is intentional-looking, but nothing ever reads `*.notified`
+again: if Dan does not merge by hand, the gate-passed branch and its worktree stay around
+indefinitely with no further reminder.
+
+Test: `test_apply_self_fixes_renames_only_the_last_suffix_when_parking_a_fix`.
+
+### 128. `apply_ready_redo` never notifies on success
+
+The self-fix twin sends `✅ Maestro self-fix applied: …`. The `/redo` loop journals
+`redo_applied` and regenerates the dep map, but sends no Telegram message — a landed
+deliverable rewrite is invisible unless the detached runner already spoke. The failure path
+*does* notify, so the asymmetry is silent-on-success only.
+
+Test: `test_apply_redo_never_notifies_on_success`.
+
+### 129. `apply_ready_redo` has no kill switch and no ask-first mode
+
+There is no `ORCH_*` flag at all on the `/redo` apply path. A gate-passed `/redo` branch is
+always auto-merged onto main, with no equivalent of `ORCH_SELF_FIX_MERGE=0`.
+
+Test: `test_apply_redo_has_no_kill_switch_and_no_ask_first_mode`.
+
+### 130. `_redo_path_ok` drops sidecars by basename anywhere in the tree
+
+`_REDO_GATE_IGNORE` is matched against `Path(f).name`, so a file called `redo_result.json`
+*anywhere* — including outside every allowed prefix — is removed from the change set before
+the gate runs. A branch whose only change is such a file reports "no files changed" rather
+than "out of scope".
+
+Test: `test_redo_path_gate_ignores_the_runners_own_sidecars_by_basename`.
+
+### 131. `JUDGE_MODEL` cannot be changed at runtime
+
+`def _judge_complete(system, user, model: str = JUDGE_MODEL, …)` (reference L702) binds the
+default at *definition* time. The comment directly above `JUDGE_MODEL` (reference L699)
+invites exactly the opposite — "Restore Fable by setting `JUDGE_MODEL = "claude-fable-5"`" —
+but rebinding the global afterwards (or monkeypatching it) has no effect on any call that
+does not pass `model=` explicitly. Every caller in the reference omits it.
+
+Test: `test_judge_defaults_to_the_module_judge_model`.
+
+### 132. `attempt_self_fix` interpolates the task id into a `shell=True` command line
+
+Reference L2078–L2081: the tmux window name and the single-quoted inner command are built
+by f-string interpolation of `task_id`, `REPO`, `VENV_PYTHON` and the request path, then run
+with `shell=True, check=True`. A task id (or a repo path) containing a space, a single quote
+or a shell metacharacter either breaks the spawn or injects into it. Task ids come from
+`docs/ROADMAP.md`, so this is not an untrusted input today, but nothing validates it and the
+same pattern is repeated for the `/redo` runner (L3064).
+
+Pinned indirectly by `test_attempt_self_fix_spawns_a_detached_tmux_window_through_a_shell`,
+which asserts the string is assembled and passed through `shell=True`.
+
+### 133. A self-fix or `/redo` that fails the merge gate deletes its own sidecar
+
+Reference L2156–L2157: the operator is told "Left for manual review", and then
+`ready.unlink(missing_ok=True)` runs unconditionally at the end of the loop body, so the
+`*.ready.json` describing the branch is destroyed. Nothing retries the merge on the next
+poll — the only surviving record is the Telegram message and the `self_fix_merge_failed`
+journal line. `apply_ready_redo` does the same at L2239.
+
+Tests: `test_apply_self_fixes_journals_a_failed_merge_and_cleans_nothing_up`,
+`test_apply_redo_journals_and_notifies_a_failed_merge` (both assert the sidecar is gone).
+
+### 134. A future-dated journal entry rate-limits a class until it ages out
+
+Reference L2040: the loop breaker accepts a match when `ts >= cutoff`, so an entry stamped
+*ahead* of the current clock is treated as recent. Combined with entry 116 (the offset is
+chopped and the remainder read as UTC), a journal line written in a zone ahead of UTC — or
+after a clock correction — blocks self-fixes for that class for up to `SELF_FIX_MIN_HOURS`
+from a time that has not happened yet.
+
+Test: `test_rate_gate_window_boundary_is_greater_than_or_equal`.
+
+## M1 — parking: waiting_on_dan, manual actions, handle_incomplete (`parking.py`)
+
+### 135. `park_manual_action` stores a silently truncated action, and the truncation is load-bearing
+
+The state entry gets `"summary": action[:200]` while the Telegram ping interpolates the
+whole `action` and `prep_actions.set_action` records the whole `action`. Three different
+lengths for the same instruction, with no ellipsis to mark the cut, so a 400-character
+action reads as a complete 200-character one in anything that renders `summary`.
+
+That truncation is not merely cosmetic: `/ask` and the manual-action finalizer both do
+`action = pa.get("action") or entry.get("summary", "")` (reference lines 2988 and 3050),
+so whenever the `prep_actions` sidecar is missing or empty the *truncated* summary becomes
+the operative action text handed onward — the tail of Dan's instruction is gone.
+
+`park_for_dan` truncates the stored summary and the ping to the same 200 characters, so
+the asymmetry is specific to `park_manual_action`.
+
+Test: `test_park_manual_action_truncates_the_stored_summary_but_not_the_ping`.
+
+### 136. `park_failed` reuses Dan's prior answer only to stay silent, never to act on it
+
+The idempotence guard reads `prior = _answer_choice(req_id)` and, when Dan has already
+answered an identical escalation, journals `failed_escalation_reused` and returns. Whatever
+Dan chose — "Retry with new approach", "Shelve task", "Manual intervention" — is never read
+again: the task simply stays in `parked_tasks`. Choosing "Retry with new approach" is
+therefore indistinguishable from never replying, except that the second failure is quieter.
+The same early return also suppresses the diagnosis/self-fix pass, so a task that keeps
+failing the same way is never re-diagnosed.
+
+Test: `test_park_failed_reuse_is_silent_on_telegram`.
+
+### 137. `park_failed`'s journal filter is a bare substring test
+
+`journal_events = [ln.strip() for ln in fh if task_id in ln]` matches any line *containing*
+the id, so diagnosing `T1` feeds the judge every `T10`, `T12`, `PT1` … line as well. The
+context handed to the diagnosis pass is contaminated by unrelated tasks whenever one task id
+is a prefix of another.
+
+Test: `test_park_failed_journal_tail_leaks_lines_of_prefix_sibling_tasks`.
+
+### 138. `park_failed` promises the self-fix, then swallows its failure into a `print`
+
+On the auto-eligible path Dan is told "→ Auto-eligible — implementing the fix for `T1` now."
+*before* `attempt_self_fix` runs, and the whole diagnosis block sits inside
+`except Exception as exc: print(f"  [judge-diagnose] skipped: {exc}")`. If the self-fix
+raises, the only trace is a line on the orchestrator's stdout; Dan's last word on the subject
+is the promise. No journal event, no follow-up ping, no `/fix` offer.
+
+Test: `test_park_failed_swallows_an_exception_from_the_self_fix_runner`.
+
+### 139. `park_regression` parks nothing and cannot be answered
+
+Despite the name it touches neither `parked_tasks` nor `waiting_on_dan` — it raises a
+`_danreq` and appends `regression_escalated`, and that is all. The `_danreq` is raised
+*without* a `req_id`, so the answer file has a content-derived id that nothing correlates back
+to the task: whichever of the three options Dan taps ("Revert and shelve", "Revert and retry",
+"Keep despite regression"), no code path ever reads it. Contrast `park_failed`, which passes
+an explicit `req_id`.
+
+Tests: `test_park_regression_does_not_park_anything`,
+`test_park_regression_shells_out_to_the_request_sender`.
+
+### 140. `park_for_dan` burns the dan_id before it can tell Dan anything
+
+The order is: bump `dan_id_counter`, `write_state(state)`, then
+`(workspace / "PAUSED").write_text(str(dan_id))`, then `notify_telegram`. The workspace
+directory is not created here, so a missing workspace raises `FileNotFoundError` *after* the
+counter and the `waiting_on_dan` entry are already persisted. The id is consumed, an
+unannounced entry is left in the state document, and Dan is never told the task is waiting on
+him. `park_manual_action` has the same write-first ordering.
+
+Test: `test_park_for_dan_without_a_workspace_dies_after_mutating_state`.
+
+### 141. `_graduate_manual_action` marks a task complete on an unknown dan_id
+
+`waiting.pop(dan_id_str, None)` is unguarded, so a stale or wrong id falls straight through to
+`mark_roadmap_complete(task_id)`, `git push origin main`, the `task_complete` journal event
+and the "verified and graduated" ping. Nothing checks that the id named a real parked entry,
+and nothing checks that the entry it named was the one for `task_id`.
+
+Test: `test_graduate_manual_action_graduates_an_unknown_dan_id_anyway`.
+
+### 142. The awaiting-verification transitions lose an unknown id in total silence
+
+Both `_park_awaiting_verification` and `_surface_await_failure` do
+`info = waiting.get(dan_id_str)` / `if not info: return`. A vanished entry produces no journal
+record and no ping, so a transition that should have been observable — Dan's action succeeded
+but the awaited job hasn't landed, or the awaited row landed and failed — disappears with no
+trace anywhere.
+
+Tests: `test_park_awaiting_verification_of_an_unknown_id_is_a_silent_no_op`,
+`test_surface_await_failure_of_an_unknown_id_is_a_silent_no_op`.
+
+### 143. A hung finalize command escapes `_finalize_manual_action` as an exception
+
+The post-action command runs with `timeout=1800` and no `try`, so a hung command raises
+`subprocess.TimeoutExpired` out of the function — 30 minutes after Dan was told
+"✅ Finalizing T1 — running post-action + verification gate…". The non-zero-exit path is
+handled carefully (journal `manual_action_postcmd_failed`, a ping, item stays parked); the
+timeout path has none of that.
+
+Test: `test_finalize_manual_action_does_not_catch_a_post_cmd_timeout`.
+
+### 144. `handle_incomplete` counts productive sittings against the attempt cap
+
+`attempts` is incremented on *every* sitting, including ones that made forward progress, and
+the cap is checked before the progress branch: `if attempts >= MAX_RESUME_ATTEMPTS: _park(…)`.
+A task that advances steadily for 12 sittings is therefore parked for Dan at the 13th with
+"resume attempt cap reached", even though it never stalled once. The separate `stalls` counter
+is the one that actually measures being stuck, and it is reset on progress — the attempt cap
+duplicates it badly.
+
+Test: `test_handle_incomplete_attempt_cap_counts_productive_sittings_too`.
+
+## M1 — orchestrator loop: retries
+
+### 145. `_do_retry(..., retry_counts, ...)` ignores its `retry_counts` argument entirely
+
+(reference `orchestrator_run.py:3602`). The body never reads or writes the dict; it calls
+`read_state()` itself and writes back only `in_flight`. So the retry allowance is
+persisted *only* where a caller happens to do it by hand.
+
+### 146. Retry-count increments are lost on restart for the re-brief paths
+
+The timeout/FAILED path persists the bump explicitly (`orchestrator_run.py:4124-4128`,
+"B11"), but the gate-failure re-brief (`:4202-4205`) and the Sonnet-proof-review
+re-brief (`:4221-4223`) bump `retry_counts[task_id]` in the in-process dict only.
+Because `_do_retry` re-reads state from disk, the bump is never written through, and
+the in-memory dict dies with the process. After an orchestrator restart the same task
+is eligible for another "first" retry through those paths — the `< 1` cap becomes
+unbounded across restarts instead of one retry per task.

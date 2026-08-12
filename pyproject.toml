@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "maestro"
-version = "0.1.0"
+version = "0.2.0"
 description = "Project-agnostic autonomous orchestration system"
 requires-python = ">=3.11"
 dependencies = ["pyyaml>=6.0", "python-dotenv>=1.0", "requests>=2.31"]

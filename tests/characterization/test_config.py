@@ -46,19 +46,26 @@ def test_private_name_is_always_available(subject):
     assert callable(subject._load_project_yaml)
 
 
-def test_public_alias_is_the_same_function_when_present(subject):
+def test_public_alias_is_an_alias_never_a_second_implementation(subject):
+    """The reference has only the private spelling; the extracted module adds a public
+    alias. Either is fine — what must never happen is a *second implementation* under the
+    public name, so the alias, when it exists, must be the identical function object.
+    Written without a skip so both subjects execute the assertion (M1 requires zero skips).
+    """
     public = getattr(subject, "load_project_yaml", None)
-    if public is None:
-        pytest.skip("subject exposes only the private spelling")
-    assert public is subject._load_project_yaml
+    assert public is None or public is subject._load_project_yaml
 
 
-def test_both_spellings_agree_when_both_present(subject, sandbox):
-    public = getattr(subject, "load_project_yaml", None)
-    if public is None:
-        pytest.skip("subject exposes only the private spelling")
+def test_every_available_spelling_returns_the_same_document(subject, sandbox):
+    """Whatever spellings a subject exposes, they all read the same file and agree."""
     _write(sandbox, "name: demo\n")
-    assert public() == subject._load_project_yaml() == {"name": "demo"}
+    spellings = [
+        getattr(subject, name)
+        for name in ("load_project_yaml", "_load_project_yaml")
+        if getattr(subject, name, None) is not None
+    ]
+    assert spellings, "subject exposes no loader at all"
+    assert all(fn() == {"name": "demo"} for fn in spellings)
 
 
 # --- the global it reads -----------------------------------------------------------

@@ -16,16 +16,16 @@ PROGRAMME-STATUS: IN-PROGRESS
 | Stage | Status | Completed | Verified by |
 |---|---|---|---|
 | M0 — Package skeleton + characterisation harness | **done** | 2026-08-09 | `pytest -q` → 45 passed, 30 skipped (`2d833d1`) |
-| M1 — Core extraction | in progress | — | — |
-| M2 — Backend drivers + mid-work switching | pending | — | — |
+| M1 — Core extraction | **done** | 2026-08-12 | `pytest` → 3571 passed, 0 skipped, 0 failed (`c18777f`) |
+| M2 — Backend drivers + mid-work switching | in progress | — | — |
 | M3 — Model limits + self-update | pending | — | — |
 | M4 — Setup: init, doctor, skills | pending | — | — |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** M1 — core extraction, batch 3 (`telegram, commands, selfheal, parking, orchestrator`).
-Wave A is complete for all five modules; wave B has landed `hitl/telegram` only. Remaining wave-B
-modules: `hitl/commands`, `selfheal`, `parking`, `orchestrator`.
+**Current stage:** M2 — backend drivers and mid-work switching. M1 closed green on 2026-08-12.
+M2 has no detailed plan in `docs/plans/`, so per EXECUTION.md the first action of the stage is to
+write one.
 
 **ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
 ` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
@@ -428,6 +428,43 @@ mistakes a session's own past-tense mention of a limit hit for a fresh one. Use
 `hitl/commands` → `selfheal` → `parking` → `orchestrator`. Wave-A tests for all four already exist
 and are green against the reference; wave B is the verbatim-copy half that clears the 585 skips.
 `main()` moving unchanged into `orchestrator` is the last piece of M1.
+
+### Session 2026-08-12 — **M1 COMPLETE**, commits `bc6f522`, `c18777f`
+
+The recover-uncommitted-work failure mode recurred a fourth time: the previous session had written
+`maestro/orchestrator.py` (1,258 lines), `tests/test_extraction_complete.py` (27 lines) and 671 lines
+of merged `FOUND_BUGS.md` entries into the working tree and died before committing. Verified green
+first, then committed unchanged.
+
+**M1 done-when — every criterion met, commands run and output seen:**
+
+| Criterion | Command | Result |
+|---|---|---|
+| Full suite green, zero skips | `python3 -m pytest` | **3571 passed, 0 skipped, 0 failed, 0 errors** in 42.78s |
+| Zero skips under `tests/characterization/` | `python3 -m pytest tests/characterization/` | **3544 passed, 0 skipped** in 42.07s |
+| Extraction mapping complete | `python3 -m pytest tests/test_extraction_complete.py -v` | **12 passed** (one parametrised case per module) |
+| Purity gate | `python3 -m pytest tests/test_purity.py` | **3 passed** |
+| `main()` moved unchanged | AST source-segment compare, both sides | **byte-identical: 593 lines, sha256 `b2f7e8264198` on both** |
+
+All thirteen modules are extracted: `state, config, docs/roadmap, worktree, quota, gates,
+implementer, merge, hitl/telegram, hitl/commands, selfheal, parking, orchestrator`.
+
+- The `main()` check never printed reference source. `/tmp/verify_main_verbatim.py` parses both files
+  with `ast`, pulls the `main` source segment from each, rstrips trailing whitespace per line, and
+  compares sha256 — it prints only line counts and hashes. Use it again in M5 if verbatim-ness needs
+  re-proving.
+- **`docs/FOUND_BUGS.md` grew from 88 to 146 entries** (58 new, append-only, none fixed) covering
+  telegram, commands, selfheal, parking and orchestrator. Notable new ones: `_process_reject` raises
+  `NameError` because `REPO_ROOT` is never defined (#91); one bad update kills the rest of a control
+  batch and the lost updates never come back (#92); `/approve` and `/reject` dispatch off lower-cased
+  text while `/fix` and `/unpark` do not (#93).
+- **Open housekeeping item, deliberately not done:** the five `docs/found_bugs_inbox/*.md` files are
+  still present. Their content appears to be merged into `FOUND_BUGS.md`, but I did not verify entry
+  by entry, so I left them rather than delete evidence on an unverified assumption. Someone should
+  confirm the merge is complete and then remove the inbox, or keep it as provenance.
+- Reference project after M1: HEAD `68056b5`, `git status --porcelain` exactly the baseline (five
+  untracked + four standing-modified), `.orchestrator/state.json` `888 1786256976` unchanged,
+  `.orchestrator/HALT` still in place from 2026-08-09 09:07. No abort condition.
 
 ## Open questions
 

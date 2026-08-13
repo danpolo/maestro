@@ -17,16 +17,19 @@ PROGRAMME-STATUS: IN-PROGRESS
 |---|---|---|---|
 | M0 — Package skeleton + characterisation harness | **done** | 2026-08-09 | `pytest -q` → 45 passed, 30 skipped (`2d833d1`) |
 | M1 — Core extraction | **done** | 2026-08-12 | `pytest` → 3571 passed, 0 skipped, 0 failed (`c18777f`) |
-| M2 — Backend drivers + mid-work switching | in progress | — | — |
+| M2 — Backend drivers + mid-work switching | in progress — Tasks 1–7 done, Task 8 partial | — | `pytest` → 4049 passed, 0 skipped, 0 failed (`a26ea94`) |
 | M3 — Model limits + self-update | pending | — | — |
 | M4 — Setup: init, doctor, skills | pending | — | — |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
 **Current stage:** M2 — backend drivers and mid-work switching. M1 closed green on 2026-08-12.
-M2's research fan-out is **done** and its plan is **written**:
-`docs/plans/2026-08-12-m2-backends.md`. **The next session executes that plan starting at its
-Task 1** — the research is already paid for and must not be repeated.
+M2's research fan-out is done, its plan is written (`docs/plans/2026-08-12-m2-backends.md`), and
+**Tasks 1–7 plus most of Task 8 are now implemented and committed** (`7e63be3`, `02ea1d0`,
+`a26ea94`). **The next session picks up at the four items listed under "What M2 still needs" in
+the 2026-08-13 finding below** — chiefly the live acceptance switch, which is the one Done-when
+criterion that cannot be met from the test suite. Do not re-run the research and do not re-do
+Tasks 1–7.
 
 **ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
 ` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
@@ -537,6 +540,95 @@ that config line is a no-op.
 
 **Nothing in `~/.codex/` was written to.** The research agents read it and ran read-only `codex`
 invocations; the one live probe was a trivial `"Reply with exactly: hi"` in `/tmp/codexprobe`.
+
+### Session 2026-08-13 — M2 Tasks 5–7 recovered, Task 6 wire-in finished, Task 8 partial
+
+Commits `02ea1d0` (recovery) and `a26ea94` (wire-in + close-out edits).
+
+**Suite: `python3 -m pytest` → 4049 passed, 0 skipped, 0 failed, 0 errors in 48.17s.**
+`tests/test_purity.py` + `tests/test_no_name_branching.py` + `tests/test_extraction_complete.py`
+→ 53 passed. `test_extraction_complete.py` now collects **17** parametrised cases, not the 16 the
+plan predicts — 12 + the 5 modules it names is 17, so the plan's arithmetic was wrong, not the
+test. Reference project after the stage: HEAD `68056b5`, baseline `git status --porcelain`,
+`.orchestrator/state.json` `888 1786256976`, HALT still in place, `pgrep -f orchestrator_run.py`
+matched only its own shell (`ps -p` confirms neither PID exists). No abort condition.
+
+**The recover-uncommitted-work failure mode recurred for a fifth time.** The session before this
+one had written `maestro/switch.py` (929 lines), `tests/test_switch.py` (986),
+`tests/test_roles.py` (839), `tests/test_no_name_branching.py` (394),
+`tests/test_resumption_and_models.py` (80) and a `scripts/run_overnight.sh` driver upgrade into
+the working tree and exited without committing. Verified green, then committed unchanged.
+
+#### What M2 still needs — the next session starts here
+
+1. **The live acceptance switch (plan Task 8, the one Done-when the suite cannot prove).** A
+   forced switch **claude → codex** and **codex → claude** on a scratch task in `/tmp`, each with
+   an uncommitted dirty file in the worktree, asserting afterwards that the file is unchanged and
+   the journal shows `backend_switch`. This is the only sanctioned quota spend in M2. Never on a
+   real project.
+2. **`/backend <name>` (the one-argument form) is inert.** It records `state["backend"]` and
+   journals `control_backend`, but nothing reads that key: both `orchestrator._launch_backend()`
+   and `implementer._implementer_backend()` still resolve purely from `maestro.roles`. The fix
+   must land in **both** or the recorded backend drifts from the launched one, and
+   `tests/test_orchestrator_switch_hooks.py::test_launch_backend_is_pure_configuration` must be
+   rewritten to pin the new truth rather than silently changed under.
+3. **Correct the plan's "12 → 16"** to 17 at `docs/plans/2026-08-12-m2-backends.md` lines 261 and
+   451.
+4. **The adversarial review of the M2 diff never ran** — the workflow carrying it died on the
+   spend limit (below). Scope-discipline and correctness lenses over `7e63be3..HEAD` are still
+   owed before M2 is called done.
+
+#### A real defect this session found and fixed: the switch ping-pong
+
+The threshold hook as first written would swap the *same task* back and forth once per poll,
+killing and relaunching its agent each time and losing its in-progress work. The loop's `five_pct`
+reading describes the backend it launched on; a driver that cannot sample its own usage answers
+"no reading" (G6); `_under_usage_pressure` correctly refuses to treat "not measurable" as "no
+pressure" — so after moving a task to codex, the very next poll saw pressure again and moved it
+back. Fixed with `orchestrator._backends_tried`: the outgoing backend joins the `exhausted` set
+before the switch, and because `switch_task` copies unknown keys onto the entry it returns, the
+record travels with the task. **Deliberate and conservative consequence:** once a task has been
+round the fallback chain it stops switching and takes the ordinary pause, even if the first
+backend's window has since reset. Waiting is always safe; relaunching in a loop is not. Pinned by
+`test_a_task_already_switched_once_is_not_switched_back`.
+
+#### Judgement calls for morning review
+
+- **A previous session's out-of-scope changes were kept, not reverted.** `gates.py`, `merge.py`,
+  `selfheal/diagnose.py` and `implementer.py` had their judge/implementer model IDs moved from
+  `claude-sonnet-4-6`/`claude-opus-4-8` to `claude-sonnet-5`/`claude-opus-5`, a new
+  `resolve_implementer_model` with title/description **keyword heuristics** was added, and
+  `quota.py` gained `resumable_tasks` bookkeeping. The M2 plan explicitly assigns the model-ID
+  constants to **M3** and declares the judge call sites out of M2 scope. Reverting looked more
+  destructive than flagging, since the changes are green, coherent, and match the same
+  resumption-and-models theme as the operator-facing `run_overnight.sh` upgrade committed
+  alongside them — but **none of it is authorised by DESIGN.md or the plan**, and the keyword
+  heuristic in particular is new product behaviour nobody specified. Decide whether to keep it.
+- **One characterisation assertion had been weakened and is now repaired.**
+  `test_risky_reviewer_prompt_contract` had been widened to
+  `assert call["model"] in ("claude-sonnet-4-6", "claude-sonnet-5")` to absorb that model change,
+  which pinned neither subject. It is now a subject-aware pair — legacy pins `claude-sonnet-4-6`
+  exactly, maestro pins `claude-sonnet-5` exactly. A repo-wide sweep found no other widened
+  assertion of this shape (`in ("claude-` now has zero hits).
+- **`implementer.launch_implementer` delegates only the fresh-launch branch.** The quota-reset
+  resume path still spells `claude -p --resume` inline, because a resumed run must land in the
+  *same* workspace with its argv in the *same* `launch.py`, while the drivers write a resume
+  launcher under their own name — right for a mid-work switch, wrong for resuming in place. Left
+  explicit rather than reconciled silently.
+- **Under a codex-configured project a workspace gets four files, not three** (codex adds
+  `codex_launch.json`). The pinned three-file test runs under the default backend, so it is
+  unaffected — flagged because "the three files" is stated as an invariant.
+
+#### The spend limit cost this session one full workflow
+
+An 8-agent workflow (wire-in ×4, integrate, live acceptance, review ×2) was launched and **all 8
+agents died on `You've hit your monthly spend limit`** after ~10 minutes and 259K subagent tokens,
+two of them mid-edit — which is where the half-finished `implementer.py` docstring and the
+partially-written `tests/test_orchestrator_switch_hooks.py` came from. The limit reset later in
+the same session and a leaner 4-agent re-run completed cleanly. Worth knowing for the driver: a
+workflow that dies this way leaves the tree in a state that *looks* like progress but whose
+docstrings can describe code that was never written — this session's `implementer.py` docstring
+claimed a delegation that did not exist until the second wave built it.
 
 ## Open questions
 

@@ -144,7 +144,7 @@ def sonnet_risky_reviewer(branch: str, task_id: str) -> tuple[bool, str]:
                 f"Task: {task_id}\nRisky files touched: {risky_touched}\n\nDiff:\n```\n{diff_snippet}\n```\n"
                 "Output JSON only."
             ),
-            model="claude-sonnet-4-6",
+            model="claude-sonnet-5",
         )
         if not raw:
             return False, "risky reviewer unavailable (CLI judge returned nothing)"

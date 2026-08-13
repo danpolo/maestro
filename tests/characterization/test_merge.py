@@ -480,7 +480,7 @@ def test_risky_reviewer_prompt_contract(subject, repo, monkeypatch):
     assert len(judge.calls) == 1
     call = judge.calls[0]
     assert set(call) == {"system", "user", "model"}
-    assert call["model"] == "claude-sonnet-4-6"
+    assert call["model"] in ("claude-sonnet-4-6", "claude-sonnet-5")
     assert "JSON" in call["system"]
     assert '"pass"' in call["system"]
     assert "T77" in call["user"]

@@ -32,7 +32,7 @@ REPO                  = _PATHS.repo
 # `claude -p --model claude-fable-5` returns an "unavailable" notice with rc=0),
 # so Opus 4.8 is the active judge. Restore Fable by setting JUDGE_MODEL =
 # "claude-fable-5" once Anthropic re-enables CLI access.
-JUDGE_MODEL = "claude-opus-4-8"
+JUDGE_MODEL = "claude-opus-5"
 
 # Skeptic guard (#2): before an UNATTENDED self-fix edits Maestro's own code, run a
 # second, INDEPENDENT pass framed to argue the failure is normal/transient. _diagnose_failure

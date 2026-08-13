@@ -38,6 +38,18 @@ after you exit, so do NOT try to finish the whole programme in this session. Com
 many stages as you can while your context stays under 150K, then update
 docs/PROGRESS.md, commit, and exit cleanly.
 
+This is a headless, one-shot `claude -p` process: once you stop generating, the process
+exits - there is no later turn in which a background task's completion notification can
+reach you. If you start a Workflow or any `run_in_background` command, you MUST poll/wait
+for it to finish and act on its result before ending your turn. Do NOT end your turn on
+work you expect to "report on later" - the harness gives background tasks a bounded grace
+period, then force-terminates them and exits the process, and nothing you started gets
+committed. (Observed 2026-08-12: a session fired off a 7-agent Workflow, signed off with
+"I'll report when it lands", and was killed 600s later mid-workflow, leaving
+docs/PROGRESS.md stale and the chain stalled for ~22h with no restart.) If a stage
+genuinely needs a multi-agent Workflow, either wait for it synchronously in this same
+turn, or don't start it and leave the stage for the next session in the chain instead.
+
 Before exiting you MUST set the PROGRAMME-STATUS line in docs/PROGRESS.md to exactly one
 of: IN-PROGRESS, COMPLETE, ABORTED. The driver reads that line to decide whether to
 relaunch you. Setting COMPLETE while stages remain pending silently ends the build.
@@ -99,8 +111,33 @@ except Exception:
 PYEOF
 }
 
-echo "[chain] $(ts) starting; repo=$REPO model=$MODEL max_iter=$MAX_ITER"
+determine_model() {
+    if [[ -n "${MAESTRO_MODEL:-}" ]]; then
+        echo "$MAESTRO_MODEL"
+        return
+    fi
+    python3 - <<'PYEOF'
+import re
+try:
+    progress = open("docs/PROGRESS.md", "r", encoding="utf-8").read()
+    m = re.search(r"\*\*Current stage:\*\*\s*(M\d+)", progress)
+    stage = m.group(1) if m else ""
+    
+    # Opus for heavy architecture/refactoring/core extraction/cutover stages
+    # Sonnet for standard implementation/testing/setup/doctor/validation stages
+    opus_stages = {"M1", "M2", "M5"}
+    if stage in opus_stages:
+        print("claude-opus-5")
+    else:
+        print("claude-sonnet-5")
+except Exception:
+    print("claude-sonnet-5")
+PYEOF
+}
+
+echo "[chain] $(ts) starting; repo=$REPO max_iter=$MAX_ITER"
 stale=0
+resume_next=0
 
 for i in $(seq 1 "$MAX_ITER"); do
     st="$(status)"
@@ -111,10 +148,31 @@ for i in $(seq 1 "$MAX_ITER"); do
 
     before="$(hash_p)"
     log="$LOGDIR/session-$(printf '%02d' "$i").log"
-    echo "[chain] $(ts) session $i starting -> $log"
+    model="$(determine_model)"
+    session_uuid_file="$LOGDIR/current_session_uuid"
 
-    claude -p --model "$MODEL" --dangerously-skip-permissions "$PROMPT" >"$log" 2>&1
-    echo "[chain] $(ts) session $i exited rc=$?"
+    if [[ "$resume_next" == "1" && -f "$session_uuid_file" ]]; then
+        curr_uuid="$(cat "$session_uuid_file")"
+        echo "[chain] $(ts) session $i resuming session $curr_uuid (model=$model) -> $log"
+        resume_prompt="The usage limit has reset. Please resume working on the current stage in docs/PROGRESS.md. Continue where you left off in the previous session."
+        claude -p --model "$model" --dangerously-skip-permissions --resume "$curr_uuid" "$resume_prompt" >"$log" 2>&1
+        rc=$?
+        echo "[chain] $(ts) session $i (resume) exited rc=$rc"
+        if grep -qiE "no conversation found|invalid session|session not found" "$log"; then
+            echo "[chain] $(ts) resume failed; launching fresh session"
+            curr_uuid=$(python3 -c 'import uuid; print(uuid.uuid4())')
+            echo "$curr_uuid" > "$session_uuid_file"
+            claude -p --model "$model" --dangerously-skip-permissions --session-id "$curr_uuid" "$PROMPT" >"$log" 2>&1
+            rc=$?
+        fi
+    else
+        curr_uuid=$(python3 -c 'import uuid; print(uuid.uuid4())')
+        echo "$curr_uuid" > "$session_uuid_file"
+        echo "[chain] $(ts) session $i starting fresh session $curr_uuid (model=$model) -> $log"
+        claude -p --model "$model" --dangerously-skip-permissions --session-id "$curr_uuid" "$PROMPT" >"$log" 2>&1
+        rc=$?
+        echo "[chain] $(ts) session $i exited rc=$rc"
+    fi
 
     # Check for a terminal status BEFORE the usage-limit scan below: a session that
     # legitimately finishes (COMPLETE/ABORTED) commonly narrates past limit hits in
@@ -141,9 +199,11 @@ for i in $(seq 1 "$MAX_ITER"); do
         wait_s="$(seconds_until_reset)"
         wake="$(date -u -d "+${wait_s} seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)"
         echo "[chain] $(ts) usage limit detected; sleeping ${wait_s}s (until ~$wake, per the reset time reported by the usage API)"
+        resume_next=1
         sleep "$wait_s"
         continue
     fi
+    resume_next=0
 
     # Stall guard: two consecutive sessions that change nothing means something is
     # wrong that another session will not fix. Stop rather than burn the night.

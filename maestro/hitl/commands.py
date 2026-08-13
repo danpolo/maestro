@@ -9,6 +9,13 @@ catalogued in `docs/found_bugs_inbox/commands.md` and pinned by
 `tests/characterization/test_commands.py`; none of them is fixed here — including the
 `REPO_ROOT` NameError on the `/reject` cleanup path, which is copied across as-is.
 
+**M2 adds the one deliberate divergence from the reference here:** the `/backend` verb
+(`docs/DESIGN.md` §7's manual switch trigger), its line in the `/help` sheet — the only
+place commands are advertised — and the backend segment `/progress` renders for an
+in-flight entry that carries one. An entry written before that key existed renders exactly
+as it did. The characterisation tests pin both sides: the reference's text for the legacy
+subject, this text for the maestro one.
+
 Nothing in this module talks to Telegram directly: `getUpdates` is fetched by shelling out
 to `curl` through the module's `subprocess` reference, and every reply goes through
 `notify_telegram`. The characterisation tests swap both rather than letting anything reach
@@ -22,6 +29,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from maestro.backends.registry import known_backends, normalise_name
 from maestro.docs.roadmap import (
     _load_roadmap_tasks,
     get_completed_task_ids,
@@ -41,6 +49,7 @@ from maestro.paths import Paths
 from maestro.pending import pending
 from maestro.quota import _elapsed_min, _elapsed_str, _fmt_min, _parse_est_minutes
 from maestro.state import append_journal, now_iso, read_json, read_state, write_state
+from maestro.switch import REASON_MANUAL, switch_task
 from maestro.worktree import TMUX_SESSION, _tail_tmux_pane, remove_worktree
 
 _PATHS = Paths.from_env()
@@ -92,7 +101,12 @@ def _build_progress_report() -> str:
         elapsed = _elapsed_str(started)
         task_def = get_task_by_id(tid) or {}
         est     = str(task_def.get("est_time", "")).strip()
-        header = f"• {tid} ({role}) {status} · elapsed {elapsed}"
+        # M2: entries launched (or switched) since the backend key exists say which agent
+        # is doing the work; an entry written before it — or hand-seeded — renders exactly
+        # as it always did, rather than advertising a "None" backend nobody chose.
+        backend = str(e.get("backend") or "").strip()
+        who = f"{role}/{backend}" if backend else str(role)
+        header = f"• {tid} ({who}) {status} · elapsed {elapsed}"
         if est:
             header += f" · est {est[:48]}"
         # Rough ETA when est_time carries a clean leading duration token.
@@ -116,7 +130,7 @@ def _build_progress_report() -> str:
 
 
 def poll_control_commands(in_flight: list) -> None:
-    """Poll Telegram getUpdates for /status /progress /pause /resume /halt /hitl /approve /reject /waiting /manual /detail commands from Dan."""
+    """Poll Telegram getUpdates for /status /progress /pause /resume /halt /hitl /backend /approve /reject /waiting /manual /detail commands from Dan."""
     global _getUpdates_offset
     token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
     chat_id = os.environ.get("TELEGRAM_ALERT_CHAT_ID", "")
@@ -164,6 +178,9 @@ def poll_control_commands(in_flight: list) -> None:
                     "/resume — resume after a /pause\n"
                     "/halt — write HALT sentinel; stop after current iteration\n"
                     "/hitl on|off — pause every task at the merge gate for review\n"
+                    "/backend <name> [task_id] — pick the agent backend for new launches, "
+                    "or move one in-flight task to it now (same worktree, uncommitted "
+                    "work kept)\n"
                     "/waiting — list tasks parked for your decision\n"
                     "/approve <id> — done & it worked: finalize/graduate a parked task\n"
                     "/fix <id> — agree with a failure diagnosis: have Maestro implement the "
@@ -255,6 +272,10 @@ def poll_control_commands(in_flight: list) -> None:
                     state["hitl_mode"] = False
                     write_state(state)
                     notify_telegram("✅ HITL mode OFF — tasks auto-merge after gates pass.")
+            elif text == "/backend" or text.startswith("/backend "):
+                # M2/D2: text_raw preserves the task id's case — task ids are
+                # case-sensitive and `text` has been lowercased.
+                _process_backend(text_raw[len("/backend"):].strip())
             elif text_raw and not text_raw.startswith("/"):
                 # B12: any non-command text is treated as a free-text answer to a
                 # pending Dan-request (notes, or an answer that isn't a listed option).
@@ -262,6 +283,118 @@ def poll_control_commands(in_flight: list) -> None:
 
     except Exception:
         pass  # Never let control-plane errors crash the main loop
+
+
+#: Where `/backend <name>` records the operator's choice for the *next* launch. It sits
+#: beside `hitl_mode` and `paused_by_user` because it is the same kind of thing: a runtime
+#: override of configured behaviour, owned by the state document rather than by
+#: `project.yaml`, so an operator decision made at 3am is not a config edit and does not
+#: outlive the run's state.
+BACKEND_KEY = "backend"
+
+#: The journal event a `/backend <name>` records, in the `control_*` family the other
+#: Telegram control verbs already use.
+BACKEND_EVENT = "control_backend"
+
+
+def _in_flight_entry(in_flight: list, task_id: str) -> dict | None:
+    """The in-flight entry for `task_id`, matched exactly first.
+
+    Task ids are case-sensitive, which is why `/backend` reads its argument off `text_raw`
+    rather than off the lowercased `text`. The case-insensitive second pass is a
+    convenience for an id typed by hand on a phone keyboard, and it runs *second* so an
+    exactly-matching id can never lose to one that only matches when folded.
+    """
+    wanted = str(task_id).strip()
+    for entry in in_flight:
+        if str(entry.get("task_id", "")).strip() == wanted:
+            return entry
+    folded = wanted.lower()
+    for entry in in_flight:
+        if str(entry.get("task_id", "")).strip().lower() == folded:
+            return entry
+    return None
+
+
+def _process_backend(arg: str) -> None:
+    """`/backend <name> [task_id]` — the manual switch trigger (D2, DESIGN.md §7).
+
+    With a name alone, the choice is recorded in the state document for future launches.
+    With a task id after it, that one in-flight task is handed over *now*, through the
+    single switch path in `maestro.switch`: the outgoing agent is asked to checkpoint, and
+    the incoming one is launched into the same worktree with the uncommitted work still
+    in it.
+
+    Every failure mode — no argument, an unknown backend, an unknown task id, a task
+    already on that backend, a switch that could not happen — is answered with a message
+    and returns. Nothing here raises: this runs inside the router's blanket
+    `except Exception: pass`, where an exception would not just lose this command, it
+    would silently drop the rest of the poll batch with it.
+    """
+    known = ", ".join(known_backends())
+    parts = arg.split()
+    if not parts:
+        notify_telegram(
+            f"Usage: /backend <name> [task_id]\n"
+            f"Known backends: {known}\n"
+            f"/backend <name> — new launches use it; "
+            f"/backend <name> <task_id> — move that task now."
+        )
+        return
+
+    name = normalise_name(parts[0])
+    if name not in known_backends():
+        notify_telegram(f"ℹ Unknown backend `{parts[0]}`. Known backends: {known}.")
+        return
+
+    if len(parts) == 1:
+        try:
+            state = read_state()
+            state[BACKEND_KEY] = name
+            write_state(state)
+            append_journal(BACKEND_EVENT, f"{name} selected via Telegram /backend")
+        except Exception as exc:
+            notify_telegram(f"⚠ Could not record the backend choice: {exc}")
+            return
+        notify_telegram(
+            f"✅ Backend set to {name} — new task launches will use it. Tasks already in "
+            f"flight keep the backend they started on; /backend {name} <task_id> moves one."
+        )
+        return
+
+    requested = parts[1]
+    try:
+        state = read_state()
+    except Exception as exc:
+        notify_telegram(f"⚠ Could not read the orchestrator state: {exc}")
+        return
+    in_flight = [e for e in state.get("in_flight", []) if isinstance(e, dict)]
+    entry = _in_flight_entry(in_flight, requested)
+    if entry is None:
+        ids = ", ".join(str(e.get("task_id", "?")) for e in in_flight) or "none"
+        notify_telegram(f"ℹ No task `{requested}` is in flight. In flight: {ids}.")
+        return
+
+    task_id = str(entry.get("task_id") or requested)
+    if normalise_name(entry.get(BACKEND_KEY)) == name:
+        notify_telegram(f"ℹ {task_id} is already running on {name}. Nothing to do.")
+        return
+
+    try:
+        outcome = switch_task(task_id, reason=REASON_MANUAL, entry=entry, to_backend=name)
+    except Exception as exc:
+        notify_telegram(f"⚠ Could not move {task_id} to {name}: {exc}")
+        return
+    if outcome.switched:
+        notify_telegram(
+            f"✅ {task_id} is now on {outcome.to_backend} — same worktree, uncommitted "
+            f"work kept. New session {outcome.new_session_id}."
+        )
+    else:
+        notify_telegram(
+            f"⚠ {task_id} stayed on {outcome.from_backend or 'its current backend'}: "
+            f"{outcome.note or 'the switch did not happen'}."
+        )
 
 
 def _process_fix(task_id: str) -> None:

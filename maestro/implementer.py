@@ -5,14 +5,54 @@ import block and the derivation of the module-level path globals differ. Brief t
 byte-identical to the reference. Behavioural surprises are catalogued in
 `docs/FOUND_BUGS.md` and pinned by `tests/characterization/test_implementer.py`; none of
 them is fixed here.
+
+**M2 changed exactly one thing (plan Task 6, step 1).** A *fresh* `launch_implementer`
+no longer spells an agent CLI's argv itself. It resolves a backend for the `implementer`
+role through `maestro.roles` and hands a `LaunchSpec` to that driver, which owns the
+three things a driver owns: build the invocation, generate `launch.py`, name the tmux
+window. Everything around it is unchanged and still pinned — the signature and its `None`
+return, the files a launch leaves in the workspace (`brief.txt`, `session_uuid.txt` and
+`launch.py` are all still written, by this module or by the driver; a driver may add its
+own sidecars beside them), the `implementer_model` journal record, the brief text, and
+the order in which all of that happens.
+
+Model selection also stays here, with one addition: `model:` in a task's ROADMAP block
+selects from `IMPLEMENTER_MODELS`, which is an allowlist of *Claude* model ids, so a
+model configured for the resolved backend under `roles.implementer.models` wins over it.
+A Claude model id means nothing to another CLI, and a project that writes that
+configuration has said what that backend runs.
+
+Two deliberate non-changes:
+
+* **No backend name is compared anywhere here.** Which driver runs is a name that comes
+  out of configuration and goes straight into `maestro.backends.registry`; what that
+  driver can do is read off `capabilities()` (the system-prompt file is offered only to a
+  driver that declares `system_prompt_file`) and off its own constructor (a session-uuid
+  factory is injected only into a driver that declares one, because only a driver that
+  owns a uuid has anywhere to put it). `tests/test_no_name_branching.py` enforces this
+  mechanically.
+* **The quota-reset resume path is not delegated.** `maestro.quota` parks a task with the
+  session uuid this module writes, and a resumed run must land in the *same* workspace
+  with its argv in the *same* `launch.py` — the drivers write a resume launcher under
+  their own name, beside the launch one, which is right for a mid-work backend switch
+  (`maestro.switch`, which owns relaunching into a *new* workspace) and wrong for
+  resuming in place. So the resume branch below still spells the reference CLI's
+  `--resume` invocation inline, under the resolved model — which is coherent exactly as
+  long as the resolved backend is the one that wrote the session, and that is the same
+  unreconciled gap, not a second one. Reconciling them is left explicit rather than done
+  silently; see `docs/plans/2026-08-12-m2-backends.md`.
 """
 from __future__ import annotations
 
+import inspect
 import json
 import subprocess
 import uuid
 from pathlib import Path
 
+from maestro import roles
+from maestro.backends import registry
+from maestro.backends.base import LaunchSpec
 from maestro.paths import Paths
 from maestro.state import append_journal
 from maestro.worktree import TMUX_SESSION
@@ -347,6 +387,51 @@ def resolve_implementer_model(task: dict) -> str:
     return _DEFAULT_IMPLEMENTER_MODEL
 
 
+def _driver_kwargs(cls: type, **optional) -> dict:
+    """The subset of `optional` that `cls`'s constructor actually declares.
+
+    Drivers differ in what they let a caller inject — one takes a session-uuid factory
+    because it owns a uuid, the other has no uuid to own — and this module must not
+    decide which is which by name. Asking the constructor what it accepts keeps the
+    answer with the driver, where it belongs.
+    """
+    try:
+        accepted = inspect.signature(cls).parameters
+    except (TypeError, ValueError):  # pragma: no cover - a driver with no introspectable ctor
+        return {}
+    return {name: value for name, value in optional.items() if name in accepted}
+
+
+def _implementer_backend() -> tuple[str, dict]:
+    """(backend name, its configured models) for the `implementer` role.
+
+    One read of `project.yaml`, and the same answer `maestro.roles.backend_for` — and so
+    `orchestrator._launch_backend`, which stamps the `in_flight` entry — resolves to when
+    nothing has been probed: with no availability measured and nothing exhausted,
+    `roles.resolve` returns the role's configured backend unchanged. Resolution degrades
+    to the default backend on every malformed input rather than raising, so a typo in the
+    `roles:` block cannot stop a launch.
+    """
+    settings = roles.role_config(roles.ROLE_IMPLEMENTER)
+    return settings.backend, dict(settings.models)
+
+
+def _implementer_driver(backend: str, session_uuid: str):
+    """The driver for `backend`, told where this orchestrator's python and tmux live.
+
+    `VENV_PYTHON` and `TMUX_SESSION` are the *orchestrator's*, not the driver's, so they
+    are passed in rather than left to the driver's own module globals — which is also
+    what keeps a launch inside a test sandbox from reaching the real repository.
+    """
+    cls = registry.driver_class(backend)
+    return cls(**_driver_kwargs(
+        cls,
+        python=VENV_PYTHON,
+        tmux_session=TMUX_SESSION,
+        new_session_id=lambda: session_uuid,
+    ))
+
+
 def launch_implementer(task: dict, session_id: str, workspace: Path,
                        worktree: Path, retry_note: str = "",
                        resume: bool = False, session_uuid: str = "") -> None:
@@ -355,13 +440,14 @@ def launch_implementer(task: dict, session_id: str, workspace: Path,
     brief_file = workspace / "brief.txt"
     if not resume or not brief_file.exists():
         brief_file.write_text(_make_brief(task, workspace, worktree, retry_note), encoding="utf-8")
-    sys_prompt_line = (f"    '--system-prompt-file', r'{SYS_PROMPT}',\n"
-                       if SYS_PROMPT.exists() else "")
 
+    backend, backend_models = _implementer_backend()
     model_id = resolve_implementer_model(task)
+    model_id = backend_models.get(backend) or model_id
     raw_key  = task.get("model")
     model_key = raw_key.lower().strip() if isinstance(raw_key, str) else (raw_key or "")
-    print(f"  [model] {task_id}: model_key={model_key!r} → {model_id} (resume={resume})")
+    print(f"  [model] {task_id}: model_key={model_key!r} → {model_id} "
+          f"on {backend} (resume={resume})")
     append_journal("implementer_model", f"{task_id} model={model_id}")
 
     sess_uuid = session_uuid
@@ -375,10 +461,10 @@ def launch_implementer(task: dict, session_id: str, workspace: Path,
         resume = False
 
     (workspace / "session_uuid.txt").write_text(sess_uuid, encoding="utf-8")
-    impl_log = workspace / "impl.log"
-    launch_py = workspace / "launch.py"
 
     if resume:
+        impl_log = workspace / "impl.log"
+        launch_py = workspace / "launch.py"
         resume_prompt_file = workspace / "resume_prompt.txt"
         resume_prompt = (
             f"The Claude usage limit has reset. Resume working on task {task_id}: {task.get('title', '')}.\n"
@@ -395,21 +481,26 @@ def launch_implementer(task: dict, session_id: str, workspace: Path,
             "log.flush()\nlog.close()\n",
             encoding="utf-8",
         )
+        launch_py.chmod(0o755)
+        tmux_cmd = (f"tmux new-window -t {TMUX_SESSION} -n {window} "
+                    f"'cd {worktree} && {VENV_PYTHON} {launch_py}'")
+        subprocess.run(tmux_cmd, shell=True, check=True)
     else:
-        launch_py.write_text(
-            "import subprocess\nfrom pathlib import Path\n"
-            f"brief = Path(r'{brief_file}').read_text()\n"
-            f"log = open(r'{impl_log}', 'w', encoding='utf-8')\n"
-            f"subprocess.run([\n    'claude', '-p',\n    '--model', '{model_id}',\n"
-            f"    '--session-id', r'{sess_uuid}',\n"
-            f"{sys_prompt_line}    brief,\n], stdout=log, stderr=subprocess.STDOUT)\n"
-            "log.flush()\nlog.close()\n",
-            encoding="utf-8",
-        )
-    launch_py.chmod(0o755)
-    tmux_cmd = (f"tmux new-window -t {TMUX_SESSION} -n {window} "
-                f"'cd {worktree} && {VENV_PYTHON} {launch_py}'")
-    subprocess.run(tmux_cmd, shell=True, check=True)
+        driver = _implementer_driver(backend, sess_uuid)
+        offers_system_prompt = driver.capabilities().system_prompt_file
+        handle = driver.launch(LaunchSpec(
+            task_id=task_id,
+            session_id=session_id,
+            model=model_id,
+            brief=brief_file.read_text(encoding="utf-8"),
+            workspace=workspace,
+            worktree=worktree,
+            system_prompt_file=SYS_PROMPT if offers_system_prompt else None,
+        ))
+        # A handle's window may or may not be session-qualified; the bare name is what
+        # tmux was given and what `in_flight` and `_kill_tmux_window` compare against.
+        window = str(handle.window or "").rsplit(":", 1)[-1] or window
+
     action_verb = "Resumed" if resume else "Launched"
     print(f"  ✓ {action_verb} {task_id} → tmux {TMUX_SESSION}:{window}")
 

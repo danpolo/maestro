@@ -30,11 +30,13 @@ SEND_DANREQ           = REPO / "scripts" / "send_dan_request.py"
 # setting `model: haiku` in their ROADMAP.md yaml block. Unknown/missing values
 # fall safe to Sonnet (never crash, never silently use a wrong model).
 IMPLEMENTER_MODELS: dict[str, str] = {
-    "haiku":  "claude-haiku-4-5",
-    "sonnet": "claude-sonnet-4-6",
-    "opus":   "claude-opus-4-8",
+    "haiku":    "claude-haiku-4-5",
+    "sonnet":   "claude-sonnet-5",
+    "sonnet5":  "claude-sonnet-5",
+    "opus":     "claude-opus-5",
+    "opus5":    "claude-opus-5",
 }
-_DEFAULT_IMPLEMENTER_MODEL = "claude-sonnet-4-6"
+_DEFAULT_IMPLEMENTER_MODEL = "claude-sonnet-5"
 
 
 # ── B12: pre-implementation question gating ──
@@ -301,47 +303,115 @@ def _make_prep_brief(task: dict, workspace: Path, worktree: Path, retry_note: st
     )
 
 
+IMPLEMENTER_MODELS: dict[str, str] = {
+    "haiku":  "claude-haiku-4-5",
+    "sonnet": "claude-sonnet-5",
+    "opus":   "claude-opus-5",
+}
+_DEFAULT_IMPLEMENTER_MODEL = "claude-sonnet-5"
+
+
+# ── B12: pre-implementation question gating ──
+# A task may declare a `questions:` block in its ROADMAP yaml. Each question must
+# be answered by Dan (via Telegram) BEFORE an implementer is launched; the answers
+# are then injected into the implementer brief. This lets info-gathering tasks
+# (e.g. "which models?") auto-dispatch once Dan answers — replacing the old
+# dispatch:manual workaround for that class. dispatch:manual is retained only for
+# genuinely non-delegable physical work (Colab/GPU runs, prod downtime windows).
+
+def resolve_implementer_model(task: dict) -> str:
+    """Resolve the implementer model for a task, right-sizing model selection."""
+    raw_model = task.get("model")
+    if isinstance(raw_model, str):
+        model_key = raw_model.lower().strip()
+        if model_key in ("opus5", "claude-opus-5"):
+            return IMPLEMENTER_MODELS["opus"]
+        if model_key in ("sonnet5", "claude-sonnet-5"):
+            return IMPLEMENTER_MODELS["sonnet"]
+        if model_key in IMPLEMENTER_MODELS:
+            return IMPLEMENTER_MODELS[model_key]
+        if raw_model.strip() in IMPLEMENTER_MODELS.values():
+            return raw_model.strip()
+        return _DEFAULT_IMPLEMENTER_MODEL
+    elif raw_model:
+        # Falsy/non-string values: call .lower() to raise AttributeError as characterization expects
+        raw_model.lower()
+
+    title = str(task.get("title") or "").lower()
+    desc  = str(task.get("short_desc") or "").lower()
+    text  = f"{title} {desc}"
+    opus_keywords = ("architecture", "refactor", "engine", "core extraction", "cutover", "redesign", "protocol")
+    if any(kw in text for kw in opus_keywords):
+        return IMPLEMENTER_MODELS["opus"]
+
+    return _DEFAULT_IMPLEMENTER_MODEL
+
+
 def launch_implementer(task: dict, session_id: str, workspace: Path,
-                       worktree: Path, retry_note: str = "") -> None:
+                       worktree: Path, retry_note: str = "",
+                       resume: bool = False, session_uuid: str = "") -> None:
     task_id    = task["id"]
     window     = f"impl-{task_id}"
     brief_file = workspace / "brief.txt"
-    brief_file.write_text(_make_brief(task, workspace, worktree, retry_note), encoding="utf-8")
+    if not resume or not brief_file.exists():
+        brief_file.write_text(_make_brief(task, workspace, worktree, retry_note), encoding="utf-8")
     sys_prompt_line = (f"    '--system-prompt-file', r'{SYS_PROMPT}',\n"
                        if SYS_PROMPT.exists() else "")
-    # B8: per-task model right-sizing. Tasks may set `model: haiku/sonnet/opus`
-    # in their ROADMAP.md yaml block; unknown/absent values fall safe to Sonnet.
-    model_key    = (task.get("model") or "").lower().strip()
-    model_id     = IMPLEMENTER_MODELS.get(model_key, _DEFAULT_IMPLEMENTER_MODEL)
-    print(f"  [model] {task_id}: model_key={model_key!r} → {model_id}")
+
+    model_id = resolve_implementer_model(task)
+    raw_key  = task.get("model")
+    model_key = raw_key.lower().strip() if isinstance(raw_key, str) else (raw_key or "")
+    print(f"  [model] {task_id}: model_key={model_key!r} → {model_id} (resume={resume})")
     append_journal("implementer_model", f"{task_id} model={model_id}")
-    # F: a fixed, resumable Claude session id per launch. Pass it to `claude -p
-    # --session-id` so a manual task's prep session can later be resumed by /ask
-    # (`claude -p --resume <uuid>`). Persisted to session_uuid.txt for park_for_dan.
-    sess_uuid = str(uuid.uuid4())
+
+    sess_uuid = session_uuid
+    if resume and not sess_uuid:
+        try:
+            sess_uuid = (workspace / "session_uuid.txt").read_text(encoding="utf-8").strip()
+        except Exception:
+            sess_uuid = ""
+    if not sess_uuid:
+        sess_uuid = str(uuid.uuid4())
+        resume = False
+
     (workspace / "session_uuid.txt").write_text(sess_uuid, encoding="utf-8")
-    # A: capture the implementer's stdout+stderr to impl.log. Without this, an
-    # implementer that dies on launch (e.g. `claude -p` exits printing "You've hit
-    # your limit") leaves NO trace — the tmux window just closes — and reconcile
-    # can only report "window gone, no sentinel". impl.log is the reactive net that
-    # B (usage-limit backoff) and C/D (diagnosis) read after the fact.
     impl_log = workspace / "impl.log"
     launch_py = workspace / "launch.py"
-    launch_py.write_text(
-        "import subprocess\nfrom pathlib import Path\n"
-        f"brief = Path(r'{brief_file}').read_text()\n"
-        f"log = open(r'{impl_log}', 'w', encoding='utf-8')\n"
-        f"subprocess.run([\n    'claude', '-p',\n    '--model', '{model_id}',\n"
-        f"    '--session-id', r'{sess_uuid}',\n"
-        f"{sys_prompt_line}    brief,\n], stdout=log, stderr=subprocess.STDOUT)\n"
-        "log.flush()\nlog.close()\n",
-        encoding="utf-8",
-    )
+
+    if resume:
+        resume_prompt_file = workspace / "resume_prompt.txt"
+        resume_prompt = (
+            f"The Claude usage limit has reset. Resume working on task {task_id}: {task.get('title', '')}.\n"
+            "Continue from where you left off, verify progress made so far, and complete remaining deliverables."
+        )
+        resume_prompt_file.write_text(resume_prompt, encoding="utf-8")
+        launch_py.write_text(
+            "import subprocess\nfrom pathlib import Path\n"
+            f"brief = Path(r'{resume_prompt_file}').read_text()\n"
+            f"log = open(r'{impl_log}', 'a', encoding='utf-8')\n"
+            f"subprocess.run([\n    'claude', '-p',\n    '--model', '{model_id}',\n"
+            f"    '--resume', r'{sess_uuid}',\n"
+            "    brief,\n], stdout=log, stderr=subprocess.STDOUT)\n"
+            "log.flush()\nlog.close()\n",
+            encoding="utf-8",
+        )
+    else:
+        launch_py.write_text(
+            "import subprocess\nfrom pathlib import Path\n"
+            f"brief = Path(r'{brief_file}').read_text()\n"
+            f"log = open(r'{impl_log}', 'w', encoding='utf-8')\n"
+            f"subprocess.run([\n    'claude', '-p',\n    '--model', '{model_id}',\n"
+            f"    '--session-id', r'{sess_uuid}',\n"
+            f"{sys_prompt_line}    brief,\n], stdout=log, stderr=subprocess.STDOUT)\n"
+            "log.flush()\nlog.close()\n",
+            encoding="utf-8",
+        )
     launch_py.chmod(0o755)
     tmux_cmd = (f"tmux new-window -t {TMUX_SESSION} -n {window} "
                 f"'cd {worktree} && {VENV_PYTHON} {launch_py}'")
     subprocess.run(tmux_cmd, shell=True, check=True)
-    print(f"  ✓ Launched {task_id} → tmux {TMUX_SESSION}:{window}")
+    action_verb = "Resumed" if resume else "Launched"
+    print(f"  ✓ {action_verb} {task_id} → tmux {TMUX_SESSION}:{window}")
 
 
 def _synthesize_sentinel(workspace: Path) -> str:

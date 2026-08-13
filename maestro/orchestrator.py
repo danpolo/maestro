@@ -1079,25 +1079,43 @@ def main() -> int:
                     waiting_task_ids.add(task_id)  # dedup within this same cycle
                 continue
 
-            ts_str    = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
-            sid       = f"impl-{task_id}-{ts_str}"
-            workspace = WORKSPACES / sid
-            workspace.mkdir(parents=True, exist_ok=True)
-            branch    = f"impl-{task_id.lower()}-{ts_str}"
-            worktree  = worktree_path_for(task_id)
-            print(f"\n  [launch] {task_id}: {task.get('title','')}")
-            try:
-                create_worktree(task_id, worktree, branch)
-            except subprocess.CalledProcessError as exc:
-                # Park (idempotent → escalates to Dan exactly once) instead of a bare
-                # continue. A bare continue retried every poll and re-sent the Telegram
-                # "Starting" line each time — the TUNE1 spam-storm of 2026-06-26.
-                print(f"  [error] Worktree creation failed for {task_id}: {exc}")
-                append_journal("worktree_create_failed", f"{task_id} {str(exc)[:160]}")
-                park_failed(task_id, f"Worktree creation failed: {str(exc)[:200]}")
-                continue
+            resumable_tasks = read_state().get("resumable_tasks", {})
+            resumable_info  = resumable_tasks.get(task_id)
+            is_resume       = False
+            sess_uuid       = ""
+
+            if resumable_info and (WORKSPACES / resumable_info.get("session_id", "")).exists():
+                sid       = resumable_info["session_id"]
+                workspace = WORKSPACES / sid
+                worktree  = worktree_path_for(task_id)
+                sess_uuid = resumable_info.get("session_uuid", "")
+                branch    = f"impl-{task_id.lower()}-resumed"
+                is_resume = True
+                print(f"\n  [resume] {task_id}: resuming previous session {sid} (uuid={sess_uuid})")
+                (workspace / "USAGE_LIMIT_PARKED").unlink(missing_ok=True)
+                if not worktree.exists():
+                    try:
+                        create_worktree(task_id, worktree, branch)
+                    except Exception:
+                        pass
+            else:
+                ts_str    = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+                sid       = f"impl-{task_id}-{ts_str}"
+                workspace = WORKSPACES / sid
+                workspace.mkdir(parents=True, exist_ok=True)
+                branch    = f"impl-{task_id.lower()}-{ts_str}"
+                worktree  = worktree_path_for(task_id)
+                print(f"\n  [launch] {task_id}: {task.get('title','')}")
+                try:
+                    create_worktree(task_id, worktree, branch)
+                except subprocess.CalledProcessError as exc:
+                    print(f"  [error] Worktree creation failed for {task_id}: {exc}")
+                    append_journal("worktree_create_failed", f"{task_id} {str(exc)[:160]}")
+                    park_failed(task_id, f"Worktree creation failed: {str(exc)[:200]}")
+                    continue
+
             # Notify only after the worktree exists, so a failure never spams Telegram.
-            _verb = "Preparing" if task.get("dispatch") == "manual" else "Starting"
+            _verb = "Resuming" if is_resume else ("Preparing" if task.get("dispatch") == "manual" else "Starting")
             notify_telegram(f"▶ {_verb} {task_id}: {task.get('title','')}")
 
             # B8: kind:script — zero-LLM deterministic execution path.
@@ -1148,8 +1166,6 @@ def main() -> int:
                     for v in task_verifs:
                         vid  = v.get("id", "V1")
                         kind = v.get("kind", "auto")
-                        # For auto items the gate re-runs the check itself; supply raw stdout
-                        # so proof is non-empty. For manual items, supply captured stdout.
                         verif_proofs[vid] = {"proof": script_stdout[:600]}
                     result_obj = {
                         "summary":       f"Script task completed. exit=0",
@@ -1168,9 +1184,6 @@ def main() -> int:
                     (workspace / "FAILED").write_text(fail_reason)
                     print(f"  [script] {task_id}: FAILED — {fail_reason[:120]}")
                     append_journal("script_task_failed", f"{task_id} {fail_reason[:120]}", session_id=sid)
-                    # A deterministic script won't be fixed by re-running, and the gate's
-                    # retry path would relaunch it as an LLM implementer (no real brief —
-                    # the very tokens this path exists to save). Park for Dan instead.
                     park_failed(task_id, fail_reason)
                     remove_worktree(worktree)
                     run_dep_map()
@@ -1185,7 +1198,7 @@ def main() -> int:
                 in_flight.append(new_entry)
                 running_task_ids.add(task_id)
                 launch_times[sid] = time.time()
-                _persist_launch_time(sid, launch_times[sid])  # Bug #2
+                _persist_launch_time(sid, launch_times[sid])
                 state = read_state()
                 state["in_flight"] = state.get("in_flight", []) + [new_entry]
                 state["phase"]     = {"id": task_id, "title": task.get("title", ""),
@@ -1194,12 +1207,18 @@ def main() -> int:
                 write_state(state)
                 free_slots  -= 1
                 launched_any = True
-                claimed_this_cycle |= _resource_set(task)  # B8: hold this label for the rest of the cycle
+                claimed_this_cycle |= _resource_set(task)
                 run_dep_map()
                 run_status()
                 continue
 
-            launch_implementer(task, sid, workspace, worktree)
+            launch_implementer(task, sid, workspace, worktree, resume=is_resume, session_uuid=sess_uuid)
+            if is_resume:
+                st = read_state()
+                rt = st.get("resumable_tasks", {})
+                rt.pop(task_id, None)
+                st["resumable_tasks"] = rt
+                write_state(st)
             new_entry = {
                 "session_id": sid, "task_id": task_id, "role": "implementer",
                 "worktree": str(worktree), "window": f"impl-{task_id}",

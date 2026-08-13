@@ -87,9 +87,9 @@ KNOWN_ROLES: tuple[str, ...] = (ROLE_IMPLEMENTER, ROLE_JUDGE, ROLE_DIAGNOSER)
 #: `None`, which means "let the backend choose its own default model" — inventing a
 #: model id for a tool we have not verified would be worse than omitting the flag.
 DEFAULT_MODELS: dict[str, dict[str, str]] = {
-    ROLE_IMPLEMENTER: {registry.DEFAULT_BACKEND: "claude-sonnet-4-6"},
-    ROLE_JUDGE: {registry.DEFAULT_BACKEND: "claude-sonnet-4-6"},
-    ROLE_DIAGNOSER: {registry.DEFAULT_BACKEND: "claude-opus-4-8"},
+    ROLE_IMPLEMENTER: {registry.DEFAULT_BACKEND: "claude-sonnet-5"},
+    ROLE_JUDGE: {registry.DEFAULT_BACKEND: "claude-sonnet-5"},
+    ROLE_DIAGNOSER: {registry.DEFAULT_BACKEND: "claude-opus-5"},
 }
 
 #: Top-level project.yaml keys this module reads.

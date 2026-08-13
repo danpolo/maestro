@@ -114,7 +114,7 @@ def sonnet_review_proofs(task_id: str, verifications: list[dict],
     )
     try:
         r = subprocess.run(
-            ["claude", "-p", "--model", "claude-sonnet-4-6", prompt],
+            ["claude", "-p", "--model", "claude-sonnet-5", prompt],
             capture_output=True, text=True, timeout=120, cwd=str(REPO)
         )
         if r.returncode != 0:

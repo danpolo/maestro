@@ -25,6 +25,12 @@ from pathlib import Path
 
 import yaml  # PyYAML
 
+from maestro.backends.registry import (
+    backend_binary,
+    get_backend,
+    known_backends,
+    normalise_name,
+)
 from maestro.docs.roadmap import (
     get_completed_task_ids,
     get_task_by_id,
@@ -72,6 +78,12 @@ from maestro.quota import (
     _tail_text,
     get_effective_cap,
 )
+from maestro.roles import (
+    ROLE_IMPLEMENTER,
+    backend_for,
+    fallback_backend,
+    normalise_role,
+)
 from maestro.selfheal.diagnose import _judge_complete
 from maestro.selfheal.redo import apply_ready_redo
 from maestro.selfheal.selffix import apply_ready_self_fixes
@@ -81,6 +93,13 @@ from maestro.state import (
     now_iso,
     read_state,
     write_state,
+)
+from maestro.switch import (
+    REASON_QUOTA,
+    REASON_THRESHOLD,
+    SWITCH_THRESHOLD_PCT,
+    switch_task,
+    threshold_crossed,
 )
 from maestro.worktree import (
     TMUX_SESSION,
@@ -499,6 +518,197 @@ def _timeout_expired(entry: dict, launch_times: dict) -> bool:
     return True
 
 
+# ── Backend switching (M2 — DESIGN.md §7, D2/D3) ──
+#
+# Two of this loop's waiting paths become switching paths, but only when another backend
+# can genuinely take the work: the proactive usage threshold in `main` and the reactive
+# usage-limit net in `reconcile_in_flight`. Everything below is written so that "no, it
+# cannot" is an ordinary answer returned as `None`/`0` rather than an exception — a switch
+# that cannot happen must leave the pre-existing throttle/pause behaviour byte-for-byte
+# as it was, because that behaviour is what keeps the loop safe when there is nowhere
+# else to go.
+
+
+def _available_backends() -> tuple[str, ...] | None:
+    """The backends whose CLI is installed, or `None` when that could not be measured.
+
+    `None` is not "none of them": `maestro.roles` reads it as "nobody looked, assume
+    installed", which is the right default for a probe that failed. Discovery is cached
+    inside the registry, so this costs one `--version` probe per binary per process — and
+    it is only ever reached on a path that was otherwise about to stop launching work.
+    """
+    try:
+        return tuple(
+            name for name in known_backends() if backend_binary(name) is not None
+        )
+    except Exception:
+        return None
+
+
+def _launch_backend() -> str:
+    """The backend a fresh `launch_implementer` call runs on, per `maestro.roles`.
+
+    Pure configuration resolution — no binary probe, no subprocess — so recording it on
+    an `in_flight` entry cannot slow a launch site down or fail one. `""` when resolution
+    itself breaks: an unknown backend is better than a wrong one.
+    """
+    try:
+        return backend_for(ROLE_IMPLEMENTER)
+    except Exception:
+        return ""
+
+
+def _entry_backend(entry: dict) -> str:
+    """The backend an `in_flight` entry is running on.
+
+    Entries written before M2 (and any an operator hand-edits) carry no `backend` key, so
+    the configured default for the role stands in.
+    """
+    return normalise_name(entry.get("backend")) or _launch_backend()
+
+
+def _backends_tried(entry: dict) -> tuple[str, ...]:
+    """Backends this task has already been switched away from, oldest first.
+
+    A switch is not free — it stops an agent and starts another — so a task must not be
+    handed back to a backend that already ran out of room for it. Without this the two
+    triggers ping-pong: the loop's `five_pct` reading is about the backend it launched
+    on, a driver that cannot sample its own usage answers "no reading" (G6), and
+    `_under_usage_pressure` then reads that as pressure on *every* backend, switching the
+    same task back and forth once per poll and losing its progress each time.
+
+    The consequence is deliberate and conservative: once a task has been round the
+    fallback chain it stops switching and takes the ordinary pause, even if the first
+    backend's window has since reset. Waiting is always safe; relaunching in a loop is
+    not.
+    """
+    raw = entry.get("backends_tried")
+    if not isinstance(raw, (list, tuple)):
+        return ()
+    seen: list[str] = []
+    for value in raw:
+        name = normalise_name(value)
+        if name and name not in seen:
+            seen.append(name)
+    return tuple(seen)
+
+
+def _handover_ready(entry: dict) -> bool:
+    """True when this entry is one a switch could actually move.
+
+    Two preconditions, both load-bearing:
+
+    * it must be an implementer — a script task runs no agent, so it has no session to
+      hand to another backend;
+    * its worktree must still be on disk. Preserving the uncommitted work in that
+      worktree is the whole point of D3; with the worktree gone there is nothing to hand
+      over and the "switch" would quietly become a fresh start elsewhere, which is
+      strictly worse than the wait it replaced.
+    """
+    if normalise_role(entry.get("role")) != ROLE_IMPLEMENTER:
+        return False
+    worktree = str(entry.get("worktree") or "")
+    return bool(worktree) and Path(worktree).is_dir()
+
+
+def _under_usage_pressure(backend: str, five_pct: float) -> bool:
+    """True when `backend` is the one this loop's usage reading is about.
+
+    `get_effective_cap` returns a single number that says nothing about which backend
+    produced it, so a backend that can sample its own usage is asked directly: a task
+    running somewhere with quota to spare must not be moved onto the backend that is
+    running out. Capability-gated, never name-gated. A driver that declares no usage
+    telemetry, or that has no sample to give, falls back to this loop's reading — "not
+    measurable" is never evidence of no pressure (G6).
+    """
+    sample = None
+    try:
+        driver = get_backend(backend)
+        if driver.capabilities().usage_telemetry:
+            sample = driver.usage()
+    except Exception:
+        sample = None
+    if sample is None:
+        return five_pct >= SWITCH_THRESHOLD_PCT
+    return threshold_crossed(sample)
+
+
+def _switch_instead_of_waiting(entry: dict, reason: str,
+                               launch_times: dict | None = None) -> dict | None:
+    """Hand one task to a fallback backend rather than wait for this one to recover.
+
+    Returns the replacement `in_flight` entry, or `None` when nothing moved — no
+    fallback, nothing worth handing over, or the switch itself failed. `None` is the
+    caller's signal to keep doing exactly what it did before M2. The relaunch happens in
+    the *same* worktree (`maestro.switch` never calls `create_worktree`), so uncommitted
+    work survives the move.
+    """
+    if not _handover_ready(entry):
+        return None
+    available = _available_backends()
+    current   = _entry_backend(entry)
+    tried     = _backends_tried(entry)
+    if not fallback_backend(ROLE_IMPLEMENTER, current, available=available,
+                            exhausted=tried):
+        return None
+    task_id = entry.get("task_id", "")
+    sid     = entry.get("session_id", "")
+    # The outgoing backend joins the exhausted set *before* the switch, and `switch_task`
+    # copies unknown keys onto the entry it returns, so the record travels with the task.
+    handover = dict(entry)
+    handover["backends_tried"] = [*tried, current] if current not in tried else list(tried)
+    try:
+        outcome = switch_task(task_id, reason=reason, entry=handover,
+                              from_backend=current, available=available,
+                              exhausted=tried)
+    except Exception as exc:
+        # A switch is an optimisation over waiting; failing at it must never cost the
+        # loop the pause it was going to take instead.
+        print(f"  [switch] {task_id}: switch failed — {exc}")
+        append_journal("backend_switch_failed",
+                       f"{task_id} from={current} reason={reason} error={exc}"[:300],
+                       session_id=sid)
+        return None
+    if not outcome.switched or not outcome.entry:
+        return None
+
+    new_entry = outcome.entry
+    new_sid   = new_entry.get("session_id", "")
+    if launch_times is not None and new_sid:
+        launch_times.pop(sid, None)
+        launch_times[new_sid] = time.time()
+        _persist_launch_time(new_sid, launch_times[new_sid])
+    print(f"  [switch] {task_id}: {current} → {outcome.to_backend} ({reason}) "
+          f"in the same worktree {new_entry.get('worktree')}")
+    return new_entry
+
+
+def _threshold_switches(in_flight: list, launch_times: dict, five_pct: float) -> int:
+    """Move in-flight work off a backend under quota pressure. Returns how many moved.
+
+    Zero — the common answer — means the caller throttles and pauses exactly as it did
+    before M2. Below the switch threshold this costs one float comparison and reaches no
+    backend at all, so the ordinary poll is unaffected.
+    """
+    if not in_flight or five_pct < SWITCH_THRESHOLD_PCT:
+        return 0
+    moved = 0
+    for entry in list(in_flight):
+        if not _handover_ready(entry):
+            continue
+        if not _under_usage_pressure(_entry_backend(entry), five_pct):
+            continue
+        new_entry = _switch_instead_of_waiting(entry, REASON_THRESHOLD, launch_times)
+        if new_entry is None:
+            continue
+        in_flight[:] = [e for e in in_flight
+                        if e.get("session_id") not in (entry.get("session_id"),
+                                                       new_entry.get("session_id"))]
+        in_flight.append(new_entry)
+        moved += 1
+    return moved
+
+
 def reconcile_in_flight(state: dict, launch_times: dict) -> list:
     """Reconcile in_flight entries against live tmux windows + workspace sentinels.
 
@@ -581,6 +791,18 @@ def reconcile_in_flight(state: dict, launch_times: dict) -> list:
             # and relaunches fresh on resume, retry_counts untouched.
             scan = _scan_impl_log_for_limit(workspace)
             if scan["limit"]:
+                # M2/D3 — a limit on one backend is only a reason to pause everything if
+                # no other backend can take this task. When one can, the work moves
+                # instead of waiting for the reset: same worktree, uncommitted changes
+                # intact, a fresh session on the fallback. `_switch_instead_of_waiting`
+                # answers `None` whenever that is not possible, and the pause below then
+                # runs exactly as it always has.
+                moved = _switch_instead_of_waiting(entry, REASON_QUOTA, launch_times)
+                if moved is not None:
+                    print(f"  [reconcile] {task_id}: usage limit on exit — switched to "
+                          f"{moved.get('backend')} (no pause, no retry burned)")
+                    surviving.append(moved)
+                    continue
                 _pause_for_usage_limit(task_id, scan["reset_iso"], scan["evidence"], workspace)
                 print(f"  [reconcile] {task_id}: usage limit on exit — paused until "
                       f"{scan['reset_iso']} (no retry burned)")
@@ -623,6 +845,7 @@ def _do_retry(task_id: str, entry: dict, reason: str,
             "session_id": new_sid, "task_id": task_id, "role": "implementer",
             "worktree": str(worktree), "window": f"impl-{task_id}",
             "branch": new_branch, "started_at": now_iso(), "status": "running",
+            "backend": _launch_backend(),   # M2: which backend this retry actually runs on
         }
         in_flight.append(new_entry)
         state = read_state()
@@ -758,15 +981,22 @@ def main() -> int:
         maybe_push_roadmap_map_change()
 
         cap, five_pct = get_effective_cap()
-        if cap != prev_cap:
-            if prev_cap >= 0 and cap < CONCURRENCY_CAP:
-                append_journal("concurrency_throttled", f"cap={cap} five_h={five_pct:.0f}%")
-                print(f"  [throttle] Concurrency cap={cap} (5h={five_pct:.0f}%)")
-            prev_cap = cap
-        if cap == 0:
-            print(f"  [throttle] 5h={five_pct:.0f}% >= {PAUSE_92_PCT}% — pausing.")
-            append_journal("rate_limit_pause", f"five_h={five_pct:.0f}%")
-            break
+        # M2/D2 — quota pressure is a reason to move work, not only a reason to wait. If
+        # a fallback backend took an in-flight task this poll, the reading below is about
+        # a backend this loop is no longer running on, so throttling or pausing on it
+        # would park work that has somewhere else to run. When nothing moved (no
+        # fallback, nothing handed over) `_threshold_switches` returns 0 and the original
+        # throttle/pause path runs untouched.
+        if not _threshold_switches(in_flight, launch_times, five_pct):
+            if cap != prev_cap:
+                if prev_cap >= 0 and cap < CONCURRENCY_CAP:
+                    append_journal("concurrency_throttled", f"cap={cap} five_h={five_pct:.0f}%")
+                    print(f"  [throttle] Concurrency cap={cap} (5h={five_pct:.0f}%)")
+                prev_cap = cap
+            if cap == 0:
+                print(f"  [throttle] 5h={five_pct:.0f}% >= {PAUSE_92_PCT}% — pausing.")
+                append_journal("rate_limit_pause", f"five_h={five_pct:.0f}%")
+                break
 
         still_running: list[dict] = []
         newly_done:    list[dict] = []
@@ -1223,6 +1453,7 @@ def main() -> int:
                 "session_id": sid, "task_id": task_id, "role": "implementer",
                 "worktree": str(worktree), "window": f"impl-{task_id}",
                 "branch": branch, "started_at": now_iso(), "status": "running",
+                "backend": _launch_backend(),   # M2: which backend this task runs on
             }
             in_flight.append(new_entry)
             running_task_ids.add(task_id)

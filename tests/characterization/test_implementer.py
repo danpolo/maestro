@@ -28,6 +28,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from maestro.backends import registry
+
 pytestmark = pytest.mark.maestro_module("implementer")
 
 
@@ -76,13 +78,8 @@ def _workspace(sandbox, name: str = "impl-T1-1") -> Path:
     return ws
 
 
-def _agent_argv(launch_py: Path) -> list[str]:
-    """The argv the generated launch.py would hand the agent CLI.
-
-    Parsed rather than string-matched: constants come through as themselves and the
-    brief, which is a variable in the generated source, comes through as ``<brief>``.
-    """
-    tree = ast.parse(launch_py.read_text(encoding="utf-8"))
+def _argv_from_run_call(tree: ast.AST) -> list[str] | None:
+    """``subprocess.run([...])`` spelled as a literal list in the generated source."""
     for node in ast.walk(tree):
         if (
             isinstance(node, ast.Call)
@@ -100,10 +97,108 @@ def _agent_argv(launch_py: Path) -> list[str]:
                 else:  # pragma: no cover - defensive
                     out.append(f"<{type(element).__name__}>")
             return out
-    raise AssertionError("generated launch.py contains no subprocess.run([...]) call")
+    return None
+
+
+def _argv_from_json_header(tree: ast.AST) -> list[str] | None:
+    """``ARGV = json.loads('[...]')`` — the other launcher shape a driver may generate.
+
+    A launcher that has to watch its own output stream cannot inline the argv as source,
+    so it embeds it as JSON; the first such assignment is the invocation, any later one
+    is a fallback.
+    """
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)):
+            continue
+        call = node.value
+        name = ast.unparse(call.func)
+        if name != "json.loads" or len(call.args) != 1:
+            continue
+        if not (isinstance(call.args[0], ast.Constant) and isinstance(call.args[0].value, str)):
+            continue
+        try:
+            decoded = json.loads(call.args[0].value)
+        except ValueError:  # pragma: no cover - defensive
+            continue
+        if isinstance(decoded, list) and all(isinstance(e, str) for e in decoded):
+            return decoded
+    return None
+
+
+def _agent_argv(launch_py: Path, brief: str = "") -> list[str]:
+    """The argv the generated launch.py would hand the agent CLI.
+
+    Parsed rather than string-matched, and it understands both launcher shapes M2 can
+    produce: a literal ``subprocess.run([...])`` list and an ``ARGV = json.loads(...)``
+    header. Constants come through as themselves; the brief — a variable in one shape,
+    an inlined string in the other — comes through as ``<brief>`` either way when the
+    caller passes the brief text.
+    """
+    tree = ast.parse(launch_py.read_text(encoding="utf-8"))
+    argv = _argv_from_run_call(tree)
+    if argv is None:
+        argv = _argv_from_json_header(tree)
+    if argv is None:
+        raise AssertionError("generated launch.py hands no argv to an agent CLI")
+    return ["<brief>" if brief and element == brief else element for element in argv]
 
 
 TASK = {"id": "T1", "title": "Do a thing", "short_desc": "the description"}
+
+
+# --- backend selection -------------------------------------------------------------
+#
+# The `implementer` role resolves through `maestro.roles`, which reads the project.yaml
+# the `sandbox` fixture has already rebased into the temp tree. Writing that file is
+# therefore the whole of "launch under this backend"; nothing here reaches a real repo,
+# a real binary or a real agent.
+
+#: Backend the reference module can produce an invocation for. It has one and only one.
+_LEGACY_BACKEND = "claude"
+
+#: A model to configure per backend, where the task-level `model:` allowlist (which holds
+#: Claude model ids) cannot say anything meaningful.
+_CONFIGURED_MODELS = {"codex": "gpt-5.4-codex"}
+
+
+def _configure_backend(sandbox, backend: str) -> None:
+    """Point the `implementer` role at `backend` through the sandbox's project.yaml."""
+    lines = ["roles:", "  implementer:", f"    backend: {backend}"]
+    model = _CONFIGURED_MODELS.get(backend)
+    if model:
+        lines += ["    models:", f"      {backend}: {model}"]
+    (sandbox.repo / "project.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _delegates_to_a_driver(subject) -> bool:
+    """True for the extracted package, which resolves a driver per `maestro.roles`.
+
+    The reference module is a single file that predates backend drivers: it ignores the
+    `roles:` block entirely. So this is a statement about which *subject* is running, not
+    about which backend is configured — no test here branches on a backend name.
+    """
+    return getattr(subject, "__name__", "").startswith("maestro.")
+
+
+#: backend -> the exact argv its driver hands the CLI, given (subject, launch, session).
+_AGENT_ARGV = {
+    "claude": lambda subject, out, sess: [
+        "claude", "-p",
+        "--model", subject._DEFAULT_IMPLEMENTER_MODEL,
+        "--session-id", sess,
+        "<brief>",
+    ],
+    "codex": lambda subject, out, sess: [
+        "codex", "exec",
+        "--json",
+        "--skip-git-repo-check",
+        "-c", 'approval_policy="never"',
+        "-m", _CONFIGURED_MODELS["codex"],
+        "-s", "workspace-write",
+        "-C", str(out.worktree),
+        "<brief>",
+    ],
+}
 
 # The ordinary brief's resumable heading. Qualified because the prep brief contains an
 # unrelated "CHECKPOINT-RESUMABLE" paragraph that a bare "RESUMABLE" would match.
@@ -916,15 +1011,32 @@ def test_launch_implementer_generated_launcher_is_valid_python(subject, sandbox,
     compile(source, "launch.py", "exec")
 
 
-def test_launch_implementer_agent_argv(subject, sandbox, monkeypatch):
+@pytest.mark.parametrize("configured_backend", sorted(_AGENT_ARGV))
+def test_launch_implementer_agent_argv(subject, sandbox, monkeypatch, configured_backend):
+    """The argv belongs to the driver the `implementer` role resolves to.
+
+    One body, both drivers: the `roles:` block in the sandbox's project.yaml selects the
+    backend and the argv is pinned exactly, flag for flag, for whichever one that is.
+
+    Subject-aware on purpose. The reference module predates backend drivers — it spells
+    one CLI's argv inline and never reads a `roles:` block — so under the legacy subject
+    every parameter pins the old single-backend argv. That divergence is what M2
+    introduces; it is recorded here rather than smoothed over into an assertion loose
+    enough to accept either answer from either subject.
+    """
+    # Keep the version probe (a real `codex --version`) out of the launch path: the
+    # binary this suite would find is irrelevant to the argv and must not be executed.
+    monkeypatch.setattr(registry, "resolve_binary", lambda *args, **kwargs: None)
+    _configure_backend(sandbox, configured_backend)
+
     out = _launch(subject, sandbox, monkeypatch)
     sess = (out.workspace / "session_uuid.txt").read_text(encoding="utf-8")
-    assert _agent_argv(out.workspace / "launch.py") == [
-        "claude", "-p",
-        "--model", subject._DEFAULT_IMPLEMENTER_MODEL,
-        "--session-id", sess,
-        "<brief>",
-    ]
+    brief = (out.workspace / "brief.txt").read_text(encoding="utf-8")
+
+    expected = configured_backend if _delegates_to_a_driver(subject) else _LEGACY_BACKEND
+    assert _agent_argv(out.workspace / "launch.py", brief) == _AGENT_ARGV[expected](
+        subject, out, sess
+    )
 
 
 @pytest.mark.parametrize("model_key", ["haiku", "sonnet", "opus"])

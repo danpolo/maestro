@@ -105,6 +105,18 @@ def _workspaces(subject, sandbox) -> Path:
     return _path(subject, "WORKSPACES", sandbox.workspaces)
 
 
+def _is_maestro(subject) -> bool:
+    """True for the extracted package, false for the legacy reference module.
+
+    M2 gives the control plane behaviour the reference does not have (the `/backend` verb
+    and the backend segment in a `/progress` header), so a handful of assertions here pin
+    *two* answers rather than one loosened answer that would accept either. Every such
+    test states the reference's exact text as well as maestro's, so a regression in the
+    extracted code cannot hide behind "well, the legacy value is allowed too".
+    """
+    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
+
+
 # --- fixture state on disk -------------------------------------------------------------
 
 
@@ -440,6 +452,25 @@ def test_help_commands_and_start_all_print_the_same_control_sheet(
         assert documented in sheet
 
 
+@pytest.mark.parametrize("verb", ["/help", "/commands", "/start"])
+def test_help_advertises_backend_in_the_extracted_package_and_not_in_the_reference(
+    subject, sandbox, control, verb
+):
+    """The sheet is the only place a command is advertised, so `/backend` existing and
+    `/backend` being documented are the same fact (M2 plan, Task 6 Step 6). The reference
+    has no such verb and must not claim one."""
+    control.deliver(_update(verb))
+    (sheet,) = control.sent
+    if _is_maestro(subject):
+        assert (
+            "/backend <name> [task_id] — pick the agent backend for new launches, "
+            "or move one in-flight task to it now (same worktree, uncommitted "
+            "work kept)\n"
+        ) in sheet
+    else:
+        assert "/backend" not in sheet
+
+
 def test_status_reports_phase_in_flight_ids_and_the_halted_and_paused_flags(
     subject, sandbox, control
 ):
@@ -676,6 +707,45 @@ def test_progress_report_headers_carry_id_role_status_and_elapsed(subject, sandb
     report = subject._build_progress_report()
     assert report.splitlines()[0] == f"{CHART_UP} Task progress"
     assert report.splitlines()[1] == "• P8B2 (implementer) running · elapsed 1h15m"
+
+
+def test_progress_report_header_names_the_backend_only_in_the_extracted_package(
+    subject, sandbox
+):
+    """M2 records which agent is doing the work on the `in_flight` entry, and `/progress`
+    is where an operator reads it. The reference does not write that key and does not
+    render it, so the two subjects pin two different headers for the same entry."""
+    _put_roadmap(subject, sandbox, "id: P8B2\ntitle: T\n")
+    _put_state(subject, sandbox, in_flight=[{
+        "task_id": "P8B2", "role": "implementer", "status": "running",
+        "started_at": _ago_iso(75), "session_id": "s1", "window": "",
+        "backend": "codex",
+    }])
+    header = subject._build_progress_report().splitlines()[1]
+    if _is_maestro(subject):
+        assert header == "• P8B2 (implementer/codex) running · elapsed 1h15m"
+    else:
+        assert header == "• P8B2 (implementer) running · elapsed 1h15m"
+
+
+@pytest.mark.parametrize("backend", [None, "", "   "])
+def test_progress_report_header_is_unchanged_for_an_entry_with_no_usable_backend(
+    subject, sandbox, backend
+):
+    """Every entry written before M2 — and any an operator hand-seeds — has no backend
+    key. It must render byte-for-byte as it always did: no KeyError, and never the string
+    "None"."""
+    _put_roadmap(subject, sandbox, "id: P8B2\ntitle: T\n")
+    entry = {
+        "task_id": "P8B2", "role": "implementer", "status": "running",
+        "started_at": _ago_iso(75), "session_id": "s1", "window": "",
+    }
+    if backend is not None:
+        entry["backend"] = backend
+    _put_state(subject, sandbox, in_flight=[entry])
+    assert subject._build_progress_report().splitlines()[1] == (
+        "• P8B2 (implementer) running · elapsed 1h15m"
+    )
 
 
 def test_progress_report_falls_back_to_question_marks_for_a_bare_in_flight_entry(

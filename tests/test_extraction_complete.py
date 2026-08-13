@@ -17,6 +17,18 @@ MAPPING = {
     "hitl.commands": ["poll_control_commands"],
     "parking": ["park_failed", "park_for_dan", "park_manual_action"],
     "orchestrator": ["main", "reconcile_in_flight"],
+    "backends.base": ["AgentBackend", "Capabilities", "LaunchSpec", "Handle", "ExitVerdict",
+                      "Usage", "WindowUsage", "to_usage_json", "from_usage_json"],
+    "backends.claude": ["ClaudeBackend", "window_name", "session_uuid_in", "launch_argv",
+                        "resume_argv", "launcher_source", "tmux_command"],
+    "backends.codex": ["CodexBackend", "sandbox_mode", "exec_flags", "launch_argv",
+                       "resume_argv", "thread_id_from_text", "is_dead_thread",
+                       "context_used_pct", "exhaustion_signal", "render_launcher"],
+    "roles": ["normalise_role", "default_chain", "role_config", "resolve", "backend_for",
+              "model_for", "fallback_backend", "driver_for"],
+    "switch": ["request_checkpoint", "checkpoint_requested", "clear_checkpoint_request",
+               "stop_agent", "handoff_brief", "target_backend", "threshold_crossed",
+               "switch_task"],
 }
 
 

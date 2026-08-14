@@ -17,19 +17,18 @@ PROGRAMME-STATUS: IN-PROGRESS
 |---|---|---|---|
 | M0 — Package skeleton + characterisation harness | **done** | 2026-08-09 | `pytest -q` → 45 passed, 30 skipped (`2d833d1`) |
 | M1 — Core extraction | **done** | 2026-08-12 | `pytest` → 3571 passed, 0 skipped, 0 failed (`c18777f`) |
-| M2 — Backend drivers + mid-work switching | in progress — Tasks 1–7 done, Task 8 partial | — | `pytest` → 4049 passed, 0 skipped, 0 failed (`a26ea94`) |
+| M2 — Backend drivers + mid-work switching | **done** | 2026-08-14 | `pytest` → 4068 passed, 0 skipped, 0 failed + live switch both directions (`4f47ed2`) |
 | M3 — Model limits + self-update | pending | — | — |
 | M4 — Setup: init, doctor, skills | pending | — | — |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** M2 — backend drivers and mid-work switching. M1 closed green on 2026-08-12.
-M2's research fan-out is done, its plan is written (`docs/plans/2026-08-12-m2-backends.md`), and
-**Tasks 1–7 plus most of Task 8 are now implemented and committed** (`7e63be3`, `02ea1d0`,
-`a26ea94`). **The next session picks up at the four items listed under "What M2 still needs" in
-the 2026-08-13 finding below** — chiefly the live acceptance switch, which is the one Done-when
-criterion that cannot be met from the test suite. Do not re-run the research and do not re-do
-Tasks 1–7.
+**Current stage:** M3 — model limits and self-update. **M2 closed green on 2026-08-14**: every
+item in its plan's Definition of Done was run and its output seen, including the live forced
+switch in both directions (see the 2026-08-14 finding). **The next session starts M3 from
+`docs/DESIGN.md` §8–§9**, and should read the 2026-08-14 finding's "Carried into M3" list first —
+M3 inherits both the model-ID constants a previous session moved out of scope and the never-run
+adversarial review of the M2 diff.
 
 **ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
 ` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
@@ -629,6 +628,83 @@ the same session and a leaner 4-agent re-run completed cleanly. Worth knowing fo
 workflow that dies this way leaves the tree in a state that *looks* like progress but whose
 docstrings can describe code that was never written — this session's `implementer.py` docstring
 claimed a delegation that did not exist until the second wave built it.
+
+### Session 2026-08-14 — **M2 COMPLETE**, commits `4f47ed2` (and `f7f49a7`, `a26ea94`, `02ea1d0`)
+
+**Every Definition-of-Done item in `docs/plans/2026-08-12-m2-backends.md` was run and its output
+seen:**
+
+| Criterion | Command / evidence | Result |
+|---|---|---|
+| Full suite green, zero skips | `python3 -m pytest` | **4068 passed, 0 skipped, 0 failed, 0 errors** in 48.25s |
+| Both drivers on one protocol suite, capability-gated only | `tests/backends/test_protocol.py` | green, and no skip anywhere in the run |
+| No backend-name branching | `tests/test_no_name_branching.py` | green (in the 53-passed gate run) |
+| Purity | `tests/test_purity.py` | 3 passed |
+| Extraction mapping | `tests/test_extraction_complete.py` | **17** parametrised cases (not the 16 the plan predicted — 12 + 5 = 17; the plan is now corrected) |
+| Forced switch, both directions, work preserved | live run on a `/tmp` scratch repo | **pass / pass**, see below |
+| `native_resume` answered with evidence | 2026-08-12 finding + F1 | `True`, and the live run left a real `thread_id` on disk |
+| Reference project untouched | HEAD, porcelain, `state.json`, HALT | baseline exactly |
+
+#### The live acceptance switch — real CLIs, not stubs
+
+On a throwaway `git init` repo under `/tmp` (never a real project), with a tracked-modified file
+**and** an untracked file left dirty in the task's worktree:
+
+- **claude → codex** and **codex → claude**, both forced. sha256 of both dirty files identical
+  after `switch_task` *and* after the incoming agent's run; `git status --porcelain` unchanged;
+  the worktree path **reused, never recreated** — which is the D3 property the whole stage exists
+  for.
+- **Proof the CLIs really ran:** the codex turn reports `input_tokens 18879 / output_tokens 31`
+  and wrote `codex_thread_id.txt = 019ffdbc-1e61-7b71-bb6b-b79e6e8f1601` (the F1 resume handle);
+  the claude side's generated `launch.py` carries the F4 argv verbatim, with
+  `--system-prompt-file` correctly omitted because the scratch repo has no profile file.
+- **Journal, five fields, no sixth:** `backend_switch … "ACC1 from=claude to=codex reason=manual"`
+  and `… "ACC2 from=codex to=claude reason=manual"`.
+- `registry.resolve_binary` pinned `/home/dan/.local/bin/codex` (0.147.0) and **journalled a
+  warning** that `/usr/bin/codex` (0.122.0) also exists — the PATH hazard flagged on 2026-08-12 is
+  now detected at runtime rather than left to bite silently. `codex exec resume --last` was never
+  invoked.
+- Cleanup verified: the throwaway tmux session killed, no stray `codex exec` or `claude -p`
+  processes, the operator's own tmux sessions untouched.
+
+**Three limits of that acceptance, stated plainly:** both directions took the `STOPPED_GONE`
+branch (no live outgoing window), so the **SWITCH-sentinel + grace-period + kill-as-fallback path
+was never exercised live** — it is covered only by `tests/test_switch.py`, and M6 should exercise
+it for real. Telegram was a recorder, not the real notifier. `driver_factory` was injected only to
+redirect tmux to a throwaway session and supply a python interpreter; the drivers and their CLI
+invocations were the real ones.
+
+#### Also landed this session
+
+- **`/backend <name>` is no longer inert.** `implementer.operator_backend()` reads the state key
+  the command writes, and **both** `orchestrator._launch_backend()` and
+  `implementer._implementer_backend()` honour it in the same order — if only one did, the backend
+  recorded on an `in_flight` entry would name an agent the task is not running on. Unknown, blank
+  or unparseable values fall back to the roles resolution and never raise on the launch path.
+  `test_launch_backend_is_pure_configuration` was **rewritten to pin the new truth** (override
+  wins, roles is the fallback, still no binary probe and no subprocess) rather than weakened.
+- **The purity gate went red on a doc committed before this stage** —
+  `docs/superpowers/specs/2026-08-14-maestro-build-watchdog-design.md` (from `ea6fc32`) names
+  `AbuAli` three times. Added to the purity test's **build-scaffolding** list, which already
+  exempts `scripts/maestro-build-launcher.sh` and `scripts/resume_eval_when_done.sh` — this is the
+  design spec for exactly those two scripts. Project-name tier only; the credential tier still
+  scans it with no exemption. Flagging it because it is an exemption, not a fix: if that doc is
+  ever considered shippable, scrub the three mentions instead.
+
+#### Carried into M3 — read this before starting
+
+1. **The adversarial review of the M2 diff still has not run.** It was in the 8-agent workflow the
+   spend limit killed, and was deliberately not re-launched afterwards: a session at its context
+   ceiling should not generate findings it has no budget to act on. Scope-discipline and
+   correctness lenses over `1cdf9ad..4f47ed2` are owed.
+2. **The out-of-scope model-ID work is M3's to ratify or revert** (full detail in the 2026-08-13
+   finding): `claude-sonnet-4-6`/`claude-opus-4-8` → `-5` across `gates.py`, `merge.py`,
+   `selfheal/diagnose.py`, `implementer.py`, plus a keyword-heuristic `resolve_implementer_model`
+   nobody specified and `quota.py`'s `resumable_tasks`. The plan assigns those constants to M3, so
+   M3 is where the decision belongs — and M3's own task is to replace them with per-model lookups
+   anyway.
+3. **`_entry_backend()` now costs one small state-file read** for pre-M2 entries with no `backend`
+   key, on the above-threshold path only. No probe, no subprocess.
 
 ## Open questions
 

@@ -45,6 +45,10 @@ BUILD_SCAFFOLD = {
     "scripts/run_overnight.sh",
     "scripts/maestro-build-launcher.sh",
     "scripts/resume_eval_when_done.sh",
+    # The design spec for those two scripts. Same category as the scripts themselves:
+    # it describes the machinery that *builds* maestro — including how that machinery
+    # must leave the frozen reference project alone — and ships with none of it.
+    "docs/superpowers/specs/2026-08-14-maestro-build-watchdog-design.md",
     "tests/test_purity.py",
 }
 

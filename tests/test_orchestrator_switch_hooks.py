@@ -9,6 +9,14 @@ steps 3–5):
 * **reactive** — `reconcile_in_flight`'s usage-limit net. A limit-shaped exit hands the
   task to a fallback instead of pausing the whole loop until the reset.
 
+A third path is pinned here because it decides what a launch *records*: `_launch_backend`
+now honours the operator's `/backend <name>` (step 6) — the state key
+`maestro.hitl.commands.BACKEND_KEY` — ahead of the `maestro.roles` resolution, and so does
+`implementer._implementer_backend`, which resolves the launch itself. The tests below hold
+those two together: if only one read the key, the `backend` on the `in_flight` entry would
+name an agent the task is not running on, and every switch decision taken from that entry
+would be about the wrong one.
+
 The load-bearing property in both is the *negative* one: with no fallback available —
 nothing installed to move to, no worktree left to hand over, or a switch that failed —
 the pre-M2 throttle/pause behaviour must run exactly as it always did. Every test here
@@ -20,13 +28,19 @@ reachable, backend discovery is stubbed, and no `subprocess` call is left unpatc
 from __future__ import annotations
 
 import ast
+import json
+import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 
+from maestro import config as config_module
+from maestro import implementer
 from maestro import orchestrator
+from maestro import state as state_module
 from maestro.backends.base import Capabilities, Usage, WindowUsage
+from maestro.hitl import commands
 from maestro.switch import REASON_QUOTA, REASON_THRESHOLD, SwitchOutcome
 
 #: Repo root. Named `REPO` to match the house convention for `Path`-valued globals.
@@ -213,26 +227,122 @@ def test_do_retry_records_the_backend_the_retry_runs_on(monkeypatch, tmp_path):
     assert list(new)[-1] == "backend"          # appended, nothing reordered
 
 
-def test_launch_backend_is_pure_configuration(monkeypatch):
-    """Recording the backend must not probe a binary or spawn anything: it is read from
-    `maestro.roles`, on the launch path, once per launch."""
-    monkeypatch.setattr(
-        orchestrator, "backend_for", lambda role: f"resolved-{role}"
-    )
+def _state_file(monkeypatch, tmp_path, **fields) -> Path:
+    """A real state document, at the path `maestro.state.read_state` reads.
+
+    Written and re-read as JSON rather than stubbed, so these tests pin the key's
+    *spelling* on disk — the only thing `/backend <name>` and the launch path share.
+    """
+    path = tmp_path / "state.json"
+    path.write_text(json.dumps(fields), encoding="utf-8")
+    monkeypatch.setattr(state_module, "STATE_JSON", path)
+    return path
+
+
+@pytest.fixture
+def no_probing(monkeypatch):
+    """Fail the test if resolving a launch backend probes a binary or spawns anything."""
     monkeypatch.setattr(
         orchestrator,
         "_available_backends",
         lambda: pytest.fail("recording the backend must not probe binaries"),
     )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda *a, **k: pytest.fail("recording the backend must not spawn a process"),
+    )
+
+
+def test_launch_backend_prefers_the_operators_recorded_choice(monkeypatch, tmp_path, no_probing):
+    """Step 6's promise — `/backend <name>` "sets future launches" — is kept here.
+
+    The recorded key wins over the configured role, and resolving it stays a
+    configuration read: one small state document, no binary probe, no subprocess.
+    """
+    _state_file(monkeypatch, tmp_path, **{commands.BACKEND_KEY: CODEX})
+    monkeypatch.setattr(orchestrator, "backend_for", lambda role: CLAUDE)
+    assert orchestrator._launch_backend() == CODEX
+
+
+def test_launch_backend_falls_back_to_pure_configuration_with_no_choice_recorded(
+    monkeypatch, tmp_path, no_probing
+):
+    """With nothing recorded the pre-M2 answer stands: `maestro.roles`, unvalidated and
+    unprobed, once per launch."""
+    _state_file(monkeypatch, tmp_path)
+    monkeypatch.setattr(orchestrator, "backend_for", lambda role: f"resolved-{role}")
     assert orchestrator._launch_backend() == "resolved-implementer"
 
 
-def test_launch_backend_degrades_to_empty_when_resolution_breaks(monkeypatch):
+@pytest.mark.parametrize(
+    "recorded",
+    ["gpt9000", "", "   ", None, 7, True, ["codex"], {"name": "codex"}],
+    ids=["unknown", "empty", "blank", "null", "number", "bool", "list", "mapping"],
+)
+def test_a_recorded_value_that_names_no_known_backend_is_ignored_silently(
+    monkeypatch, tmp_path, no_probing, recorded
+):
+    """A hand-edited state document must not be able to stop the loop launching work, and
+    must not be able to send a launch at a driver that does not exist: anything the
+    registry does not know reads as "no choice", with no exception on the way out."""
+    _state_file(monkeypatch, tmp_path, **{commands.BACKEND_KEY: recorded})
+    monkeypatch.setattr(orchestrator, "backend_for", lambda role: f"resolved-{role}")
+    assert orchestrator._launch_backend() == "resolved-implementer"
+
+
+@pytest.mark.parametrize("body", ["{not json", "", "[]", "null"], ids=["junk", "empty", "list", "null"])
+def test_a_state_document_that_cannot_be_read_is_ignored_silently(
+    monkeypatch, tmp_path, no_probing, body
+):
+    path = tmp_path / "state.json"
+    path.write_text(body, encoding="utf-8")
+    monkeypatch.setattr(state_module, "STATE_JSON", path)
+    monkeypatch.setattr(orchestrator, "backend_for", lambda role: f"resolved-{role}")
+    assert orchestrator._launch_backend() == "resolved-implementer"
+
+
+def test_a_missing_state_document_is_ignored_silently(monkeypatch, tmp_path, no_probing):
+    monkeypatch.setattr(state_module, "STATE_JSON", tmp_path / "never-written.json")
+    monkeypatch.setattr(orchestrator, "backend_for", lambda role: f"resolved-{role}")
+    assert orchestrator._launch_backend() == "resolved-implementer"
+
+
+def test_launch_backend_degrades_to_empty_when_resolution_breaks(monkeypatch, tmp_path):
     def _boom(role):
         raise RuntimeError("no config")
 
+    _state_file(monkeypatch, tmp_path)
     monkeypatch.setattr(orchestrator, "backend_for", _boom)
     assert orchestrator._launch_backend() == ""
+
+
+def test_the_launch_path_reads_the_key_the_backend_command_writes():
+    """One spelling, two modules. `commands` cannot be imported from the launch path
+    without closing an import cycle, so the constant is duplicated — and pinned here."""
+    assert implementer.OPERATOR_BACKEND_KEY == commands.BACKEND_KEY
+
+
+def test_the_backend_recorded_and_the_backend_launched_cannot_drift(monkeypatch, tmp_path):
+    """The reason both readers exist: `_launch_backend` stamps the `in_flight` entry and
+    `_implementer_backend` resolves the agent that actually starts. If only one honoured
+    the operator's choice, the entry would name a backend the task is not running on —
+    and `_entry_backend`, the switch triggers and `/progress` all read that entry."""
+    monkeypatch.setattr(
+        config_module,
+        "load_project_yaml",
+        lambda: {"roles": {"implementer": {"backend": CLAUDE, "models": {CODEX: "gpt-5-codex"}}}},
+    )
+
+    _state_file(monkeypatch, tmp_path, **{commands.BACKEND_KEY: CODEX})
+    assert orchestrator._launch_backend() == CODEX
+    backend, models = implementer._implementer_backend()
+    assert backend == CODEX
+    assert models == {CODEX: "gpt-5-codex"}     # the role's own table, one column of it
+
+    _state_file(monkeypatch, tmp_path)          # the operator has chosen nothing
+    assert orchestrator._launch_backend() == CLAUDE
+    assert implementer._implementer_backend()[0] == CLAUDE
 
 
 # =======================================================================================

@@ -54,7 +54,7 @@ from maestro import roles
 from maestro.backends import registry
 from maestro.backends.base import LaunchSpec
 from maestro.paths import Paths
-from maestro.state import append_journal
+from maestro.state import append_journal, read_state
 from maestro.worktree import TMUX_SESSION
 
 _PATHS = Paths.from_env()
@@ -402,18 +402,52 @@ def _driver_kwargs(cls: type, **optional) -> dict:
     return {name: value for name, value in optional.items() if name in accepted}
 
 
+#: Where Telegram `/backend <name>` records the operator's choice for *future* launches
+#: — the same key `maestro.hitl.commands.BACKEND_KEY` writes. Spelled out here rather
+#: than imported from `commands`, because `commands` is on the orchestrator's import
+#: path into this module and importing it back would close a cycle; `tests/
+#: test_orchestrator_switch_hooks.py` pins the two spellings together so they cannot
+#: drift apart silently.
+OPERATOR_BACKEND_KEY = "backend"
+
+
+def operator_backend() -> str:
+    """The backend the operator selected with `/backend <name>`, or `""` if none did.
+
+    This is what makes `/backend <name>` more than an advertisement: it is read on the
+    launch path, ahead of `maestro.roles`, by both this module and
+    `orchestrator._launch_backend` — the one that resolves the launch and the one that
+    records it — so the entry cannot claim a backend the task is not running on.
+
+    Only a *registered* name is honoured. No state document, one that will not parse, no
+    key, a key holding a typo or a number: every one of them reads as "the operator has
+    not chosen", the roles configuration decides, and the launch goes ahead. A state file
+    the operator hand-edited badly must never be able to stop work starting.
+    """
+    try:
+        chosen = registry.normalise_name(read_state().get(OPERATOR_BACKEND_KEY))
+    except Exception:
+        return ""
+    return chosen if chosen in registry.known_backends() else ""
+
+
 def _implementer_backend() -> tuple[str, dict]:
     """(backend name, its configured models) for the `implementer` role.
 
-    One read of `project.yaml`, and the same answer `maestro.roles.backend_for` — and so
+    The operator's `/backend <name>` wins when there is one; otherwise one read of
+    `project.yaml`, and the same answer `maestro.roles.backend_for` — and so
     `orchestrator._launch_backend`, which stamps the `in_flight` entry — resolves to when
     nothing has been probed: with no availability measured and nothing exhausted,
     `roles.resolve` returns the role's configured backend unchanged. Resolution degrades
     to the default backend on every malformed input rather than raising, so a typo in the
     `roles:` block cannot stop a launch.
+
+    The models table is the role's either way: a role declares its model *per backend*
+    (`docs/DESIGN.md` §5), so the operator's choice picks a column out of the same table
+    rather than needing one of its own.
     """
     settings = roles.role_config(roles.ROLE_IMPLEMENTER)
-    return settings.backend, dict(settings.models)
+    return operator_backend() or settings.backend, dict(settings.models)
 
 
 def _implementer_driver(backend: str, session_uuid: str):

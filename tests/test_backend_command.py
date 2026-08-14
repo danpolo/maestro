@@ -32,6 +32,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from maestro import config as config_module
+from maestro import implementer
+from maestro import orchestrator
 from maestro import state as state_module
 from maestro import switch as switch_module
 from maestro.hitl import commands
@@ -241,6 +244,51 @@ def test_a_bare_name_leaves_every_other_state_key_alone(store, notifier):
     assert after["phase"] == {"id": "P8"}
     assert after["paused_by_user"] is True
     assert [e["task_id"] for e in after["in_flight"]] == [TASK_ID]
+
+
+@pytest.fixture
+def configured(monkeypatch):
+    """`roles:` says the implementer runs on `CURRENT`, whatever the real repo says.
+
+    The launch path resolves through `maestro.roles`, which reads `project.yaml` at call
+    time; pinning it here is what makes "the recorded choice won" mean something rather
+    than "the default happened to match".
+    """
+    monkeypatch.setattr(
+        config_module,
+        "load_project_yaml",
+        lambda: {"roles": {"implementer": {"backend": CURRENT}}},
+    )
+
+
+def test_the_recorded_choice_is_what_future_launches_resolve_to(store, notifier, configured):
+    """The command is worth no more than its reader. Both readers are asserted: the one
+    that resolves the agent `launch_implementer` starts, and the one that stamps the
+    `backend` on the `in_flight` entry — they have to move together, or the entry names a
+    backend the task is not running on."""
+    assert implementer._implementer_backend()[0] == CURRENT
+    assert orchestrator._launch_backend() == CURRENT
+
+    commands._process_backend(TARGET)
+
+    assert implementer._implementer_backend()[0] == TARGET
+    assert orchestrator._launch_backend() == TARGET
+
+
+def test_a_choice_made_over_telegram_reaches_the_launch_path(router, store, configured):
+    """End to end through the real router: an operator types it, a launch honours it."""
+    router.deliver(f"/backend {TARGET}")
+    assert router.sent[0].startswith(f"✅ Backend set to {TARGET}")
+    assert implementer._implementer_backend()[0] == TARGET
+    assert orchestrator._launch_backend() == TARGET
+
+
+def test_an_unknown_name_never_reaches_the_launch_path(store, notifier, configured):
+    """Declined at the door, so nothing downstream has to defend itself — and nothing
+    downstream is left resolving a driver that does not exist."""
+    commands._process_backend("gpt9000")
+    assert implementer._implementer_backend()[0] == CURRENT
+    assert orchestrator._launch_backend() == CURRENT
 
 
 def test_an_unreadable_state_document_is_reported_not_raised(store, notifier):

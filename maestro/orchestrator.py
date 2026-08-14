@@ -59,6 +59,7 @@ from maestro.implementer import (
     _questions_ready,
     _synthesize_sentinel,
     launch_implementer,
+    operator_backend,
 )
 from maestro.merge import _touches_bot_files, merge_and_eval
 from maestro.parking import (
@@ -546,14 +547,21 @@ def _available_backends() -> tuple[str, ...] | None:
 
 
 def _launch_backend() -> str:
-    """The backend a fresh `launch_implementer` call runs on, per `maestro.roles`.
+    """The backend a fresh `launch_implementer` call runs on.
 
-    Pure configuration resolution — no binary probe, no subprocess — so recording it on
-    an `in_flight` entry cannot slow a launch site down or fail one. `""` when resolution
-    itself breaks: an unknown backend is better than a wrong one.
+    The operator's `/backend <name>` first, then `maestro.roles` — deliberately the same
+    order, through the same function, that `implementer._implementer_backend` resolves
+    the launch itself in. This one only *records* the answer on the `in_flight` entry, so
+    if the two orders ever diverged the entry would name a backend the task is not
+    running on, and every switch decision taken from that entry would be about the wrong
+    agent.
+
+    Still no binary probe and no subprocess: the state document is one small read on a
+    path that is about to start an agent. `""` when resolution itself breaks — an unknown
+    backend is better than a wrong one.
     """
     try:
-        return backend_for(ROLE_IMPLEMENTER)
+        return operator_backend() or backend_for(ROLE_IMPLEMENTER)
     except Exception:
         return ""
 

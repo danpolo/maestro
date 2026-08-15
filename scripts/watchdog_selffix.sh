@@ -90,6 +90,43 @@ handle_terminal_status() {
     state_set reported_terminal_status "$st"
 }
 
+driver_active() {
+    systemctl is-active --quiet "$UNIT" 2>/dev/null
+}
+
+handle_stall() {
+    local retry_not_before
+    retry_not_before="$(state_get retry_not_before)"
+    if ! past "$retry_not_before"; then
+        echo "[watchdog] $(ts) in usage-limit cooldown until $retry_not_before; skipping" >&2
+        return 0
+    fi
+
+    local last_attempt
+    last_attempt="$(state_get last_fix_attempt_at)"
+    if [ -n "$last_attempt" ]; then
+        local cooldown_until
+        cooldown_until="$(python3 - "$last_attempt" "$STALL_COOLDOWN" <<'PYEOF'
+import sys
+from datetime import datetime, timedelta, timezone
+last = datetime.fromisoformat(sys.argv[1].replace("Z", "+00:00"))
+print((last + timedelta(seconds=int(sys.argv[2]))).strftime("%Y-%m-%dT%H:%M:%SZ"))
+PYEOF
+)"
+        if ! past "$cooldown_until"; then
+            echo "[watchdog] $(ts) last fix attempt was recent; in cooldown until $cooldown_until; skipping" >&2
+            return 0
+        fi
+    fi
+
+    state_set last_fix_attempt_at "$(ts)"
+    dispatch_fixer
+}
+
+dispatch_fixer() {
+    echo "[watchdog] $(ts) TODO(Task 5): spawn the fixer session here" >&2
+}
+
 main() {
     acquire_lock
     if [ ! -f "$PROGRESS" ]; then
@@ -104,7 +141,12 @@ main() {
             handle_terminal_status "$st"
             ;;
         IN-PROGRESS)
-            echo "[watchdog] $(ts) IN-PROGRESS; stall handling added in Task 4" >&2
+            if driver_active; then
+                echo "[watchdog] $(ts) driver active; nothing to do" >&2
+            else
+                echo "[watchdog] $(ts) driver inactive while IN-PROGRESS; handling stall" >&2
+                handle_stall
+            fi
             ;;
         *)
             echo "[watchdog] $(ts) unrecognized PROGRAMME-STATUS '$st'; nothing to do" >&2

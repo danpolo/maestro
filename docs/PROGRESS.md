@@ -23,12 +23,21 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** M3 — model limits and self-update. **M2 closed green on 2026-08-14**: every
-item in its plan's Definition of Done was run and its output seen, including the live forced
-switch in both directions (see the 2026-08-14 finding). **The next session starts M3 from
-`docs/DESIGN.md` §8–§9**, and should read the 2026-08-14 finding's "Carried into M3" list first —
-M3 inherits both the model-ID constants a previous session moved out of scope and the never-run
-adversarial review of the M2 diff.
+**Current stage:** M3 — model limits and self-update, **not yet started**. **M2 closed green on
+2026-08-14**: every item in its plan's Definition of Done was run and its output seen, including the
+live forced switch in both directions (see the 2026-08-14 finding). The M2 carryover items (the
+never-run adversarial review, and the ratify/revert decision on the out-of-scope model-ID work) are
+now **closed as of the 2026-08-16 session** — see that session's finding below for what was reverted,
+ratified, and fixed. **M3 itself has no plan or code yet.** The next session should:
+1. Write `docs/plans/<date>-m3-limits-selfupdate.md` (EXECUTION.md's per-stage loop step 2 — M3 has
+   no detailed plan, unlike M0–M1 and M2).
+2. Build from `docs/DESIGN.md` §8–§9: extract the ceiling tables to `model_context_limits.md` beside
+   each of `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` (Claude side directly; Codex side via the
+   Codex CLI, never a direct write — see EXECUTION.md's invariants); build `limits.py` and
+   `selfupdate.py`; replace the hardcoded model-ID constants (now current, per the 2026-08-16 session)
+   with per-model lookups.
+3. Done-when: `doctor` resolves every model in both tables; a deliberately-red candidate version is
+   refused and `current` stays put.
 
 **ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
 ` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
@@ -693,18 +702,140 @@ invocations were the real ones.
 
 #### Carried into M3 — read this before starting
 
-1. **The adversarial review of the M2 diff still has not run.** It was in the 8-agent workflow the
-   spend limit killed, and was deliberately not re-launched afterwards: a session at its context
-   ceiling should not generate findings it has no budget to act on. Scope-discipline and
-   correctness lenses over `1cdf9ad..4f47ed2` are owed.
-2. **The out-of-scope model-ID work is M3's to ratify or revert** (full detail in the 2026-08-13
-   finding): `claude-sonnet-4-6`/`claude-opus-4-8` → `-5` across `gates.py`, `merge.py`,
-   `selfheal/diagnose.py`, `implementer.py`, plus a keyword-heuristic `resolve_implementer_model`
-   nobody specified and `quota.py`'s `resumable_tasks`. The plan assigns those constants to M3, so
-   M3 is where the decision belongs — and M3's own task is to replace them with per-model lookups
-   anyway.
+1. ~~**The adversarial review of the M2 diff still has not run.**~~ **DONE 2026-08-16** — see the
+   session entry below. Both items 1 and 2 here are closed out by that session.
+2. ~~**The out-of-scope model-ID work is M3's to ratify or revert.**~~ **DECIDED 2026-08-16** — see
+   below: model-ID version bump ratified, `resolve_implementer_model` keyword heuristic and
+   `quota.py`'s `resumable_tasks` reverted entirely (proven dead in production, not just
+   unauthorized). M3's own per-model-lookup task is unaffected and still owed.
 3. **`_entry_backend()` now costs one small state-file read** for pre-M2 entries with no `backend`
    key, on the above-threshold path only. No probe, no subprocess.
+
+### Session 2026-08-16 — M2 diff adversarial review + carryover cleanup, commit `df8ec70`
+
+**M3's actual stage work (limits.py, selfupdate.py, model_context_limits.md extraction — DESIGN.md
+§8–§9) has NOT started yet.** This session closed out the review/cleanup items carried over from
+M2's close-out instead, per the 2026-08-14 finding's instruction to do that before M3 proper. The
+next session starts M3 fresh from `docs/DESIGN.md` §8–§9 and the Stages table in
+`docs/EXECUTION.md`.
+
+**Two spend-limit deaths mid-session** (same recurring pattern as every prior session): a 2-agent
+review workflow died on `You've hit your monthly spend limit`, was resumed from cache after the
+limit reset (`Workflow({resumeFromRunId: ...})` — cached completed agents replayed free, only the
+2 errored ones re-ran), and a follow-up 2-agent fix workflow lost one of its two agents the same
+way; the surviving agent's work (the Codex log-truncation fix) was kept, and the dead agent's
+partially-applied edits (found already in the working tree on resume, per the now-familiar
+recover-uncommitted-work pattern) were inspected, completed, and verified rather than discarded.
+
+**Also recovered and committed on resume, before the review:** a small leftover uncommitted diff to
+`tests/test_purity.py` (exempting `docs/superpowers/plans/` from the project-name scan — needed by
+`docs/superpowers/plans/2026-08-14-maestro-build-watchdog.md`, unrelated ops work already on
+`master`). Verified green (4094 passed) and committed separately as `229f98d` before starting the
+review, so it doesn't get lost in the larger diff below.
+
+#### The adversarial review — 17 subagents, 2 workflow runs, ~1.08M subagent tokens total
+
+Scope-discipline and correctness lenses over the M2 diff (`1cdf9ad..4f47ed2`), each finding then
+checked by an independent skeptic instructed to default to refuted unless confirmed real and
+material (see the Workflow tool's built-in guidance for this pattern). **15 raw findings, 11
+survived verification** (9 scope, 2 correctness); 4 were refuted as real-but-currently-unreachable
+mechanisms (dead code paths, not live bugs) rather than false positives:
+
+- `switch.py:861` — a resumable switch's handoff brief tells the incoming agent to write its
+  DONE/FAILED sentinels into a workspace that `driver.resume()` never actually uses. **Real
+  mechanism, confirmed unreachable today**: neither production caller of `switch_task`
+  (`orchestrator.py`'s threshold hook, `hitl/commands.py`'s `/backend <name> <task_id>`) ever
+  constructs or passes a `Handle`, so the `resume()` branch is dead — `driver.launch()` always runs
+  instead, and that path is internally consistent. **Flagged for whoever eventually wires `handle=`
+  into a live call site** — not fixed, since fixing dead code risked masking the real gap (nothing
+  currently produces a `Handle` to pass).
+- `implementer.py:478` — the quota-pause resume path hardcodes the Claude CLI regardless of the
+  resolved backend. **Refuted because its trigger (`resumable_tasks`) turned out to be dead code
+  itself** — see below; this whole finding disappeared once the feature it depended on was reverted.
+- `orchestrator.py:1336` — worktree-recreation failure on the (now-reverted) resume path was
+  silently swallowed. Same reason: removed along with the resume branch it lived in.
+- `switch.py:719` — `_replace_in_flight` can drop unrelated in-flight entries when the outgoing
+  `session_id` is empty. **Real mechanism** (reproduced directly), but **no code path in the repo
+  ever writes an empty `session_id` into a live entry** — every construction site stamps a real,
+  unique one. Left as-is; flagged in case a future entry-construction site breaks that invariant.
+
+#### What changed as a result — commit `df8ec70`
+
+**Reverted — unauthorized AND proven dead in production**, not merely out of scope: the M2 diff
+added a `resumable_tasks` auto-resume-after-quota-reset feature (`quota.py`, `orchestrator.py`,
+`implementer.py`'s `resume=`/`session_uuid=` params, `tests/test_resumption_and_models.py`).
+Investigation traced the actual production call path and found `orchestrator.py` has its own
+pre-existing, **deliberately duplicated** copy of `_pause_for_usage_limit` — the module's own
+comment says "Both bodies are copied verbatim... each is one half of a pair whose other half becomes
+an import once the modules can share a single notification seam," an M1-era invariant, not something
+M2 introduced. `reconcile_in_flight` calls *that* copy, not `quota.py`'s. The M2 diff added
+`resumable_tasks` bookkeeping to only one of the two required-identical copies, so the feature could
+never populate `state["resumable_tasks"]` on the path real usage-limit pauses take — it was
+non-functional as shipped, regardless of the authorization question. Reverted both copies back to
+byte-identical (AST-compared, confirmed), removed the orchestrator.py resume-branch wiring and the
+`launch_implementer` parameters, deleted the test file. **`resolve_implementer_model`'s undocumented
+keyword-heuristic** (title/description text like "architecture"/"refactor" silently escalating to
+opus) was also removed — no DESIGN.md or plan basis, and a real risk of surprising the operator on a
+live project. A duplicate top-level `IMPLEMENTER_MODELS`/`_DEFAULT_IMPLEMENTER_MODEL` definition in
+`implementer.py` (the file defined both twice; the second silently shadowed the first) was collapsed
+to one.
+
+**Explicitly NOT reverted, despite looking similar:** `scripts/run_overnight.sh`'s
+`determine_model()` and `--resume` mechanism. The scope-discipline reviewer flagged it as absent from
+the M2 plan's file list (true) and therefore out of scope (wrong conclusion) — this script is *this
+build's own driver*, not part of the maestro deliverable, analogous to `docs/EXECUTION.md`/
+`docs/PROGRESS.md`. Its resume mechanism is what resumed *this very session* after the spend-limit
+death recorded above. Reverting it would have broken the build chain. Worth a broader lesson: a
+scope-discipline review needs to know which files are product vs. build-scaffolding before judging
+"not in the plan" as a defect.
+
+**Ratified, not reverted:** the `claude-sonnet-4-6`/`claude-opus-4-8` → `claude-sonnet-5`/
+`claude-opus-5` version bump across `gates.py`, `merge.py`, `selfheal/diagnose.py`, `implementer.py`.
+Technically out of the M2 plan's scope (assigned to M3), but reverting would reintroduce a `--model`
+value that no longer names a real model on this account, for no benefit — M3's own per-model-lookup
+task supersedes these constants shortly regardless.
+
+**Two confirmed in-scope M2 correctness bugs fixed** (not carryover — real defects in switching/
+Codex-driver code M2 itself shipped):
+
+1. **`orchestrator.py`'s cap==0 safety valve could be skipped by an unrelated switch.** The guard
+   `if not _threshold_switches(...)` wrapped the `cap == 0: break` hard stop, so moving even one
+   in-flight task to a fallback backend suppressed the pause for the *whole* poll cycle — including
+   for other in-flight tasks that could not be switched (wrong role, or worktree already gone).
+   Fixed by decoupling the two: the hard stop now fires whenever any in-flight entry is "stranded"
+   (under usage pressure *before* this poll's switching attempt, and still present with the same
+   `session_id` afterward) — computed this way so a successfully-switched entry's fresh backend never
+   re-triggers the "no sample ⇒ treat as pressure" (G6) fallback on itself and blocks its own escape.
+   Verified against all four existing `loop_env` tests (single-task full switch still survives to a
+   second poll; no-fallback and below-threshold cases unchanged) plus a new one,
+   `test_main_still_pauses_when_one_task_switches_but_another_is_stranded`, that pins the actual bug
+   scenario (a switchable implementer entry and a stranded `role="script"` entry together — the pause
+   must still fire on poll 1).
+2. **`backends/codex.py`'s generated launcher always truncated `impl.log`, even on resume**, destroying
+   the evidence the reactive quota-pause net reads back out of it — the opposite of `claude.py`'s
+   existing `mode="a"`-on-resume design (with the same "would destroy the evidence" rationale in its
+   docstring). Threaded an equivalent `mode` parameter through `render_launcher`/`_write_launcher`;
+   `CodexBackend.launch()` still truncates, `CodexBackend.resume()` now appends. Two new tests in
+   `tests/backends/test_codex_driver.py`.
+
+**Verified — full suite green, zero skips:** `python3 -m pytest` → **4095 passed, 0 failed, 0
+skipped** in ~55s. `tests/characterization/` → **3561 passed, 0 skipped**. `test_purity.py` +
+`test_no_name_branching.py` + `test_extraction_complete.py` → **53 passed**.
+
+Reference project after the stage: HEAD `68056b5`, `git status --porcelain` exactly the baseline
+(five untracked + four standing-modified), `.orchestrator/state.json` `888 1786256976` unchanged,
+`.orchestrator/HALT` still in place. No abort condition.
+
+**Judgement calls for morning review:**
+- Choosing to revert the whole `resumable_tasks` feature rather than "fix" it (i.e., sync
+  `orchestrator.py`'s copy of `_pause_for_usage_limit` to also write it) — the feature was never
+  authorized in the first place, and DESIGN.md §9's self-update work (M3) is a more natural home for
+  any real "resume across restarts" need than a hand-rolled quota-pause bolt-on.
+- Not attempting to fix the two refuted-but-real-latent findings (`switch.py:861`'s handoff-brief/
+  resume mismatch, `switch.py:719`'s empty-`session_id` filter gap) since both are unreachable from
+  any current code path — fixing unreachable code risks either masking the real gap (no `Handle` is
+  ever constructed to trigger the first one) or adding untested surface area for a scenario that
+  cannot occur. Flagged in the review detail above instead.
 
 ## Open questions
 

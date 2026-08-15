@@ -9,7 +9,8 @@
 # ~/.claude/channels/telegram/.env) and the chat id from the first entry of
 # allowFrom in $MAESTRO_TELEGRAM_ACCESS_FILE (default
 # ~/.claude/channels/telegram/access.json). Exits 0 and skips silently if either
-# is missing, matching AbuAliArchive/scripts/notify_telegram.sh's behavior.
+# is missing, matching this environment's existing safe-skip-on-missing-config
+# convention.
 set -uo pipefail
 
 ENV_FILE="${MAESTRO_TELEGRAM_ENV_FILE:-$HOME/.claude/channels/telegram/.env}"

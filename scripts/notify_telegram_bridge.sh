@@ -50,7 +50,10 @@ except Exception as e:
 
 LIMIT = 4096
 if len(msg) > LIMIT:
-    msg = msg[: LIMIT - 20] + "\n… [truncated]"
+    marker = "\n… [truncated — see full log below] …\n"
+    tail_len = 400  # room for the Resume/Full log lines at the end of the message
+    head_len = LIMIT - len(marker) - tail_len
+    msg = msg[:head_len] + marker + msg[-tail_len:]
 
 data = urllib.parse.urlencode({"chat_id": chat_id, "text": msg}).encode()
 req = urllib.request.Request(

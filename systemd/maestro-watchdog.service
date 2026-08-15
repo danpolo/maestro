@@ -1,0 +1,23 @@
+# /etc/systemd/system/maestro-watchdog.service
+#
+# Oneshot, triggered by maestro-watchdog.timer. Runs scripts/watchdog_selffix.sh,
+# which is safe to run concurrently with maestro-build.service — it only reads
+# state and, on a detected stall, spawns a separate claude -p fixer session; it
+# never touches the tmux session or driver process directly except via the two
+# whitelisted `systemctl restart/status` commands (see /etc/sudoers.d/maestro-watchdog).
+[Unit]
+Description=Maestro Build Watchdog
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=dan
+WorkingDirectory=/home/dan/projects/maestro
+Environment=HOME=/home/dan
+Environment=USER=dan
+Environment=PATH=/home/dan/.local/bin:/home/dan/.bun/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/bin/bash /home/dan/projects/maestro/scripts/watchdog_selffix.sh
+# A tick should never run long: the fixer itself is capped internally at 30 min
+# (MAESTRO_FIXER_TIMEOUT). This is a hard backstop in case that fails.
+TimeoutStartSec=2400

@@ -1,0 +1,15 @@
+# /etc/systemd/system/maestro-watchdog.timer
+#
+# Ticks scripts/watchdog_selffix.sh every 20 minutes. See
+# docs/superpowers/specs/2026-08-14-maestro-build-watchdog-design.md for the
+# full design, and maestro-build.service for the sibling unit this watches.
+[Unit]
+Description=Maestro Build Watchdog Timer
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=20min
+Unit=maestro-watchdog.service
+
+[Install]
+WantedBy=timers.target

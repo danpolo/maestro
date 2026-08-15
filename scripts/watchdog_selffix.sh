@@ -123,8 +123,90 @@ PYEOF
     dispatch_fixer
 }
 
+classify_and_report() {
+    local log="$1" uuid="$2" rc="$3" before_head="$4"
+    local out after_head
+    out="$(cat "$log" 2>/dev/null || true)"
+
+    if [ "$rc" = "124" ]; then
+        "$NOTIFY" "$(printf '⏱️ maestro-build watchdog: fixer session timed out after %ss.\nSession: %s\nResume: claude --resume %s   (cwd: %s)\nFull log: %s' \
+            "$FIXER_TIMEOUT" "$uuid" "$uuid" "$REPO" "$log")"
+        return
+    fi
+
+    after_head="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo '')"
+    local no_new_commit=1
+    [ -n "$after_head" ] && [ "$after_head" != "$before_head" ] && no_new_commit=0
+
+    if [ "$no_new_commit" -ne 0 ] \
+       && echo "$out" | grep -qiE "usage limit|hit (your|the) .*limit|rate.?limit|resets at|spend limit"; then
+        local wait_s wake
+        wait_s="$(seconds_until_reset)"
+        wake="$(date -u -d "+${wait_s} seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)"
+        state_set retry_not_before "$wake"
+        "$NOTIFY" "$(printf '⏳ maestro-build watchdog: hit a Claude usage limit trying to fix it. Resets at %s. Will retry automatically after that.\nSession: %s\nFull log: %s' \
+            "$wake" "$uuid" "$log")"
+        return
+    fi
+
+    if [ -z "$out" ]; then
+        "$NOTIFY" "$(printf '🛑 maestro-build watchdog: fixer session (rc=%s) produced no output.\nSession: %s\nResume: claude --resume %s   (cwd: %s)\nFull log: %s' \
+            "$rc" "$uuid" "$uuid" "$REPO" "$log")"
+        return
+    fi
+
+    "$NOTIFY" "$(printf '🔧 maestro-build watchdog — driver was down, PROGRAMME-STATUS still IN-PROGRESS\nFixer session: %s\n\n%s\n\nResume if needed: claude --resume %s   (cwd: %s)\nFull log: %s' \
+        "$uuid" "$out" "$uuid" "$REPO" "$log")"
+}
+
 dispatch_fixer() {
-    echo "[watchdog] $(ts) TODO(Task 5): spawn the fixer session here" >&2
+    local uuid log rc before_head
+    uuid=$(python3 -c 'import uuid; print(uuid.uuid4())')
+    log="$LOGDIR/watchdog-fix-$(date -u +%Y%m%dT%H%M%SZ).log"
+    before_head="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo '')"
+
+    read -r -d '' brief <<EOF
+ultracode
+
+The maestro-build driver (systemd unit $UNIT) is not running while
+docs/PROGRESS.md's PROGRAMME-STATUS is still IN-PROGRESS. You are an
+unattended fixer session, invoked by scripts/watchdog_selffix.sh — not a
+normal chain session; do not try to continue the M2/build work itself.
+
+Diagnose the root cause first (systematic debugging: read
+scripts/loop_status.sh's checks, \`journalctl -u $UNIT\`, .run/session-*.log,
+\`git log\`, and docs/PROGRESS.md before proposing a fix — do not guess).
+Apply the minimal fix. If recovering uncommitted work, verify the full test
+suite is green before committing anything; never push.
+
+You are a headless, one-shot process exactly like a chain session: do not end
+your turn on unresolved background work (a Workflow call, a run_in_background
+command) — wait for it synchronously or don't start it, since nothing will
+receive its completion notification after you exit.
+
+You have passwordless sudo for exactly \`systemctl restart $UNIT\` and
+\`systemctl status $UNIT\` — nothing else. If the fix requires restarting the
+driver, do so and confirm via scripts/loop_status.sh-equivalent checks that
+it is actually iterating again before reporting success. For any other
+privileged action, follow the standing rule: write a /tmp script and report
+the exact command for the operator to run — do not attempt it yourself.
+
+End your final message in exactly this structure:
+
+## What happened
+## What I fixed
+## Open questions
+## Action needed from you
+EOF
+
+    set +e
+    timeout "$FIXER_TIMEOUT" "$CLAUDE_BIN" -p --model "$FIXER_MODEL" \
+        --dangerously-skip-permissions --session-id "$uuid" "$brief" \
+        >"$log" 2>&1
+    rc=$?
+    set -e
+
+    classify_and_report "$log" "$uuid" "$rc" "$before_head"
 }
 
 main() {

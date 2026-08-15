@@ -18,26 +18,16 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M0 — Package skeleton + characterisation harness | **done** | 2026-08-09 | `pytest -q` → 45 passed, 30 skipped (`2d833d1`) |
 | M1 — Core extraction | **done** | 2026-08-12 | `pytest` → 3571 passed, 0 skipped, 0 failed (`c18777f`) |
 | M2 — Backend drivers + mid-work switching | **done** | 2026-08-14 | `pytest` → 4068 passed, 0 skipped, 0 failed + live switch both directions (`4f47ed2`) |
-| M3 — Model limits + self-update | pending | — | — |
+| M3 — Model limits + self-update | **done** | 2026-08-16 | `pytest` → 4124 passed, 0 skipped, 0 failed + resolve_all/red-candidate done-when tests seen individually (`<pending commit>`) |
 | M4 — Setup: init, doctor, skills | pending | — | — |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** M3 — model limits and self-update, **not yet started**. **M2 closed green on
-2026-08-14**: every item in its plan's Definition of Done was run and its output seen, including the
-live forced switch in both directions (see the 2026-08-14 finding). The M2 carryover items (the
-never-run adversarial review, and the ratify/revert decision on the out-of-scope model-ID work) are
-now **closed as of the 2026-08-16 session** — see that session's finding below for what was reverted,
-ratified, and fixed. **M3 itself has no plan or code yet.** The next session should:
-1. Write `docs/plans/<date>-m3-limits-selfupdate.md` (EXECUTION.md's per-stage loop step 2 — M3 has
-   no detailed plan, unlike M0–M1 and M2).
-2. Build from `docs/DESIGN.md` §8–§9: extract the ceiling tables to `model_context_limits.md` beside
-   each of `~/.claude/CLAUDE.md` and `~/.codex/AGENTS.md` (Claude side directly; Codex side via the
-   Codex CLI, never a direct write — see EXECUTION.md's invariants); build `limits.py` and
-   `selfupdate.py`; replace the hardcoded model-ID constants (now current, per the 2026-08-16 session)
-   with per-model lookups.
-3. Done-when: `doctor` resolves every model in both tables; a deliberately-red candidate version is
-   refused and `current` stays put.
+**Current stage:** M4 — setup (`init`, `doctor`, skills), **not yet started**. **M3 closed green on
+2026-08-16** — see that session's finding below. The next session should write
+`docs/plans/<date>-m4-setup.md` from `docs/DESIGN.md` §10 and EXECUTION.md's M4 stage entry, then
+build `cli.py`, `templates/`, and the setup skill in both Claude and Codex formats, acceptance-tested
+on a throwaway `/tmp` project only.
 
 **ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
 ` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
@@ -836,6 +826,109 @@ Reference project after the stage: HEAD `68056b5`, `git status --porcelain` exac
   any current code path — fixing unreachable code risks either masking the real gap (no `Handle` is
   ever constructed to trigger the first one) or adding untested surface area for a scenario that
   cannot occur. Flagged in the review detail above instead.
+
+### Session 2026-08-16 (second session) — **M3 COMPLETE**, commit `<pending>`
+
+Started fresh from the 2026-08-16 carryover-cleanup session's handoff note. Read `docs/EXECUTION.md`
+and `docs/DESIGN.md` §8–§9 only — no reference-file reads, no reads of prior extracted modules.
+
+#### Reference-project baseline re-verified before and after — unchanged
+
+`HEAD 68056b5`, `git status --porcelain` exactly the standing baseline (five untracked + four
+standing-modified: `docs/UPCOMING.md`, `docs/dependency_map.{md,png}`,
+`systemd/abuali-watchdog.service`), `.orchestrator/state.json` `888 1786256976`, `.orchestrator/HALT`
+present. `pgrep -f orchestrator_run.py` returns two PIDs that are `pgrep`'s own self-match artefact
+(a wrapper subshell), not a real process — confirmed with `ps -p`, which found neither. No abort
+condition, before or after this stage.
+
+#### Ceiling-table extraction (§8) — done directly, verified byte-for-byte
+
+- **Claude side, edited directly**: `~/.claude/model_context_limits.md` created with the
+  Sonnet 5 / Opus 5 table; `~/.claude/CLAUDE.md`'s table replaced with a one-line pointer, prose kept
+  in place.
+- **Codex side, via the Codex CLI** (`codex exec -C ~/.codex --skip-git-repo-check -s
+  workspace-write` with an exact create-file + exact-block-replace prompt, per the operator's
+  delegate-to-agent rule — never a direct write into `~/.codex/`): `~/.codex/model_context_limits.md`
+  created with the GPT-5.6 Luna/Terra/Sol table; `~/.codex/AGENTS.md`'s table replaced with the
+  matching pointer sentence, rest of the file untouched. Both files read back after and diffed
+  against the request — exact match, no paraphrasing.
+- **Finding: DESIGN.md §8's "replaces the hardcoded 110K/120K constants carried over in M1" does not
+  apply to this codebase.** A full-repo search for those constants in any spelling found zero hits —
+  M1's extraction never carried a context-ceiling number over from the reference implementation
+  because the reference `orchestrator_run.py` has no notion of its own context budget; 110K/120K was
+  always this build's own session-lifecycle guidance, not reference behaviour. `limits.py` was still
+  built as designed (it is a genuinely useful lookup library for the two real tables), but there was
+  no hardcoded-constant replacement to perform. Recorded in
+  `docs/plans/2026-08-16-m3-limits-selfupdate.md` rather than `docs/FOUND_BUGS.md`, since it is a
+  planning correction, not a reference-code defect.
+
+#### `maestro/limits.py` and `maestro/selfupdate.py` — one workflow, two parallel agents, no conflicts
+
+Built via a 2-agent `Workflow` (component A: `limits.py` + `tests/test_limits.py` +
+`paths.py`'s new `model_limits` property; component B: `selfupdate.py` + `tests/test_selfupdate.py` +
+a small idle-moment wiring into `orchestrator.py`), run to completion synchronously in this same
+turn (`TaskOutput(block=true)`), not backgrounded past the turn boundary. Both agents finished clean,
+zero errors, ~168K subagent tokens combined.
+
+- `limits.py`: `parse_limits_table` / `default_table_paths` / `load_limits` / `resolve` /
+  `resolve_all`, tolerant of the two real files' minor formatting differences (bold cell, alignment
+  colons, `k`/`K` suffix, hyphen vs en-dash ranges). Never raises on a missing/unparseable file —
+  falls back to shipped defaults and surfaces problems via `warnings.warn` (a real, catchable
+  `UserWarning`) rather than a second return value, since the spec'd `resolve`/`resolve_all`
+  signatures return `ModelLimits | None` with no room for an inline warning list. Config override
+  path reads through `maestro.config.load_project_yaml()` (the existing public alias), not a new
+  loader. Cache write target (`.orchestrator/model_limits.json`) is a module-level global in the same
+  style as `switch.py`'s `REPO`/`WORKSPACES`, so no test writes into the live repo's `.orchestrator/`.
+- `selfupdate.py`: `SelfUpdatePaths` rooted at `~/.maestro` (overridable via `MAESTRO_HOME`);
+  `current` is a plain text file holding the adopted worktree's absolute path (a deliberate choice
+  over a symlink, documented in the module). `maybe_self_update` never raises — wrapped end-to-end,
+  returns `"error:<msg>"` on any internal failure instead. First run (no `maestro_version` in state)
+  adopts HEAD directly with no self-test gate — proven by a test that gives the first-run repo a
+  *failing* suite and confirms adoption still happens, since there is nothing to roll back to yet. A
+  red candidate leaves `current` and `state["maestro_version"]` untouched and journals
+  `self_update_held`; "rollback" for the red case is simply never having moved `current` — no
+  separate rollback code path exists or is needed.
+- `orchestrator.py` wiring: one import, one new throttle var (`_last_self_update_check`, deliberately
+  separate from `_idle_heartbeat_maybe`'s `_last_idle_heartbeat` — different cadence needs), one new
+  `_self_update_maybe()` helper reusing `IDLE_HEARTBEAT_S`, one new call site next to the existing
+  `_idle_heartbeat_maybe(runnable)` call inside `main()`'s `elif not launched_any:` branch. That
+  branch is only reached when `in_flight` is already empty, so "never mid-task" (DESIGN.md §9) is
+  structural, not a runtime re-check. No other line of `main()` was touched or read beyond this call
+  site, per EXECUTION.md's "never read an extracted module" discipline extended to `main()` itself.
+
+**Verified myself, not just trusted the agents' self-report** (EXECUTION.md's per-stage loop step 5):
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite, zero skips | `python3 -m pytest` | **4124 passed, 0 failed, 0 skipped** in 60.47s |
+| New files alone | `python3 -m pytest tests/test_limits.py tests/test_selfupdate.py` | **29 passed** (17 + 12) |
+| Done-when 2 — resolve_all on real tables | `pytest tests/test_limits.py::test_resolve_all_against_the_real_shipped_tables -v` | 1 passed — all 5 real model names (Claude Sonnet 5, Claude Opus 5, GPT-5.6 Luna/Terra/Sol) resolve non-`None` |
+| Done-when 3 — red candidate refused | `pytest tests/test_selfupdate.py -k held_red -v` | 1 passed — `maybe_self_update` returns `held_red:<sha>`, `current` provably unchanged, no exception |
+| Orchestrator wiring didn't break pinned tests | `pytest tests/test_orchestrator_switch_hooks.py tests/characterization/test_orchestrator.py` | 291 passed (run by the agent, spot-checked in the full-suite run above) |
+
+No git commands were run by either agent. Diff surface: `maestro/orchestrator.py` (M),
+`maestro/paths.py` (M, +1 property), `maestro/limits.py` (new), `maestro/selfupdate.py` (new),
+`tests/test_limits.py` (new), `tests/test_selfupdate.py` (new),
+`docs/plans/2026-08-16-m3-limits-selfupdate.md` (new).
+
+#### Explicitly out of scope, per the plan — flagged for later, not forgotten
+
+- Wiring `limits.py`'s resolutions into any live warning/pause behaviour (e.g. the orchestrator
+  acting when a *supervised* session's own context usage nears a ceiling) — nothing in this codebase
+  samples a supervised session's context usage today, and DESIGN.md §8 describes `limits.py` as a
+  lookup library, not an enforcement point. Open question for `docs/DESIGN.md` if wanted later.
+- `maestro doctor` itself (M4) and `~/.maestro/versions/` GC for stale worktrees (no expiry policy
+  written yet — every adopted-and-superseded worktree accumulates on disk indefinitely). Neither is
+  in DESIGN.md §8–§9.
+
+#### Judgement calls for morning review
+
+- Substituting `resolve_all()` (a library call) for "`doctor` resolves every model in both tables" in
+  the Done-when, since `maestro doctor` is M4 work that does not exist yet. Both real tables' 5
+  models resolve; the actual CLI surface is still owed in M4.
+- Treating "DESIGN.md §8's constant-replacement clause has nothing to replace" as a documentation
+  note rather than reopening the finding as a bug — no reference-code behaviour was mis-extracted;
+  the plan's assumption was simply wrong going in.
 
 ## Open questions
 

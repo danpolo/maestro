@@ -1,0 +1,258 @@
+"""Per-model context-ceiling lookup (DESIGN.md §8, D4) — `maestro.limits`.
+
+`maestro/limits.py` is new M3 behaviour, not an extraction, so these tests live here
+rather than under `tests/characterization/` and exercise real behaviour end to end
+(ordinary TDD-style tests are correct here, unlike M0-M2's characterization pinning).
+
+`test_resolve_all_against_the_real_shipped_tables` is the stand-in the M3 plan asks for:
+until M4 builds the `doctor` CLI command, this test *is* "doctor resolves every model in
+both tables" — `resolve_all()` is a library function, not `doctor` itself.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from maestro import limits
+
+CLAUDE_TABLE = Path.home() / ".claude" / "model_context_limits.md"
+CODEX_TABLE = Path.home() / ".codex" / "model_context_limits.md"
+
+REAL_MODEL_NAMES = [
+    "Claude Sonnet 5",
+    "Claude Opus 5",
+    "GPT-5.6 Luna",
+    "GPT-5.6 Terra",
+    "GPT-5.6 Sol",
+]
+
+
+@pytest.fixture(autouse=True)
+def _cache_into_tmp(tmp_path, monkeypatch):
+    """Every test's `load_limits()` call writes its cache under `tmp_path`, never the
+    live repo's `.orchestrator/`."""
+    monkeypatch.setattr(limits, "MODEL_LIMITS_JSON", tmp_path / ".orchestrator" / "model_limits.json")
+
+
+@pytest.fixture(autouse=True)
+def _no_project_yaml_override(monkeypatch):
+    """`default_table_paths()` reads `project.yaml` through `maestro.config`; pin it to
+    "no override" so a real `project.yaml` sitting in this checkout can't leak into a
+    test that expects the two default paths."""
+    from maestro import config as _config
+
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: {})
+
+
+# ── parse_limits_table: the two real files ──
+
+def test_parses_the_real_claude_table():
+    text = CLAUDE_TABLE.read_text(encoding="utf-8")
+    models = limits.parse_limits_table(text)
+
+    assert models["Claude Sonnet 5"] == limits.ModelLimits(
+        "Claude Sonnet 5", 90_000, 100_000, 120_000, 140_000, 180_000
+    )
+    assert models["Claude Opus 5"] == limits.ModelLimits(
+        "Claude Opus 5", 100_000, 120_000, 150_000, 180_000, 240_000
+    )
+
+
+def test_parses_the_real_codex_table():
+    text = CODEX_TABLE.read_text(encoding="utf-8")
+    models = limits.parse_limits_table(text)
+
+    assert models["GPT-5.6 Luna"] == limits.ModelLimits(
+        "GPT-5.6 Luna", 70_000, 90_000, 100_000, 120_000, 150_000
+    )
+    assert models["GPT-5.6 Terra"] == limits.ModelLimits(
+        "GPT-5.6 Terra", 100_000, 120_000, 140_000, 170_000, 220_000
+    )
+    assert models["GPT-5.6 Sol"] == limits.ModelLimits(
+        "GPT-5.6 Sol", 120_000, 140_000, 180_000, 220_000, 280_000
+    )
+
+
+def test_real_tables_are_read_only_never_written(monkeypatch):
+    """Belt-and-braces: prove this test file never mutates the two live global-config
+    tables it reads from, regardless of what `load_limits()` internally does."""
+    before_claude = CLAUDE_TABLE.read_bytes()
+    before_codex = CODEX_TABLE.read_bytes()
+
+    limits.load_limits([CLAUDE_TABLE, CODEX_TABLE])
+
+    assert CLAUDE_TABLE.read_bytes() == before_claude
+    assert CODEX_TABLE.read_bytes() == before_codex
+
+
+# ── parse_limits_table: formatting tolerance ──
+
+def test_tolerates_bold_cell_alignment_colons_and_lowercase_k():
+    text = (
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| **Some Model** | 90–100K | 120–140k | 180k |\n"
+    )
+    models = limits.parse_limits_table(text)
+    assert models["Some Model"] == limits.ModelLimits("Some Model", 90_000, 100_000, 120_000, 140_000, 180_000)
+
+
+def test_tolerates_hyphen_ranges_and_k_on_both_sides():
+    text = (
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---:|---:|---:|---:|\n"
+        "| Other Model | 70K-90K | 100K-120K | 150K |\n"
+    )
+    models = limits.parse_limits_table(text)
+    assert models["Other Model"] == limits.ModelLimits("Other Model", 70_000, 90_000, 100_000, 120_000, 150_000)
+
+
+def test_a_row_with_no_pipes_or_wrong_cell_count_is_ignored_not_a_crash():
+    text = "Model unknown -> 100K warn / 120K evaluate / 150K normal max.\n"
+    assert limits.parse_limits_table(text) == {}
+
+
+# ── load_limits: missing file ──
+
+def test_a_missing_file_produces_a_warning_not_an_error(tmp_path):
+    missing = tmp_path / "does_not_exist.md"
+    result = limits.load_limits([missing])
+
+    assert isinstance(result, limits.LimitsResult)
+    assert any(str(missing) in w for w in result.warnings)
+    # Nothing parsed anywhere -> shipped defaults kick in, so this still isn't empty.
+    assert result.models
+
+
+# ── load_limits: unparseable row ──
+
+def test_an_unparseable_row_is_warned_about_but_does_not_stop_the_good_rows(tmp_path):
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Good Model | 90–100K | 120–140K | 180K |\n"
+        "| Bad Model | not-a-range | 120–140K | 180K |\n",
+        encoding="utf-8",
+    )
+
+    result = limits.load_limits([table])
+
+    assert result.models["Good Model"] == limits.ModelLimits(
+        "Good Model", 90_000, 100_000, 120_000, 140_000, 180_000
+    )
+    assert "Bad Model" not in result.models
+    assert any("unparseable row" in w for w in result.warnings)
+
+
+# ── load_limits: shipped-defaults fallback ──
+
+def test_shipped_defaults_fill_in_when_nothing_parses_anywhere(tmp_path):
+    empty = tmp_path / "empty.md"
+    empty.write_text("# nothing but prose here\n", encoding="utf-8")
+
+    result = limits.load_limits([empty])
+
+    assert result.models == dict(limits._SHIPPED_DEFAULTS)
+    assert any("shipped defaults" in w for w in result.warnings)
+
+
+def test_shipped_defaults_are_not_used_when_at_least_one_real_row_parsed(tmp_path):
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Only Model | 90–100K | 120–140K | 180K |\n",
+        encoding="utf-8",
+    )
+
+    result = limits.load_limits([table])
+
+    assert result.models == {
+        "Only Model": limits.ModelLimits("Only Model", 90_000, 100_000, 120_000, 140_000, 180_000)
+    }
+    assert not any("shipped defaults" in w for w in result.warnings)
+
+
+# ── load_limits: caching ──
+
+def test_load_limits_writes_the_merged_cache_to_disk(tmp_path):
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Cached Model | 90–100K | 120–140K | 180K |\n",
+        encoding="utf-8",
+    )
+
+    limits.load_limits([table])
+
+    cache = json.loads(limits.MODEL_LIMITS_JSON.read_text(encoding="utf-8"))
+    assert cache["Cached Model"]["exception_ceiling"] == 180_000
+
+
+# ── default_table_paths ──
+
+def test_default_table_paths_is_the_two_global_config_locations():
+    paths = limits.default_table_paths()
+    assert paths == [CLAUDE_TABLE, CODEX_TABLE]
+
+
+def test_default_table_paths_is_overridable_via_project_yaml(monkeypatch, tmp_path):
+    from maestro import config as _config
+
+    custom = tmp_path / "custom_limits.md"
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: {"model_limits_paths": [str(custom)]})
+
+    assert limits.default_table_paths() == [custom]
+
+
+# ── resolve / resolve_all ──
+
+def test_resolve_returns_none_and_warns_for_an_unknown_model(tmp_path):
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Known Model | 90–100K | 120–140K | 180K |\n",
+        encoding="utf-8",
+    )
+
+    with pytest.warns(UserWarning, match="Unknown Model"):
+        result = limits.resolve("Unknown Model", [table])
+
+    assert result is None
+
+
+def test_resolve_finds_a_model_present_in_the_table(tmp_path):
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Known Model | 90–100K | 120–140K | 180K |\n",
+        encoding="utf-8",
+    )
+
+    result = limits.resolve("Known Model", [table])
+    assert result == limits.ModelLimits("Known Model", 90_000, 100_000, 120_000, 140_000, 180_000)
+
+
+def test_resolve_all_against_the_real_shipped_tables():
+    """The M3 plan's Done-when item 2: `resolve_all()` against the two real files at
+    `~/.claude/model_context_limits.md` and `~/.codex/model_context_limits.md` resolves
+    all 5 real model names to a non-None ModelLimits. Stands in for `doctor` resolving
+    every model in both tables, until M4 builds `doctor` itself."""
+    resolved = limits.resolve_all(REAL_MODEL_NAMES, [CLAUDE_TABLE, CODEX_TABLE])
+
+    assert set(resolved) == set(REAL_MODEL_NAMES)
+    for name in REAL_MODEL_NAMES:
+        assert resolved[name] is not None, f"{name} did not resolve"
+        assert isinstance(resolved[name], limits.ModelLimits)
+
+
+def test_resolve_all_uses_the_defaults_when_paths_omitted():
+    resolved = limits.resolve_all(REAL_MODEL_NAMES)
+    for name in REAL_MODEL_NAMES:
+        assert resolved[name] is not None, f"{name} did not resolve"

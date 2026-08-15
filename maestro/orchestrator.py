@@ -88,6 +88,7 @@ from maestro.roles import (
 from maestro.selfheal.diagnose import _judge_complete
 from maestro.selfheal.redo import apply_ready_redo
 from maestro.selfheal.selffix import apply_ready_self_fixes
+from maestro.selfupdate import maybe_self_update
 from maestro.state import (
     _persist_launch_time,
     append_journal,
@@ -148,6 +149,11 @@ _reconcile_zombie_polls: dict[str, int] = {}
 # HALT) would kill the healthy idle loop. A throttled heartbeat keeps the journal advancing.
 IDLE_HEARTBEAT_S      = 600      # ≤ watchdog STALL_WINDOW (20min) with wide margin
 _last_idle_heartbeat  = 0.0
+
+# M3 D5: self-update runs from the same idle branch as the heartbeat above, on the same
+# cadence — but with its own throttle timestamp; the two checks are independent and must
+# not share one, or throttling one would silently throttle the other.
+_last_self_update_check = 0.0
 
 
 # ── Bodies this module has to own rather than import ──
@@ -894,6 +900,22 @@ def _idle_heartbeat_maybe(runnable: list) -> None:
     print(f"  [idle] all runnable tasks gated ({ids}); next poll in {POLL_INTERVAL}s", flush=True)
 
 
+def _self_update_maybe() -> None:
+    """Throttled idle-moment self-update check (DESIGN.md §9).
+
+    Only ever called from the branch of `main`'s loop where `in_flight` is already
+    empty — this function trusts that precondition rather than re-checking it, exactly
+    like `maybe_self_update`/`adopt` themselves (see their docstrings)."""
+    global _last_self_update_check
+    now = time.monotonic()
+    if now - _last_self_update_check < IDLE_HEARTBEAT_S:
+        return
+    _last_self_update_check = now
+    status = maybe_self_update()
+    if status != "up_to_date":
+        print(f"  [self-update] {status}", flush=True)
+
+
 def main() -> int:
     print("=" * 62)
     print("  B5.1 ORCHESTRATOR — Verification-Gated Parallelism")
@@ -1503,6 +1525,7 @@ def main() -> int:
             # auto-launches when a gate clears; heartbeat so the watchdog doesn't
             # stall-kill a healthy idle loop.
             _idle_heartbeat_maybe(runnable)
+            _self_update_maybe()  # M3 D5: idle branch, in_flight is empty here
             time.sleep(POLL_INTERVAL)
 
     run_status()

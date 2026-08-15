@@ -407,6 +407,13 @@ def test_the_launcher_captures_the_thread_id_from_the_first_event(driver, spec):
     assert "THREAD_FILE.write_text" in source
 
 
+def test_a_fresh_launch_opens_impl_log_in_write_mode(driver, spec):
+    """A fresh launch has no prior `impl.log` to protect, so it truncates as before."""
+    driver.launch(spec)
+    source = (Path(spec.workspace) / "launch.py").read_text()
+    assert _launcher_value(source, "LOG_MODE") == "w"
+
+
 def test_a_brief_full_of_quotes_and_newlines_survives_into_the_launcher(driver, spec):
     nasty = "line one\n'single' \"double\" \\backslash\\ {braces} — dash"
     driver.launch(LaunchSpec(**{**spec.__dict__, "brief": nasty}))
@@ -521,6 +528,22 @@ def test_resume_says_so_when_it_cannot_reconstruct_a_spec(driver, tmp_path):
     with pytest.raises(ValueError) as excinfo:
         driver.resume(handle, "carry on")
     assert "codex_launch.json" in str(excinfo.value)
+
+
+def test_resume_opens_impl_log_in_append_mode(driver, spec):
+    """A resume must never truncate `impl.log` — that is the reactive quota net's evidence.
+
+    Mirrors the Claude driver's `launcher_source(..., mode="a")` on resume: truncating
+    would destroy everything a prior run (or runs) already wrote to the log.
+    """
+    handle = driver.launch(spec)
+    (Path(spec.workspace) / "codex_thread_id.txt").write_text(THREAD_ID)
+
+    driver.resume(handle, "carry on")
+
+    source = (Path(spec.workspace) / "launch.py").read_text()
+    assert _launcher_value(source, "LOG_MODE") == "a"
+    assert _launcher_value(source, "LOG_MODE") != "w"
 
 
 def test_resume_records_the_prompt_it_handed_over(driver, spec):

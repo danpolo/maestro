@@ -804,7 +804,7 @@ class CodexBackend:
             primary, fallback = fresh, None
             self._forget_thread_id(workspace)
 
-        self._write_launcher(workspace, primary=primary, fallback=fallback)
+        self._write_launcher(workspace, primary=primary, fallback=fallback, mode="a")
         self._new_window(resolved.task_id, Path(resolved.worktree), workspace)
 
         self._spec = resolved
@@ -907,6 +907,7 @@ class CodexBackend:
         *,
         primary: Sequence[str],
         fallback: Optional[Sequence[str]],
+        mode: str = "w",
     ) -> Path:
         script = workspace / LAUNCH_SCRIPT
         script.write_text(
@@ -915,6 +916,7 @@ class CodexBackend:
                 fallback=fallback,
                 log=workspace / LOG_FILE,
                 thread_file=workspace / THREAD_ID_FILE,
+                mode=mode,
             ),
             encoding="utf-8",
         )
@@ -1233,6 +1235,7 @@ LOG = Path({log})
 THREAD_FILE = Path({thread_file})
 DEAD_THREAD_MARKER = {marker}
 TAIL_CHARS = {tail_chars}
+LOG_MODE = {mode}
 
 
 def thread_id_of(line):
@@ -1267,7 +1270,7 @@ def run(argv, log):
     return proc.wait(), tail
 
 
-with open(LOG, "w", encoding="utf-8") as log:
+with open(LOG, LOG_MODE, encoding="utf-8") as log:
     rc, tail = run(ARGV, log)
     if rc != 0 and FALLBACK_ARGV and DEAD_THREAD_MARKER in tail:
         log.write("\\n[maestro] resume handle is gone — relaunching with a fresh brief\\n")
@@ -1284,12 +1287,17 @@ def render_launcher(
     fallback: Optional[Sequence[str]],
     log: Path | str,
     thread_file: Path | str,
+    mode: str = "w",
 ) -> str:
     """The `launch.py` a tmux window runs.
 
     The argv is embedded as JSON rather than interpolated as Python source: a brief is
     arbitrary operator-authored text, full of quotes, backslashes and newlines, and
     `json.dumps` + `repr` is the one escaping path that cannot be broken by its content.
+
+    `mode` is the mode `log` is opened in. A launch truncates (`"w"`, the reference
+    behaviour); a resume appends (`"a"`), because truncating `impl.log` would destroy the
+    evidence the reactive quota net reads back out of it.
     """
     return _LAUNCHER_TEMPLATE.format(
         argv=repr(json.dumps(list(primary))),
@@ -1298,4 +1306,5 @@ def render_launcher(
         thread_file=repr(str(thread_file)),
         marker=repr(DEAD_THREAD_MARKER),
         tail_chars=LAUNCHER_TAIL_CHARS,
+        mode=repr(mode),
     )

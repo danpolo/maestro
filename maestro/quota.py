@@ -108,22 +108,6 @@ def _pause_for_usage_limit(task_id: str, reset_iso: str, evidence: str,
     cur = state.get("paused_until")  # never shorten an existing later pause
     if not cur or str(cur) < reset_iso:
         state["paused_until"] = reset_iso
-
-    # Track resumable session for this task across quota pauses
-    resumable = state.get("resumable_tasks", {})
-    sess_uuid = ""
-    try:
-        sess_uuid = (workspace / "session_uuid.txt").read_text(encoding="utf-8").strip()
-    except Exception:
-        pass
-    resumable[task_id] = {
-        "session_id": workspace.name,
-        "session_uuid": sess_uuid,
-        "workspace": str(workspace),
-        "paused_at": datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-    }
-    state["resumable_tasks"] = resumable
-
     write_state(state)
     append_journal("usage_limit_backoff",
                    f"{task_id} paused_until={reset_iso} ev={evidence[:80]}",

@@ -1071,6 +1071,19 @@ def test_launch_implementer_unknown_model_falls_back_to_the_default(
     assert argv[argv.index("--model") + 1] == subject._DEFAULT_IMPLEMENTER_MODEL
 
 
+def test_launch_implementer_title_keywords_never_escalate_the_model(
+    subject, sandbox, monkeypatch
+):
+    """A task with no explicit `model:` field falls to the default regardless of its
+    title — resolving a model from title/description text was never part of the B8
+    allowlist design and must not silently reappear."""
+    task = {**TASK, "title": "Core extraction and architecture refactor",
+            "short_desc": "redesign the protocol engine, a cutover"}
+    out = _launch(subject, sandbox, monkeypatch, task=task)
+    argv = _agent_argv(out.workspace / "launch.py")
+    assert argv[argv.index("--model") + 1] == subject._DEFAULT_IMPLEMENTER_MODEL
+
+
 def test_launch_implementer_non_string_model_raises(subject, sandbox, monkeypatch):
     """Surprise: the "never crash" fall-safe only covers falsy values — `model: 3` raises."""
     _fake_run(monkeypatch)

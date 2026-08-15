@@ -136,7 +136,13 @@ def test_active_driver_does_nothing(scratch_repo, tmp_path):
 def test_inactive_driver_triggers_the_stall_path_once(scratch_repo, tmp_path):
     _write_progress(scratch_repo, "IN-PROGRESS")
     systemctl_bin = _fake_bin(tmp_path, "systemctl", "#!/bin/sh\nexit 3\n")  # is-active -> inactive
+    notify, _log = _recording_notify(tmp_path)
+    claude_stub = tmp_path / "claude_noop.sh"
+    claude_stub.write_text("#!/bin/sh\nexit 0\n")
+    claude_stub.chmod(0o755)
     result = _run_watchdog(scratch_repo, {
+        "MAESTRO_NOTIFY_SCRIPT": str(notify),
+        "MAESTRO_CLAUDE_BIN": str(claude_stub),
         "PATH": f"{systemctl_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
     })
     assert result.returncode == 0, result.stderr
@@ -148,8 +154,14 @@ def test_inactive_driver_triggers_the_stall_path_once(scratch_repo, tmp_path):
 def test_a_second_stall_within_the_cooldown_window_does_not_refire(scratch_repo, tmp_path):
     _write_progress(scratch_repo, "IN-PROGRESS")
     systemctl_bin = _fake_bin(tmp_path, "systemctl", "#!/bin/sh\nexit 3\n")
+    notify, _log = _recording_notify(tmp_path)
+    claude_stub = tmp_path / "claude_noop.sh"
+    claude_stub.write_text("#!/bin/sh\nexit 0\n")
+    claude_stub.chmod(0o755)
     env = {
         "MAESTRO_STALL_COOLDOWN": "5400",
+        "MAESTRO_NOTIFY_SCRIPT": str(notify),
+        "MAESTRO_CLAUDE_BIN": str(claude_stub),
         "PATH": f"{systemctl_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
     }
     _run_watchdog(scratch_repo, env)
@@ -171,3 +183,112 @@ def test_a_future_retry_not_before_skips_the_stall_path(scratch_repo, tmp_path):
     assert result.returncode == 0, result.stderr
     state = json.loads(state_file.read_text())
     assert "last_fix_attempt_at" not in state  # never reached the fixer dispatch
+
+
+def test_inactive_driver_spawns_the_fixer_and_forwards_its_report(scratch_repo, tmp_path):
+    _write_progress(scratch_repo, "IN-PROGRESS")
+    notify, log = _recording_notify(tmp_path)
+    systemctl_bin = _fake_bin(tmp_path, "systemctl", "#!/bin/sh\nexit 3\n")
+    claude_stub = tmp_path / "claude_stub.sh"
+    claude_stub.write_text(
+        "#!/bin/sh\n"
+        'printf "## What happened\\ndriver was down\\n## What I fixed\\nrestarted it\\n'
+        '## Open questions\\nnone\\n## Action needed from you\\nnone\\n"\n'
+    )
+    claude_stub.chmod(0o755)
+    result = _run_watchdog(scratch_repo, {
+        "MAESTRO_NOTIFY_SCRIPT": str(notify),
+        "MAESTRO_CLAUDE_BIN": str(claude_stub),
+        "PATH": f"{systemctl_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+    })
+    assert result.returncode == 0, result.stderr
+    text = log.read_text()
+    assert "What I fixed" in text
+    assert "restarted it" in text
+
+
+def test_a_usage_limit_hit_with_no_commit_reports_the_real_reset_time(scratch_repo, tmp_path):
+    _write_progress(scratch_repo, "IN-PROGRESS")
+    notify, log = _recording_notify(tmp_path)
+    systemctl_bin = _fake_bin(tmp_path, "systemctl", "#!/bin/sh\nexit 3\n")
+    curl_bin = _fake_bin(tmp_path, "curl", (
+        "#!/bin/sh\n"
+        "echo '{\"five_hour\": {\"utilization\": 99, \"resets_at\": "
+        "\"2099-01-01T00:00:00+00:00\"}}'\n"
+    ))
+    claude_stub = tmp_path / "claude_stub.sh"
+    claude_stub.write_text("#!/bin/sh\necho 'You have hit your monthly spend limit.'\n")
+    claude_stub.chmod(0o755)
+    creds_file = tmp_path / "creds.json"
+    creds_file.write_text('{"claudeAiOauth": {"accessToken": "fake"}}')
+    result = _run_watchdog(scratch_repo, {
+        "MAESTRO_NOTIFY_SCRIPT": str(notify),
+        "MAESTRO_CLAUDE_BIN": str(claude_stub),
+        "MAESTRO_CREDENTIALS_FILE": str(creds_file),
+        "PATH": f"{systemctl_bin}:{curl_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+    })
+    assert result.returncode == 0, result.stderr
+    text = log.read_text()
+    assert "usage limit" in text.lower()
+    state = json.loads((scratch_repo / ".run" / "watchdog_state.json").read_text())
+    assert state.get("retry_not_before")
+
+
+def test_a_usage_limit_mention_is_ignored_if_a_commit_was_made(scratch_repo, tmp_path):
+    _write_progress(scratch_repo, "IN-PROGRESS")
+    notify, log = _recording_notify(tmp_path)
+    systemctl_bin = _fake_bin(tmp_path, "systemctl", "#!/bin/sh\nexit 3\n")
+    claude_stub = tmp_path / "claude_stub.sh"
+    claude_stub.write_text(
+        "#!/bin/sh\n"
+        f'cd "{scratch_repo}" && git commit --allow-empty -q -m "fixer commit"\n'
+        'printf "## What happened\\nhad hit a limit earlier but recovered\\n'
+        '## What I fixed\\nrestarted the driver\\n## Open questions\\nnone\\n'
+        '## Action needed from you\\nnone\\n"\n'
+    )
+    claude_stub.chmod(0o755)
+    result = _run_watchdog(scratch_repo, {
+        "MAESTRO_NOTIFY_SCRIPT": str(notify),
+        "MAESTRO_CLAUDE_BIN": str(claude_stub),
+        "PATH": f"{systemctl_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+    })
+    assert result.returncode == 0, result.stderr
+    text = log.read_text()
+    assert "restarted the driver" in text
+    state = json.loads((scratch_repo / ".run" / "watchdog_state.json").read_text())
+    assert not state.get("retry_not_before")  # not treated as a rate-limit outcome
+
+
+def test_a_timed_out_fixer_is_reported_with_a_resume_hint(scratch_repo, tmp_path):
+    _write_progress(scratch_repo, "IN-PROGRESS")
+    notify, log = _recording_notify(tmp_path)
+    systemctl_bin = _fake_bin(tmp_path, "systemctl", "#!/bin/sh\nexit 3\n")
+    claude_stub = tmp_path / "claude_hangs.sh"
+    claude_stub.write_text("#!/bin/sh\nsleep 30\n")
+    claude_stub.chmod(0o755)
+    result = _run_watchdog(scratch_repo, {
+        "MAESTRO_NOTIFY_SCRIPT": str(notify),
+        "MAESTRO_CLAUDE_BIN": str(claude_stub),
+        "MAESTRO_FIXER_TIMEOUT": "1",
+        "PATH": f"{systemctl_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+    })
+    assert result.returncode == 0, result.stderr
+    text = log.read_text()
+    assert "timed out" in text.lower()
+    assert "--resume" in text
+
+
+def test_an_empty_fixer_report_still_notifies(scratch_repo, tmp_path):
+    _write_progress(scratch_repo, "IN-PROGRESS")
+    notify, log = _recording_notify(tmp_path)
+    systemctl_bin = _fake_bin(tmp_path, "systemctl", "#!/bin/sh\nexit 3\n")
+    claude_stub = tmp_path / "claude_silent.sh"
+    claude_stub.write_text("#!/bin/sh\nexit 1\n")
+    claude_stub.chmod(0o755)
+    result = _run_watchdog(scratch_repo, {
+        "MAESTRO_NOTIFY_SCRIPT": str(notify),
+        "MAESTRO_CLAUDE_BIN": str(claude_stub),
+        "PATH": f"{systemctl_bin}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+    })
+    assert result.returncode == 0, result.stderr
+    assert "no output" in log.read_text().lower()

@@ -58,58 +58,8 @@ EOF
 mkdir -p "$LOGDIR"
 cd "$REPO" || { echo "[chain] cannot cd to $REPO"; exit 1; }
 
-ts()     { date -u +%Y-%m-%dT%H:%M:%SZ; }
-status() { grep -oE '^PROGRAMME-STATUS:[[:space:]]+[A-Z-]+' "$PROGRESS" 2>/dev/null \
-             | head -1 | awk '{print $2}'; }
-hash_p() { md5sum "$PROGRESS" 2>/dev/null | cut -d' ' -f1; }
-
-# "You've hit your monthly spend limit" is shown for the regular 5h *and* weekly
-# caps too (confirmed 2026-08-09/11 - not a distinct billing cap most of the time).
-# A flat hourly retry is fine for a 5h window but wastes up to a week of hourly
-# wake-ups against a weekly one (observed: 24 straight hourly misses on
-# 2026-08-11). The Anthropic usage API reports exact reset times for both windows,
-# so ask it which one is actually binding (highest utilization) and sleep until
-# that reset instead of guessing. Falls back to $LIMIT_SLEEP on any failure -
-# same behaviour as before this existed.
-seconds_until_reset() {
-    python3 - "$LIMIT_SLEEP" <<'PYEOF'
-import json, subprocess, sys
-from datetime import datetime, timezone
-
-fallback = int(sys.argv[1])
-try:
-    creds = json.load(open("/home/dan/.claude/.credentials.json"))
-    token = creds["claudeAiOauth"]["accessToken"]
-    result = subprocess.run([
-        "curl", "-s",
-        "-H", f"Authorization: Bearer {token}",
-        "-H", "Content-Type: application/json",
-        "-H", "anthropic-beta: oauth-2025-04-20",
-        "-H", "User-Agent: claude-code/2.1.41",
-        "https://api.anthropic.com/api/oauth/usage",
-    ], capture_output=True, text=True, timeout=10)
-    data = json.loads(result.stdout)
-
-    candidates = []
-    for key in ("five_hour", "seven_day"):
-        u = data.get(key)
-        if u and u.get("resets_at") is not None:
-            candidates.append((u.get("utilization") or 0, u["resets_at"]))
-    if not candidates:
-        raise ValueError("no usage windows in API response")
-
-    # The binding limit is whichever window is most utilized right now.
-    _, resets_at = max(candidates, key=lambda c: c[0])
-    resets = datetime.fromisoformat(resets_at)
-    secs = int((resets - datetime.now(timezone.utc)).total_seconds()) + 60
-    # Sanity floor/ceiling: never busy-loop, never trust a >8-day figure.
-    secs = max(secs, 60)
-    secs = min(secs, 8 * 24 * 3600)
-    print(secs)
-except Exception:
-    print(fallback)
-PYEOF
-}
+# shellcheck source=scripts/lib_maestro_ops.sh
+source "$REPO/scripts/lib_maestro_ops.sh"
 
 determine_model() {
     if [[ -n "${MAESTRO_MODEL:-}" ]]; then

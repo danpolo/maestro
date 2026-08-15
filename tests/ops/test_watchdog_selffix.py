@@ -242,7 +242,7 @@ def test_a_usage_limit_mention_is_ignored_if_a_commit_was_made(scratch_repo, tmp
     claude_stub.write_text(
         "#!/bin/sh\n"
         f'cd "{scratch_repo}" && git commit --allow-empty -q -m "fixer commit"\n'
-        'printf "## What happened\\nhad hit a limit earlier but recovered\\n'
+        'printf "## What happened\\nusage limit hit earlier but recovered\\n'
         '## What I fixed\\nrestarted the driver\\n## Open questions\\nnone\\n'
         '## Action needed from you\\nnone\\n"\n'
     )

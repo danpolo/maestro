@@ -45,3 +45,7 @@ class Paths:
     @property
     def usage(self) -> Path:
         return self.orch_dir / "usage.json"
+
+    @property
+    def model_limits(self) -> Path:
+        return self.orch_dir / "model_limits.json"

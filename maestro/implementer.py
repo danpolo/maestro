@@ -22,25 +22,13 @@ model configured for the resolved backend under `roles.implementer.models` wins 
 A Claude model id means nothing to another CLI, and a project that writes that
 configuration has said what that backend runs.
 
-Two deliberate non-changes:
-
-* **No backend name is compared anywhere here.** Which driver runs is a name that comes
-  out of configuration and goes straight into `maestro.backends.registry`; what that
-  driver can do is read off `capabilities()` (the system-prompt file is offered only to a
-  driver that declares `system_prompt_file`) and off its own constructor (a session-uuid
-  factory is injected only into a driver that declares one, because only a driver that
-  owns a uuid has anywhere to put it). `tests/test_no_name_branching.py` enforces this
-  mechanically.
-* **The quota-reset resume path is not delegated.** `maestro.quota` parks a task with the
-  session uuid this module writes, and a resumed run must land in the *same* workspace
-  with its argv in the *same* `launch.py` — the drivers write a resume launcher under
-  their own name, beside the launch one, which is right for a mid-work backend switch
-  (`maestro.switch`, which owns relaunching into a *new* workspace) and wrong for
-  resuming in place. So the resume branch below still spells the reference CLI's
-  `--resume` invocation inline, under the resolved model — which is coherent exactly as
-  long as the resolved backend is the one that wrote the session, and that is the same
-  unreconciled gap, not a second one. Reconciling them is left explicit rather than done
-  silently; see `docs/plans/2026-08-12-m2-backends.md`.
+One deliberate non-change: **no backend name is compared anywhere here.** Which driver
+runs is a name that comes out of configuration and goes straight into
+`maestro.backends.registry`; what that driver can do is read off `capabilities()` (the
+system-prompt file is offered only to a driver that declares `system_prompt_file`) and
+off its own constructor (a session-uuid factory is injected only into a driver that
+declares one, because only a driver that owns a uuid has anywhere to put it).
+`tests/test_no_name_branching.py` enforces this mechanically.
 """
 from __future__ import annotations
 
@@ -65,19 +53,6 @@ QUESTIONS_DIR         = REPO / ".orchestrator" / "questions"
 SYS_PROMPT            = REPO / "orchestrator" / "profiles" / "implementer_sys.md"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
 SEND_DANREQ           = REPO / "scripts" / "send_dan_request.py"
-
-# B8: implementer model allowlist — tasks may opt into a cheaper model by
-# setting `model: haiku` in their ROADMAP.md yaml block. Unknown/missing values
-# fall safe to Sonnet (never crash, never silently use a wrong model).
-IMPLEMENTER_MODELS: dict[str, str] = {
-    "haiku":    "claude-haiku-4-5",
-    "sonnet":   "claude-sonnet-5",
-    "sonnet5":  "claude-sonnet-5",
-    "opus":     "claude-opus-5",
-    "opus5":    "claude-opus-5",
-}
-_DEFAULT_IMPLEMENTER_MODEL = "claude-sonnet-5"
-
 
 # ── B12: pre-implementation question gating ──
 # A task may declare a `questions:` block in its ROADMAP yaml. Each question must
@@ -377,13 +352,6 @@ def resolve_implementer_model(task: dict) -> str:
         # Falsy/non-string values: call .lower() to raise AttributeError as characterization expects
         raw_model.lower()
 
-    title = str(task.get("title") or "").lower()
-    desc  = str(task.get("short_desc") or "").lower()
-    text  = f"{title} {desc}"
-    opus_keywords = ("architecture", "refactor", "engine", "core extraction", "cutover", "redesign", "protocol")
-    if any(kw in text for kw in opus_keywords):
-        return IMPLEMENTER_MODELS["opus"]
-
     return _DEFAULT_IMPLEMENTER_MODEL
 
 
@@ -467,76 +435,39 @@ def _implementer_driver(backend: str, session_uuid: str):
 
 
 def launch_implementer(task: dict, session_id: str, workspace: Path,
-                       worktree: Path, retry_note: str = "",
-                       resume: bool = False, session_uuid: str = "") -> None:
+                       worktree: Path, retry_note: str = "") -> None:
     task_id    = task["id"]
     window     = f"impl-{task_id}"
     brief_file = workspace / "brief.txt"
-    if not resume or not brief_file.exists():
-        brief_file.write_text(_make_brief(task, workspace, worktree, retry_note), encoding="utf-8")
+    brief_file.write_text(_make_brief(task, workspace, worktree, retry_note), encoding="utf-8")
 
     backend, backend_models = _implementer_backend()
     model_id = resolve_implementer_model(task)
     model_id = backend_models.get(backend) or model_id
     raw_key  = task.get("model")
     model_key = raw_key.lower().strip() if isinstance(raw_key, str) else (raw_key or "")
-    print(f"  [model] {task_id}: model_key={model_key!r} → {model_id} "
-          f"on {backend} (resume={resume})")
+    print(f"  [model] {task_id}: model_key={model_key!r} → {model_id} on {backend}")
     append_journal("implementer_model", f"{task_id} model={model_id}")
 
-    sess_uuid = session_uuid
-    if resume and not sess_uuid:
-        try:
-            sess_uuid = (workspace / "session_uuid.txt").read_text(encoding="utf-8").strip()
-        except Exception:
-            sess_uuid = ""
-    if not sess_uuid:
-        sess_uuid = str(uuid.uuid4())
-        resume = False
-
+    sess_uuid = str(uuid.uuid4())
     (workspace / "session_uuid.txt").write_text(sess_uuid, encoding="utf-8")
 
-    if resume:
-        impl_log = workspace / "impl.log"
-        launch_py = workspace / "launch.py"
-        resume_prompt_file = workspace / "resume_prompt.txt"
-        resume_prompt = (
-            f"The Claude usage limit has reset. Resume working on task {task_id}: {task.get('title', '')}.\n"
-            "Continue from where you left off, verify progress made so far, and complete remaining deliverables."
-        )
-        resume_prompt_file.write_text(resume_prompt, encoding="utf-8")
-        launch_py.write_text(
-            "import subprocess\nfrom pathlib import Path\n"
-            f"brief = Path(r'{resume_prompt_file}').read_text()\n"
-            f"log = open(r'{impl_log}', 'a', encoding='utf-8')\n"
-            f"subprocess.run([\n    'claude', '-p',\n    '--model', '{model_id}',\n"
-            f"    '--resume', r'{sess_uuid}',\n"
-            "    brief,\n], stdout=log, stderr=subprocess.STDOUT)\n"
-            "log.flush()\nlog.close()\n",
-            encoding="utf-8",
-        )
-        launch_py.chmod(0o755)
-        tmux_cmd = (f"tmux new-window -t {TMUX_SESSION} -n {window} "
-                    f"'cd {worktree} && {VENV_PYTHON} {launch_py}'")
-        subprocess.run(tmux_cmd, shell=True, check=True)
-    else:
-        driver = _implementer_driver(backend, sess_uuid)
-        offers_system_prompt = driver.capabilities().system_prompt_file
-        handle = driver.launch(LaunchSpec(
-            task_id=task_id,
-            session_id=session_id,
-            model=model_id,
-            brief=brief_file.read_text(encoding="utf-8"),
-            workspace=workspace,
-            worktree=worktree,
-            system_prompt_file=SYS_PROMPT if offers_system_prompt else None,
-        ))
-        # A handle's window may or may not be session-qualified; the bare name is what
-        # tmux was given and what `in_flight` and `_kill_tmux_window` compare against.
-        window = str(handle.window or "").rsplit(":", 1)[-1] or window
+    driver = _implementer_driver(backend, sess_uuid)
+    offers_system_prompt = driver.capabilities().system_prompt_file
+    handle = driver.launch(LaunchSpec(
+        task_id=task_id,
+        session_id=session_id,
+        model=model_id,
+        brief=brief_file.read_text(encoding="utf-8"),
+        workspace=workspace,
+        worktree=worktree,
+        system_prompt_file=SYS_PROMPT if offers_system_prompt else None,
+    ))
+    # A handle's window may or may not be session-qualified; the bare name is what
+    # tmux was given and what `in_flight` and `_kill_tmux_window` compare against.
+    window = str(handle.window or "").rsplit(":", 1)[-1] or window
 
-    action_verb = "Resumed" if resume else "Launched"
-    print(f"  ✓ {action_verb} {task_id} → tmux {TMUX_SESSION}:{window}")
+    print(f"  ✓ Launched {task_id} → tmux {TMUX_SESSION}:{window}")
 
 
 def _synthesize_sentinel(workspace: Path) -> str:

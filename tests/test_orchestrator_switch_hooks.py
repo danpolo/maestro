@@ -668,6 +668,26 @@ def test_a_task_already_switched_once_is_not_switched_back(loop_env, tmp_path):
     assert [event for event, _, _ in loop_env.journal] == ["rate_limit_pause"]
 
 
+def test_main_still_pauses_when_one_task_switches_but_another_is_stranded(loop_env, tmp_path):
+    """A partial switch must not exempt the loop from protecting what didn't move.
+
+    One entry (a normal implementer) switches to the fallback; a second entry (a
+    `kind: script` task, which `_handover_ready` excludes on role alone) has nowhere to
+    go and stays on the exhausted backend. The safety valve must still fire this same
+    poll — moving *some* work off the exhausted backend is not the same as moving all of
+    it, and the script task (or any other Claude call this cycle, e.g. a merge judge)
+    would otherwise run unprotected at critical usage.
+    """
+    switchable = _entry(tmp_path, sid="impl-T1-1", task_id="T1")
+    stranded = _entry(tmp_path, sid="script-T2-1", task_id="T2", role="script")
+    loop_env.in_flight = [switchable, stranded]
+    assert orchestrator.main() == 0
+    events = [event for event, _, _ in loop_env.journal]
+    assert [call.reason for call in loop_env.switches] == [REASON_THRESHOLD]
+    assert loop_env.polls == 1                # did not survive to a second poll
+    assert events == ["rate_limit_pause"]      # the stranded script task blocked the exemption
+
+
 def test_main_pauses_exactly_as_before_when_no_fallback_exists(loop_env):
     """The pre-M2 behaviour on the same reading, unchanged: pause and break.
 

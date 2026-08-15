@@ -995,16 +995,33 @@ def main() -> int:
         # would park work that has somewhere else to run. When nothing moved (no
         # fallback, nothing handed over) `_threshold_switches` returns 0 and the original
         # throttle/pause path runs untouched.
-        if not _threshold_switches(in_flight, launch_times, five_pct):
+        #
+        # The cap==0 safety valve must still fire whenever ANY in-flight work is left
+        # stranded on a still-exhausted backend: `_threshold_switches` can move some
+        # entries while leaving others (wrong role, worktree already gone, or simply no
+        # fallback available) untouched, and moving *some* work must not exempt the loop
+        # from protecting what didn't move. "Stranded" is read from pressure readings
+        # taken *before* this poll's switching, keyed by session_id, so a successfully
+        # switched entry (new session_id, new backend) never re-triggers the "no sample ==
+        # treat as pressure" fallback (G6) on the fresh backend it just landed on.
+        stranded_before = {
+            e.get("session_id") for e in in_flight
+            if _under_usage_pressure(_entry_backend(e), five_pct)
+        }
+        switched = _threshold_switches(in_flight, launch_times, five_pct)
+        still_stranded = (not in_flight) or bool(
+            stranded_before & {e.get("session_id") for e in in_flight}
+        )
+        if not switched:
             if cap != prev_cap:
                 if prev_cap >= 0 and cap < CONCURRENCY_CAP:
                     append_journal("concurrency_throttled", f"cap={cap} five_h={five_pct:.0f}%")
                     print(f"  [throttle] Concurrency cap={cap} (5h={five_pct:.0f}%)")
                 prev_cap = cap
-            if cap == 0:
-                print(f"  [throttle] 5h={five_pct:.0f}% >= {PAUSE_92_PCT}% — pausing.")
-                append_journal("rate_limit_pause", f"five_h={five_pct:.0f}%")
-                break
+        if cap == 0 and still_stranded:
+            print(f"  [throttle] 5h={five_pct:.0f}% >= {PAUSE_92_PCT}% — pausing.")
+            append_journal("rate_limit_pause", f"five_h={five_pct:.0f}%")
+            break
 
         still_running: list[dict] = []
         newly_done:    list[dict] = []
@@ -1317,43 +1334,25 @@ def main() -> int:
                     waiting_task_ids.add(task_id)  # dedup within this same cycle
                 continue
 
-            resumable_tasks = read_state().get("resumable_tasks", {})
-            resumable_info  = resumable_tasks.get(task_id)
-            is_resume       = False
-            sess_uuid       = ""
-
-            if resumable_info and (WORKSPACES / resumable_info.get("session_id", "")).exists():
-                sid       = resumable_info["session_id"]
-                workspace = WORKSPACES / sid
-                worktree  = worktree_path_for(task_id)
-                sess_uuid = resumable_info.get("session_uuid", "")
-                branch    = f"impl-{task_id.lower()}-resumed"
-                is_resume = True
-                print(f"\n  [resume] {task_id}: resuming previous session {sid} (uuid={sess_uuid})")
-                (workspace / "USAGE_LIMIT_PARKED").unlink(missing_ok=True)
-                if not worktree.exists():
-                    try:
-                        create_worktree(task_id, worktree, branch)
-                    except Exception:
-                        pass
-            else:
-                ts_str    = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
-                sid       = f"impl-{task_id}-{ts_str}"
-                workspace = WORKSPACES / sid
-                workspace.mkdir(parents=True, exist_ok=True)
-                branch    = f"impl-{task_id.lower()}-{ts_str}"
-                worktree  = worktree_path_for(task_id)
-                print(f"\n  [launch] {task_id}: {task.get('title','')}")
-                try:
-                    create_worktree(task_id, worktree, branch)
-                except subprocess.CalledProcessError as exc:
-                    print(f"  [error] Worktree creation failed for {task_id}: {exc}")
-                    append_journal("worktree_create_failed", f"{task_id} {str(exc)[:160]}")
-                    park_failed(task_id, f"Worktree creation failed: {str(exc)[:200]}")
-                    continue
-
+            ts_str    = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
+            sid       = f"impl-{task_id}-{ts_str}"
+            workspace = WORKSPACES / sid
+            workspace.mkdir(parents=True, exist_ok=True)
+            branch    = f"impl-{task_id.lower()}-{ts_str}"
+            worktree  = worktree_path_for(task_id)
+            print(f"\n  [launch] {task_id}: {task.get('title','')}")
+            try:
+                create_worktree(task_id, worktree, branch)
+            except subprocess.CalledProcessError as exc:
+                # Park (idempotent → escalates to Dan exactly once) instead of a bare
+                # continue. A bare continue retried every poll and re-sent the Telegram
+                # "Starting" line each time — the TUNE1 spam-storm of 2026-06-26.
+                print(f"  [error] Worktree creation failed for {task_id}: {exc}")
+                append_journal("worktree_create_failed", f"{task_id} {str(exc)[:160]}")
+                park_failed(task_id, f"Worktree creation failed: {str(exc)[:200]}")
+                continue
             # Notify only after the worktree exists, so a failure never spams Telegram.
-            _verb = "Resuming" if is_resume else ("Preparing" if task.get("dispatch") == "manual" else "Starting")
+            _verb = "Preparing" if task.get("dispatch") == "manual" else "Starting"
             notify_telegram(f"▶ {_verb} {task_id}: {task.get('title','')}")
 
             # B8: kind:script — zero-LLM deterministic execution path.
@@ -1450,13 +1449,7 @@ def main() -> int:
                 run_status()
                 continue
 
-            launch_implementer(task, sid, workspace, worktree, resume=is_resume, session_uuid=sess_uuid)
-            if is_resume:
-                st = read_state()
-                rt = st.get("resumable_tasks", {})
-                rt.pop(task_id, None)
-                st["resumable_tasks"] = rt
-                write_state(st)
+            launch_implementer(task, sid, workspace, worktree)
             new_entry = {
                 "session_id": sid, "task_id": task_id, "role": "implementer",
                 "worktree": str(worktree), "window": f"impl-{task_id}",

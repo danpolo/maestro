@@ -161,6 +161,7 @@ classify_and_report() {
 
 dispatch_fixer() {
     local uuid log rc before_head
+    cd "$REPO" || return 1
     uuid=$(python3 -c 'import uuid; print(uuid.uuid4())')
     log="$LOGDIR/watchdog-fix-$(date -u +%Y%m%dT%H%M%SZ).log"
     before_head="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo '')"

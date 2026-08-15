@@ -78,6 +78,17 @@ def test_truncates_messages_over_the_telegram_limit(tmp_path, mock_telegram):
     assert "truncated" in received[0]["text"]
 
 
+def test_truncation_preserves_the_tail_with_resume_info(tmp_path, mock_telegram):
+    tail_marker = "Resume if needed: claude --resume test-uuid-marker"
+    message = ("y" * 5000) + "\n" + tail_marker
+    _run(message, tmp_path, mock_telegram)
+    _, received = mock_telegram
+    text = received[0]["text"]
+    assert len(text) <= 4096
+    assert "truncated" in text
+    assert tail_marker in text
+
+
 def test_skips_silently_when_the_env_file_is_missing(tmp_path, mock_telegram):
     _, access_file = _write_config(tmp_path)
     result = _run("hi", tmp_path, mock_telegram, env_file=tmp_path / "missing.env", access_file=access_file)

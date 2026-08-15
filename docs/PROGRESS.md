@@ -18,7 +18,7 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M0 — Package skeleton + characterisation harness | **done** | 2026-08-09 | `pytest -q` → 45 passed, 30 skipped (`2d833d1`) |
 | M1 — Core extraction | **done** | 2026-08-12 | `pytest` → 3571 passed, 0 skipped, 0 failed (`c18777f`) |
 | M2 — Backend drivers + mid-work switching | **done** | 2026-08-14 | `pytest` → 4068 passed, 0 skipped, 0 failed + live switch both directions (`4f47ed2`) |
-| M3 — Model limits + self-update | **done** | 2026-08-16 | `pytest` → 4124 passed, 0 skipped, 0 failed + resolve_all/red-candidate done-when tests seen individually (`<pending commit>`) |
+| M3 — Model limits + self-update | **done** | 2026-08-16 | `pytest` → 4124 passed, 0 skipped, 0 failed + resolve_all/red-candidate done-when tests seen individually (`98b2c23`) |
 | M4 — Setup: init, doctor, skills | pending | — | — |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
@@ -827,7 +827,7 @@ Reference project after the stage: HEAD `68056b5`, `git status --porcelain` exac
   ever constructed to trigger the first one) or adding untested surface area for a scenario that
   cannot occur. Flagged in the review detail above instead.
 
-### Session 2026-08-16 (second session) — **M3 COMPLETE**, commit `<pending>`
+### Session 2026-08-16 (second session) — **M3 COMPLETE**, commit `98b2c23`
 
 Started fresh from the 2026-08-16 carryover-cleanup session's handoff note. Read `docs/EXECUTION.md`
 and `docs/DESIGN.md` §8–§9 only — no reference-file reads, no reads of prior extracted modules.

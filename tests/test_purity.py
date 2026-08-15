@@ -5,11 +5,12 @@ Two tiers:
 * ``CREDENTIAL_PATTERNS`` are scanned in **every** scanned file with no exemptions.
   A leaked token is a defect wherever it appears.
 * ``PROJECT_PATTERNS`` and the legacy-path check are scanned everywhere except the
-  explicitly named build scaffolding below, plus ``docs/plans/`` and ``handoffs/``.
-  Those files document *this build* — the design, the process, the live progress
-  log, the overnight driver, and session handoffs (including operator directives
-  like pausing the reference project) — and legitimately name the project the code
-  is being extracted from. They are not part of the maestro deliverable. Everything
+  explicitly named build scaffolding below, plus ``docs/plans/``,
+  ``docs/superpowers/plans/`` and ``handoffs/``. Those files document *this
+  build* — the design, the process, the live progress log, the overnight
+  driver, and session handoffs (including operator directives like pausing the
+  reference project) — and legitimately name the project the code is being
+  extracted from. They are not part of the maestro deliverable. Everything
   else, including all of ``maestro/``, ``tests/`` and ``templates/``, stays strict,
   so a new file is always caught.
 """
@@ -73,6 +74,7 @@ def _is_scaffold(path: Path) -> bool:
     return (
         rel in BUILD_SCAFFOLD
         or rel.startswith("docs/plans/")
+        or rel.startswith("docs/superpowers/plans/")
         or rel.startswith("handoffs/")
     )
 

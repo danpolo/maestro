@@ -20,7 +20,7 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M2 — Backend drivers + mid-work switching | **done** | 2026-08-14 | `pytest` → 4068 passed, 0 skipped, 0 failed + live switch both directions (`4f47ed2`) |
 | M3 — Model limits + self-update | **done** | 2026-08-16 | `pytest` → 4124 passed, 0 skipped, 0 failed + resolve_all/red-candidate done-when tests seen individually (`98b2c23`) |
 | M4 — Setup: init, doctor, skills | **done** | 2026-08-16 | `pytest` → 4192 passed, 0 skipped, 0 failed + real `/tmp` acceptance run (see finding below) |
-| M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`097d27b`) |
+| M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`de7d1e6`) |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 

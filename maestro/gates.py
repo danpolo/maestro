@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from maestro.paths import Paths
-from maestro.pending import pending
+from maestro.pending import deferred
 from maestro.state import append_journal
 
 _PATHS = Paths.from_env()
@@ -36,8 +36,12 @@ CHECK_VERIFICATIONS   = REPO / "scripts" / "check_verifications.py"
 AWAIT_VERIFY_TIMEOUT_SEC = 8 * 3600
 SMOKE_TIMEOUT = 2700
 
-# Owned by `maestro.docs.roadmap`, which is extracted after this module.
-get_task_by_id = pending("get_task_by_id", "maestro.docs.roadmap")
+# Owned by `maestro.docs.roadmap`. Late-bound rather than imported: this module sits
+# upstream of the HITL layer that `maestro.docs.roadmap` pulls in, and binding it here
+# resolves the name on first call without adding a module-import edge that would invert
+# the M1 extraction order. Still an ordinary module attribute, so tests monkeypatch it
+# exactly as before.
+get_task_by_id = deferred("get_task_by_id", "maestro.docs.roadmap")
 
 
 # ── Verification gate ──

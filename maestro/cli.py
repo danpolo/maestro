@@ -741,18 +741,21 @@ def cmd_ctl(repo_root: Path, verb: str, args: list[str]) -> int:
     saying so) because refactoring them to return text instead of calling `notify_telegram`
     would mean editing `maestro/hitl/commands.py`, which is out of this component's scope.
 
-    **A caution for real use, found while wiring this up (see docs/FOUND_BUGS.md /
-    docs/PROGRESS.md's M4 entry):** `maestro/hitl/commands.py` still binds `_finalize_manual_
-    action`, `park_regression`, `attempt_self_fix` and `_remove_from_state` to `pending()`
-    placeholders (`maestro.pending`) that unconditionally raise `NotImplementedError`, even
-    though the modules that now own them (`maestro.parking`, `maestro.selfheal.selffix`,
-    `maestro.orchestrator`) have since been extracted for real — commands.py was never updated
-    to import the real names. So `ctl approve <a real match>` and `ctl fix <a real match>`
-    will raise `NotImplementedError` reaching those lines (an *existing* defect in already-
-    extracted code, not something this file introduces or fixes); only the "no such pending
-    item" early-return path is exercised by this build's own tests. `ctl reject` on a normal
-    HITL-parked task also inherits the pre-existing, already-characterised `REPO_ROOT`
-    `NameError` documented in `docs/found_bugs_inbox/commands.md`'s C1.
+    **Resolved in M4a (see docs/PROGRESS.md and
+    docs/plans/2026-08-16-m4a-pending-placeholders.md).** M4 found that
+    `maestro/hitl/commands.py` bound `_finalize_manual_action`, `park_regression`,
+    `attempt_self_fix` and `_remove_from_state` to `pending()` placeholders that
+    unconditionally raised `NotImplementedError`, so `ctl approve`/`ctl fix` against a real
+    matching id crashed. Those four are now `deferred()` late bindings onto the real
+    `maestro.parking` / `maestro.selfheal.selffix` / `maestro.orchestrator` implementations,
+    verified by `tests/test_no_unresolved_pending.py`. This build's own tests still only
+    exercise the "no such pending item" early-return path, because the matching path mutates
+    real task state.
+
+    `ctl reject` on a normal HITL-parked task still inherits the pre-existing,
+    already-characterised `REPO_ROOT` `NameError` documented in
+    `docs/found_bugs_inbox/commands.md`'s C1 — that one is reference behaviour, deliberately
+    not fixed.
     """
     repo_root = repo_root.resolve()
     os.environ["MAESTRO_REPO"] = str(repo_root)
@@ -844,9 +847,16 @@ def cmd_ctl(repo_root: Path, verb: str, args: list[str]) -> int:
                 fn(" ".join(args))
             elif verb == "backend":
                 fn(" ".join(args))
-        except NotImplementedError as exc:
-            print(f"[ctl] {verb} hit an unresolved `pending()` placeholder in "
-                  f"maestro.hitl.commands: {exc} — see this function's docstring.")
+        # M4a rebound the four formerly-`pending()` names onto real implementations, so
+        # neither arm should fire any more. Both are kept as a backstop: NotImplementedError
+        # if a `pending()` placeholder is ever reintroduced, ImportError because that is how
+        # `maestro.pending.deferred` reports a binding whose owner module cannot supply the
+        # name. `tests/test_no_unresolved_pending.py` is the gate that stops either reaching
+        # a user; this is only what happens if it somehow does.
+        except (NotImplementedError, ImportError) as exc:
+            print(f"[ctl] {verb} hit an unresolved late binding in "
+                  f"maestro.hitl.commands: {exc} — see this function's docstring and "
+                  f"tests/test_no_unresolved_pending.py.")
             return 1
         print(f"[ctl] dispatched to hitl.commands.{fn.__name__}() — its reply goes to Telegram "
               f"if this project has scripts/notify_telegram.sh, and to the journal where "

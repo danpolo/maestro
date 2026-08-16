@@ -1139,3 +1139,55 @@ acceptance test against a throwaway project with no `.venv/`; `cmd_init` works a
 by scaffolding `.venv/bin/python3` as a symlink to `sys.executable`, but the underlying
 crash-on-missing-interpreter is reference behaviour, copied verbatim per the M1 rule, and
 is not fixed here.
+
+## M4a — prepared-action sidecar (`prep_actions.py`)
+
+Found while extracting the reference `scripts/prepared_actions.py` into
+`maestro/prep_actions.py` and characterising it in
+`tests/characterization/test_prep_actions.py`. All three are copied verbatim per the M1
+rule and pinned, not fixed.
+
+### 148. A corrupt sidecar is silently emptied by the next `set_action`
+
+`load_actions` catches `FileNotFoundError`, `json.JSONDecodeError` and `OSError` and
+returns `{}` for all of them, so a missing file, a truncated file and a directory at that
+path are indistinguishable — the same shape as bug #1 in the state layer. The consequence
+here is worse than an ambiguous read, because `set_action` is a read-modify-write on top
+of it: it calls `load_actions`, gets `{}` from the corrupt file, adds the one new entry
+and atomically replaces the file with it. Every other task's prepared action is discarded,
+with no error, no journal line and no operator message — the sidecar simply comes back
+one-entry-deep and the loop carries on. A half-written file (the process dying between
+`mkstemp` and `os.replace` leaves the *old* file intact, but an out-of-space write does
+not) is enough to trigger it.
+
+Pinned by `test_load_actions_corrupt_json_returns_empty_dict`,
+`test_load_actions_directory_returns_empty_dict`,
+`test_set_action_silently_discards_a_corrupt_store`.
+
+### 149. "Never raises" holds only while the JSON happens to be an object
+
+The module docstring promises callers "never raises on missing or corrupt files — callers
+can always assume a dict is returned", and `load_actions` is annotated `-> dict[str, dict]`.
+But well-formed JSON that is not an object parses fine and is returned unchanged, so a file
+containing `["T1"]` comes back as a list. `has_action` then silently mis-answers (`in` on a
+list tests the *values*, so it can return `True` for a task id that has no entry, and
+`False` for one that does), and `get_action` — one line, `load_actions(path).get(task_id)` —
+raises `AttributeError: 'list' object has no attribute 'get'` straight through the guarantee
+the docstring makes. Same class as bug #2 in the state layer's `read_json`, but here it is
+contradicted by an explicit written contract.
+
+Pinned by `test_load_actions_returns_non_dict_json_unchanged`,
+`test_get_action_raises_attribute_error_on_a_json_list_file`.
+
+### 150. `prepared_at` is a second, incompatible timestamp format
+
+Every other timestamp the orchestrator writes goes through `now_iso()`:
+`"%Y-%m-%dT%H:%M:%SZ"`, UTC, second resolution, `Z` suffix. `set_action` instead stores
+`datetime.now(timezone.utc).isoformat()`, which renders as
+`2026-08-16T12:34:56.789012+00:00` — microsecond resolution and a numeric offset. So a
+single `.orchestrator/` directory holds two ISO-8601 dialects, and anything that compares a
+`prepared_at` to a `state.json` timestamp as a string (the obvious thing to do, given both
+are ISO-8601 and lexicographic order is normally date order) gets the wrong answer:
+`"…56.789012+00:00" < "…56Z"` is true because `.` sorts below `Z`.
+
+Pinned by `test_set_action_prepared_at_is_offset_isoformat_not_the_zulu_stamp`.

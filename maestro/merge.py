@@ -4,7 +4,7 @@ Extracted verbatim from the reference orchestrator. Bodies are unchanged — onl
 import block and the derivation of the module-level path globals differ. Names owned by
 modules that are extracted later (the judge CLI, the smoke runner, the dependency-map
 regeneration, the HITL notifiers and the self-fix / redo path gates) are bound to
-`pending()` placeholders so the call sites stay byte-for-byte identical. Behavioural
+`deferred()` late bindings so the call sites stay byte-for-byte identical. Behavioural
 surprises are catalogued in `docs/FOUND_BUGS.md` and pinned by
 `tests/characterization/test_merge.py`; none of them is fixed here.
 """
@@ -16,7 +16,7 @@ import subprocess
 
 from maestro.config import _load_project_yaml
 from maestro.paths import Paths
-from maestro.pending import pending
+from maestro.pending import deferred
 from maestro.state import append_journal
 
 _PATHS = Paths.from_env()
@@ -24,17 +24,22 @@ _PATHS = Paths.from_env()
 REPO                  = _PATHS.repo
 NOTIFY_SH             = REPO / "scripts" / "notify_telegram.sh"
 
-# Owned by `maestro.hitl.telegram`, which is extracted after this module.
-_danreq = pending("_danreq", "maestro.hitl.telegram")
-# Owned by `maestro.judge`, which is extracted after this module.
-_judge_complete = pending("_judge_complete", "maestro.judge")
-# Owned by `maestro.smoke`, which is extracted after this module.
-_smoke_for_task = pending("_smoke_for_task", "maestro.smoke")
-# Owned by `maestro.docs.roadmap`, which is extracted after this module.
-run_dep_map = pending("run_dep_map", "maestro.docs.roadmap")
-# Owned by `maestro.selfheal`, which is extracted after this module.
-_self_fix_path_ok = pending("_self_fix_path_ok", "maestro.selfheal")
-_redo_path_ok = pending("_redo_path_ok", "maestro.selfheal")
+# Every name below is owned by a module that sits *after* this one in the M1 extraction
+# order, so a top-level import would invert an edge those modules already depend on.
+# `deferred` resolves each on first call instead. They stay ordinary module attributes,
+# so the characterisation tests monkeypatch them exactly as before.
+_danreq = deferred("_danreq", "maestro.hitl.telegram")
+# The mapping table (docs/plans/2026-08-09-m0-m1-core-extraction.md L76) puts
+# `_judge_complete` in `selfheal/diagnose.py`. The placeholder here named `maestro.judge`,
+# a module that was never planned and does not exist — see M4a in `docs/PROGRESS.md`.
+_judge_complete = deferred("_judge_complete", "maestro.selfheal.diagnose")
+# Likewise L70 puts `_smoke_for_task` in `gates.py`, not in a `maestro.smoke` module.
+_smoke_for_task = deferred("_smoke_for_task", "maestro.gates")
+run_dep_map = deferred("run_dep_map", "maestro.docs.roadmap")
+# L77/L78 split these across the two `selfheal` submodules; the package itself exports
+# neither, so the old package-level owner would not have resolved either.
+_self_fix_path_ok = deferred("_self_fix_path_ok", "maestro.selfheal.selffix")
+_redo_path_ok = deferred("_redo_path_ok", "maestro.selfheal.redo")
 
 
 # `notify_telegram` is mapped to `maestro.hitl.telegram`, which is extracted after this

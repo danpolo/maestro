@@ -20,14 +20,16 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M2 — Backend drivers + mid-work switching | **done** | 2026-08-14 | `pytest` → 4068 passed, 0 skipped, 0 failed + live switch both directions (`4f47ed2`) |
 | M3 — Model limits + self-update | **done** | 2026-08-16 | `pytest` → 4124 passed, 0 skipped, 0 failed + resolve_all/red-candidate done-when tests seen individually (`98b2c23`) |
 | M4 — Setup: init, doctor, skills | **done** | 2026-08-16 | `pytest` → 4192 passed, 0 skipped, 0 failed + real `/tmp` acceptance run (see finding below) |
+| M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`097d27b`) |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** M5 — cutover of `AbuAliArchive`, **not yet started**. **M4 closed green on
-2026-08-16.** The next session should read `docs/DESIGN.md` §11, the M5 safety protocol in
-`docs/EXECUTION.md`, and this session's M4 finding below (especially the `maestro/watchdog.py` gap
-and the model-limits naming mismatch) before starting M5. Precondition for M5: M0–M4 all green — true
-as of this commit.
+**Current stage:** M5 — cutover of `AbuAliArchive`, **not yet started**. **M4a closed green on
+2026-08-16**; it was an unplanned stage opened to clear a blocker M4 had recorded (see the M4a
+finding below — it was materially worse than M4's note described). The next session should read
+`docs/DESIGN.md` §11, the M5 safety protocol in `docs/EXECUTION.md`, and the M4 + M4a findings below
+(especially the `maestro/watchdog.py` gap and the model-limits slug mismatch, both still open)
+before starting M5. Precondition for M5: M0–M4a all green — true as of this commit.
 
 **ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
 ` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
@@ -1017,6 +1019,104 @@ Diff surface: `maestro/adapters.py`, `maestro/templates/` (new tree), `maestro/s
 `tests/test_templates.py`, `tests/test_skills.py`, `tests/test_cli.py` (all new),
 `docs/plans/2026-08-16-m4-setup.md` (new), `docs/FOUND_BUGS.md` (+1 entry, #147). No git commands
 were run by any agent.
+
+### Session 2026-08-16 (fourth session) — **M4a COMPLETE** (unplanned pre-M5 stage)
+
+Plan written first: `docs/plans/2026-08-16-m4a-pending-placeholders.md`.
+
+**Why this stage exists.** M4's finding #1 recorded that `maestro/hitl/commands.py` bound four names
+to `pending()` placeholders that unconditionally raise, so `/approve` and `/fix` would crash, and
+said it needed a real fix before M5. Auditing that finding first — rather than fixing just the four
+names — showed **it understated the problem by an order of magnitude**:
+
+- **Thirteen `pending()` placeholders were live across seven modules**, not four in one.
+- **Eleven pointed at modules that had existed since M1.** `maestro/pending.py`'s own docstring
+  states the contract ("Every placeholder is replaced by a real import when its owning module
+  lands"). That replacement never happened for any of them.
+- **The blast radius was the loop's main merge path, not a rare HITL branch.** `merge_and_eval`
+  alone reached six placeholders (`_judge_complete`, `_smoke_for_task`, `run_dep_map`,
+  `_self_fix_path_ok`, `_redo_path_ok`, `_danreq`). Also `quota.py`'s exhaustion notifier,
+  `gates.py`'s `get_task_by_id`, and the roadmap parsers behind `/status` and `/progress`.
+- **Two placeholders named owner modules that never existed at all** — `maestro.judge` and
+  `maestro.smoke`. The M0–M1 plan's authoritative mapping table puts `_judge_complete` in
+  `selfheal/diagnose.py` (L76) and `_smoke_for_task` in `gates.py` (L70). Two more named the
+  `maestro.selfheal` *package*, which exports neither name.
+- **`prep_actions` had no maestro implementation whatsoever.** It is used as a *module* at nine call
+  sites across `commands.py`, `roadmap.py` and `parking.py`; its only implementation was the
+  reference's `scripts/prepared_actions.py` — **which is on DESIGN.md §11's "superseded at M5" delete
+  list.** M5 as specified would have deleted the sole implementation and left nothing behind it.
+
+**Why four stages of a green suite never noticed:** the characterisation tests monkeypatch exactly
+these names. A placeholder is invisible to a test that replaces it. `deferred()` resolution happens
+at call time, so a typo'd owner stays silent until the live loop reaches that branch — i.e. it would
+have surfaced first on the operator's production loop, post-cutover.
+
+**What landed.**
+
+- `maestro/prep_actions.py` — extracted verbatim from the reference sidecar under M1 rules (bodies
+  byte-for-byte; only the import block and one path global changed), plus
+  `tests/characterization/test_prep_actions.py` (29 tests × 2 subjects = 58, zero skips).
+- `maestro/pending.py` gains **`deferred(name, owner)`** — late binding, resolved on first call and
+  cached, failing resolution deliberately *not* cached. Chosen over top-level imports because the
+  outstanding placeholders all point *forwards* along the M1 dependency order, which is the whole
+  reason they existed; a top-level import would invert an edge the owning module already depends on.
+  It keeps call sites byte-for-byte identical and keeps each name an ordinary module attribute, so
+  every existing `monkeypatch.setattr` still works. Raises `ImportError` (not the natural
+  `AttributeError`, which `getattr`/`hasattr`/duck-typing guards swallow silently) naming both the
+  name and the owner. `tests/test_pending.py`, 12 tests.
+- **All 16 bindings rebound** across `gates.py`, `quota.py`, `hitl/telegram.py`, `hitl/commands.py`,
+  `merge.py`, `docs/roadmap.py`, `parking.py` — 15 via `deferred()`, plus `prep_actions` as a plain
+  module import in three files (verified a leaf: its only maestro import is `maestro.paths`).
+- `tests/test_no_unresolved_pending.py` — the gate that would have caught this. Walks the package
+  with `pkgutil` (never a hardcoded list), fails on any surviving `pending()` placeholder **and** on
+  any `deferred()` binding whose owner cannot supply the name. Includes three anti-vacuity tests, so
+  a walk that silently found nothing cannot pass it.
+- `maestro/cli.py` — the `cmd_ctl` docstring's now-obsolete caution rewritten, and its
+  `except NotImplementedError` widened to `(NotImplementedError, ImportError)` as a backstop.
+
+**Verified myself, not just trusted the agents' self-report:**
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite | `python3 -m pytest -q` | **exit 0, zero `F`/`E`/`s` markers**; `--collect-only` → **4270** (4192 M4 baseline + 58 + 12 + 8 — exact) |
+| No placeholders left | `grep -rn 'pending(' maestro/ --include=*.py` | Only the definition in `pending.py`; the two `cli.py` hits are prose/comment, updated this stage |
+| No import cycles | fresh `python3 -c "import X"` per module, **24 modules**, so import-order luck cannot hide one | **0 failures** |
+| Every binding resolves | import each declared owner, assert the attribute exists | **15/15 OK** — this is the check that catches `maestro.judge` / `maestro.smoke` |
+| Gate actually bites | restored `merge.py`'s original wrong owner (`maestro.judge`), re-ran the gate | **Red**, naming module, attribute, bad owner and the fix. `merge.py` then restored and confirmed **byte-identical** to its pre-break copy via `diff -q` |
+| Reference project, before and after | HEAD / `git status --porcelain` / `state.json` stat / HALT | Unchanged: HEAD `68056b58…`, baseline exactly (4 standing-modified + 5 untracked), `888 1786256976`, HALT present. **No abort condition.** |
+
+**Process note, reported per "anything that failed, verbatim":** the workflow's `rebind:all` agent
+died mid-edit on `quota.py` — `You've hit your monthly spend limit`. It had completed `gates.py` and
+`quota.py` cleanly. After the limit reset I finished the remaining 16 bindings **inline rather than
+respawning an agent**, since the work was mechanical, fully specified by the plan, and a second
+agent death mid-file was the main risk left. Foundation-phase agents: 154K subagent tokens.
+
+**3 new entries in `docs/FOUND_BUGS.md` (#148–#150)**, all reference-code defects in the prepared-
+action sidecar, copied across unfixed per the M1 rule: a corrupt sidecar is silently emptied by the
+next `set_action` (read-modify-write over a `{}` fallback, no error, no journal line); `load_actions`
+returns well-formed non-object JSON unchanged despite its `dict` annotation; and `prepared_at` uses a
+second, incompatible timestamp format that sorts backwards against `now_iso()`.
+
+**Judgement calls for morning review:**
+
+- **`maestro/prep_actions.py` defines `REPO`, which the reference sidecar does not.** Deliberate, and
+  the one deviation worth a second opinion. It matches the house pattern, but the load-bearing reason
+  is safety: `tests/characterization/conftest.py`'s `sandbox` fixture finds path globals to rebase by
+  looking for a module-level `REPO`. Without it, `maestro.prep_actions` is invisible to `sandbox`,
+  and once the call sites were rebound any unstubbed test reaching the sidecar would read and write a
+  **live** repo's `prepared_actions.json`. This is the same hazard `test_parking.py`'s `prep` fixture
+  docstring already calls out.
+- **Opening M4a at all**, rather than treating M4's finding as a four-line fix and starting M5. The
+  audit cost one stage; cutting over with `merge_and_eval` reaching five unresolved bindings would
+  have broken the operator's production loop on its first real merge.
+- **`prep_actions` was never in the M0–M1 mapping table**, so it is not in
+  `tests/test_extraction_complete.py`'s `MAPPING` (still 12 passed). Flagging rather than adding it,
+  since that test pins the plan's contract and editing it to match new work would defeat its purpose.
+
+**Still open, explicitly out of M4a's scope** (unchanged from M4): the `limits.py` slug↔display-name
+mismatch that makes `doctor`'s `model_limits` check a no-op on every real project (degrades to WARN
+by design, blocks nothing at cutover), and `maestro/watchdog.py` remaining unbuilt with `cli.py
+watchdog` an honest stub.
 
 ## Open questions
 

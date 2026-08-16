@@ -3,9 +3,9 @@
 Extracted verbatim from the reference orchestrator. Bodies are unchanged — only the
 import block and the derivation of the module-level path globals differ. Names owned by
 `maestro.docs.roadmap` (the ROADMAP queues and the dependency-map regeneration) are bound
-to `pending()` placeholders rather than imported: `maestro.docs.roadmap` imports the two
-notifiers *from here*, so importing it back would be a cycle. Behavioural surprises are
-catalogued in `docs/FOUND_BUGS.md` and pinned by
+to `deferred()` late bindings rather than imported: `maestro.docs.roadmap` imports the two
+notifiers *from here*, so importing it back at module level would be a cycle. Behavioural
+surprises are catalogued in `docs/FOUND_BUGS.md` and pinned by
 `tests/characterization/test_telegram.py`; none of them is fixed here.
 
 Nothing in this module talks to Telegram directly: every outbound call shells out through
@@ -23,7 +23,7 @@ import subprocess
 from datetime import datetime, timezone
 
 from maestro.paths import Paths
-from maestro.pending import pending
+from maestro.pending import deferred
 from maestro.state import append_journal, read_state, write_state
 
 _PATHS = Paths.from_env()
@@ -39,9 +39,10 @@ DEP_MAP_PNG           = REPO / "docs" / "dependency_map.png"
 REMINDER_INTERVAL_SEC = 86400
 
 # Owned by `maestro.docs.roadmap`; see the module docstring for why these are not imported.
-run_dep_map = pending("run_dep_map", "maestro.docs.roadmap")
-parse_runnable_tasks = pending("parse_runnable_tasks", "maestro.docs.roadmap")
-parse_prep_tasks = pending("parse_prep_tasks", "maestro.docs.roadmap")
+# Late-bound, so the name resolves on first call without creating the cycle.
+run_dep_map = deferred("run_dep_map", "maestro.docs.roadmap")
+parse_runnable_tasks = deferred("parse_runnable_tasks", "maestro.docs.roadmap")
+parse_prep_tasks = deferred("parse_prep_tasks", "maestro.docs.roadmap")
 
 
 # ── Notification ──

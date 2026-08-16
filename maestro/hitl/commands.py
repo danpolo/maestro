@@ -2,10 +2,10 @@
 
 Extracted verbatim from the reference orchestrator. Bodies are unchanged — only the
 import block and the derivation of the module-level path globals differ. Names owned by
-modules that are extracted later (the parking/finalize helpers, the self-fix runner, the
-prepared-action sidecar and the in-flight bookkeeping) are bound to `pending()`
-placeholders so the call sites stay byte-for-byte identical. Behavioural surprises are
-catalogued in `docs/found_bugs_inbox/commands.md` and pinned by
+modules that are extracted later (the parking/finalize helpers, the self-fix runner and the
+in-flight bookkeeping) are bound to `deferred()` late bindings, and the prepared-action
+sidecar is imported as a module, so the call sites stay byte-for-byte identical.
+Behavioural surprises are catalogued in `docs/found_bugs_inbox/commands.md` and pinned by
 `tests/characterization/test_commands.py`; none of them is fixed here — including the
 `REPO_ROOT` NameError on the `/reject` cleanup path, which is copied across as-is.
 
@@ -29,6 +29,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from maestro import prep_actions
 from maestro.backends.registry import known_backends, normalise_name
 from maestro.docs.roadmap import (
     _load_roadmap_tasks,
@@ -46,7 +47,7 @@ from maestro.hitl.telegram import (
 from maestro.implementer import _answer_choice, _question_req_id, _task_questions
 from maestro.merge import _touches_bot_files, merge_and_eval
 from maestro.paths import Paths
-from maestro.pending import pending
+from maestro.pending import deferred
 from maestro.quota import _elapsed_min, _elapsed_str, _fmt_min, _parse_est_minutes
 from maestro.state import append_journal, now_iso, read_json, read_state, write_state
 from maestro.switch import REASON_MANUAL, switch_task
@@ -64,15 +65,14 @@ DIAGNOSES_DIR         = REPO / ".orchestrator" / "diagnoses"
 REDO_DIR              = REPO / ".orchestrator" / "redo"
 
 # The B14 auto-prep sidecar. The reference imports `prepared_actions` as a sibling module
-# off `scripts/`; it has no maestro home yet, so the name is a placeholder here.
-prep_actions = pending("prep_actions", "maestro.prep_actions")
-# Owned by `maestro.parking`, which is extracted after this module.
-_finalize_manual_action = pending("_finalize_manual_action", "maestro.parking")
-park_regression = pending("park_regression", "maestro.parking")
-# Owned by `maestro.selfheal.selffix`, which is extracted after this module.
-attempt_self_fix = pending("attempt_self_fix", "maestro.selfheal.selffix")
-# Owned by `maestro.orchestrator`, which is extracted last.
-_remove_from_state = pending("_remove_from_state", "maestro.orchestrator")
+# off `scripts/`; its maestro home is `maestro.prep_actions` (M4a), imported at the top.
+# Each name below is owned by a module extracted *after* this one, so a top-level import
+# would invert an edge those modules already depend on. `deferred` resolves each on first
+# call instead — they remain ordinary module attributes, monkeypatchable as before.
+_finalize_manual_action = deferred("_finalize_manual_action", "maestro.parking")
+park_regression = deferred("park_regression", "maestro.parking")
+attempt_self_fix = deferred("attempt_self_fix", "maestro.selfheal.selffix")
+_remove_from_state = deferred("_remove_from_state", "maestro.orchestrator")
 
 
 def run_status() -> None:

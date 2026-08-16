@@ -352,11 +352,13 @@ def test_ctl_backend_records_the_choice_in_state(_healthy_project):
     ("fix", ["NOPE"]),
 ])
 def test_ctl_dispatch_verbs_are_safe_no_ops_against_a_nonexistent_id(_healthy_project, verb, extra_args):
-    """`ctl approve`/`reject`/`fix` against a real matching id currently hit unresolved
-    `pending()` placeholders inside `maestro/hitl/commands.py` (a pre-existing defect this
-    build found and documented in `cmd_ctl`'s docstring, out of this component's scope to
-    fix) — so this test deliberately only exercises the "no such id" early-return path every
-    one of these functions has, which is fully wired and safe."""
+    """This test deliberately only exercises the "no such id" early-return path every one of
+    these functions has, which is fully wired and safe.
+
+    M4 found that the matching path crashed on unresolved `pending()` placeholders inside
+    `maestro/hitl/commands.py`; M4a rebound those onto the real implementations and
+    `tests/test_no_unresolved_pending.py` now guards them. The matching path stays out of
+    this test because it mutates real task state, not because it is known-broken."""
     root, _ = _healthy_project
     proc = _run_cli("ctl", "--repo", str(root), verb, *extra_args, timeout=30)
     assert proc.returncode == 0, proc.stdout + proc.stderr

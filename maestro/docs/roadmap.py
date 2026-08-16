@@ -15,9 +15,9 @@ import subprocess
 
 import yaml  # PyYAML
 
+from maestro import prep_actions
 from maestro.hitl.telegram import notify_telegram, notify_telegram_with_map
 from maestro.paths import Paths
-from maestro.pending import pending
 from maestro.state import append_journal, read_state, write_state
 
 _PATHS = Paths.from_env()
@@ -37,9 +37,9 @@ COMPLETED_TASKS       = REPO / ".orchestrator" / "completed_tasks.json"
 DEP_MAP_PNG           = REPO / "docs" / "dependency_map.png"
 
 # The B14 auto-prep sidecar, which records each dispatch:manual task's single prepared
-# Dan-action. The reference implementation imports it as a module from `scripts/`; it has
-# no maestro home yet, so the name is bound to a placeholder that fails loudly.
-prep_actions = pending("prep_actions", "maestro.prep_actions")
+# Dan-action. The reference implementation imports it as a module from `scripts/`; the
+# maestro home is `maestro.prep_actions` (M4a), imported at the top. It is a leaf — its
+# only maestro import is `maestro.paths` — so a plain module import creates no cycle.
 
 
 # `notify_telegram` and `notify_telegram_with_map` live in `maestro.hitl.telegram`, which

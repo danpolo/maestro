@@ -2,8 +2,8 @@
 
 Extracted verbatim from the reference orchestrator. Bodies are unchanged — only the
 import block and the derivation of the module-level path globals differ. The prepared-action
-sidecar has no maestro home yet, so `prep_actions` is bound to a `pending()` placeholder and
-the call sites stay byte-for-byte identical; four further bodies are owned here rather than
+sidecar is `maestro.prep_actions`, imported as a module so the call sites stay byte-for-byte
+identical; four further bodies are owned here rather than
 imported, for the reason spelled out above them. Behavioural surprises are catalogued in
 `docs/found_bugs_inbox/parking.md` and pinned by `tests/characterization/test_parking.py`;
 none of them is fixed here — including the resume `attempts` counter that is bumped on
@@ -22,6 +22,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from maestro import prep_actions
 from maestro.docs.roadmap import get_task_by_id, mark_roadmap_complete
 from maestro.gates import (
     AWAIT_VERIFY_TIMEOUT_SEC,
@@ -38,7 +39,6 @@ from maestro.merge import (
     _resumable_code_change_escalation,
 )
 from maestro.paths import Paths
-from maestro.pending import pending
 from maestro.quota import _LIMIT_RE
 from maestro.selfheal.diagnose import (
     ORCH_SELF_FIX_SKEPTIC,
@@ -70,8 +70,7 @@ SEND_DANREQ           = REPO / "scripts" / "send_dan_request.py"
 ORCH_DIAGNOSE = os.environ.get("ORCH_DIAGNOSE", "1") == "1"
 
 # The B14 auto-prep sidecar. The reference imports `prepared_actions` as a sibling module
-# off `scripts/`; it has no maestro home yet, so the name is a placeholder here.
-prep_actions = pending("prep_actions", "maestro.prep_actions")
+# off `scripts/`; its maestro home is `maestro.prep_actions` (M4a), imported at the top.
 
 
 # ── Bodies this module has to own rather than import ──

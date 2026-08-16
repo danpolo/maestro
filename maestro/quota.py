@@ -13,7 +13,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from maestro.paths import Paths
-from maestro.pending import pending
+from maestro.pending import deferred
 from maestro.state import append_journal, read_json, read_state, write_state
 
 _PATHS = Paths.from_env()
@@ -26,8 +26,10 @@ THROTTLE_75_PCT = 75.0
 THROTTLE_75_CAP = 1
 PAUSE_92_PCT    = 92.0
 
-# Owned by `maestro.hitl.telegram`, which is extracted after this module.
-notify_telegram = pending("notify_telegram", "maestro.hitl.telegram")
+# Owned by `maestro.hitl.telegram`, which is extracted after this module. Late-bound
+# rather than imported so this module stays importable on its own and the M1 extraction
+# order keeps a single direction; the name is resolved on the first call.
+notify_telegram = deferred("notify_telegram", "maestro.hitl.telegram")
 
 _LIMIT_RE = re.compile(
     r"(hit (?:your|the) (?:usage )?limit|usage limit reached|rate[\s-]?limit"

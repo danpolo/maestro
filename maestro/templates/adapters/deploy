@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Project adapter: deploy (DESIGN.md §4 — optional).
+
+Contract: JSON payload on stdin (ignored by this stub), a single JSON object
+`{"deployed": bool}` on stdout, exit 0.
+
+`deployed: false` is deliberate: a stub that hasn't been wired up must never
+claim it shipped anything. Replace the body with the project's real deploy step
+(push an image, run a release script, ...) once one exists.
+"""
+import json
+import sys
+
+
+def main() -> int:
+    sys.stdin.read()  # drain the JSON payload; this stub takes no input fields
+    print(json.dumps({
+        "deployed": False,
+        "detail": "deploy adapter not implemented — see templates/adapters/deploy",
+    }))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

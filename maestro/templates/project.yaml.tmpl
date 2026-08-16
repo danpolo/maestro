@@ -1,0 +1,53 @@
+# project.yaml — copied near-verbatim from DESIGN.md §5.
+#
+# `maestro init` renders this template by substituting the three placeholders below
+# with what it derived from the target repo (git root, remote, main branch); nothing
+# else in this file is placeholder-dependent, so init writes the rest unchanged.
+# Placeholders are quoted so the unrendered template still parses as valid YAML
+# (an unquoted `{{ ... }}` looks like a YAML flow mapping to a parser, not a string).
+version: "2"
+# Note: the adopted maestro version is runtime state, recorded in .orchestrator/state.json
+# as `maestro_version` (DESIGN.md §9). It is deliberately NOT pinned here — see D5.
+
+project:
+  name: "{{ project_name }}"        # derives tmux session, systemd unit, /tmp paths
+  repo_path: "{{ repo_path }}"
+  remote: origin
+  main_branch: "{{ main_branch }}"
+
+roles:
+  orchestrator: {backend: claude, models: {claude: claude-opus-5,   codex: gpt-5.6-sol}}
+  implementer:  {backend: claude, models: {claude: claude-sonnet-5, codex: gpt-5.6-terra}}
+  judge:        {backend: claude, models: {claude: claude-opus-5,   codex: gpt-5.6-sol}}
+
+fallback_chain: [claude, codex]
+
+switch:
+  on_quota_exhausted: true
+  on_usage_threshold: {five_hour_pct: 85, weekly_pct: 90}
+  manual: true
+
+model_limits:                   # D4 — defaults shown
+  claude: ~/.claude/model_context_limits.md
+  codex:  ~/.codex/model_context_limits.md
+
+gate:                           # D8 — eval absent => test-only, journaled unevaluated
+  chain: [test]
+  primary_metric: null
+  baseline_source: null
+  bands: {claim: null, flat: null, block: null}
+
+telegram:
+  chat_id: <captured by init>
+  # token lives in .env as TELEGRAM_BOT_TOKEN — never here, never committed
+
+thresholds:
+  five_h_pause_pct: 92
+  concurrency_cap: 3
+  # context ceilings come from model_limits, not from here
+
+risky_set: []
+deny_list_extra: []
+secrets: [".env", ".env.local", "**/*.pem", "**/*credentials*.json"]
+prod_stores: []
+docs: {roadmap: docs/ROADMAP.md, project: docs/PROJECT.md, dependency_map: docs/dependency_map.md}

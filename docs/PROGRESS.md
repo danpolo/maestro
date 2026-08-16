@@ -19,15 +19,15 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M1 — Core extraction | **done** | 2026-08-12 | `pytest` → 3571 passed, 0 skipped, 0 failed (`c18777f`) |
 | M2 — Backend drivers + mid-work switching | **done** | 2026-08-14 | `pytest` → 4068 passed, 0 skipped, 0 failed + live switch both directions (`4f47ed2`) |
 | M3 — Model limits + self-update | **done** | 2026-08-16 | `pytest` → 4124 passed, 0 skipped, 0 failed + resolve_all/red-candidate done-when tests seen individually (`98b2c23`) |
-| M4 — Setup: init, doctor, skills | pending | — | — |
+| M4 — Setup: init, doctor, skills | **done** | 2026-08-16 | `pytest` → 4192 passed, 0 skipped, 0 failed + real `/tmp` acceptance run (see finding below) |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** M4 — setup (`init`, `doctor`, skills), **not yet started**. **M3 closed green on
-2026-08-16** — see that session's finding below. The next session should write
-`docs/plans/<date>-m4-setup.md` from `docs/DESIGN.md` §10 and EXECUTION.md's M4 stage entry, then
-build `cli.py`, `templates/`, and the setup skill in both Claude and Codex formats, acceptance-tested
-on a throwaway `/tmp` project only.
+**Current stage:** M5 — cutover of `AbuAliArchive`, **not yet started**. **M4 closed green on
+2026-08-16.** The next session should read `docs/DESIGN.md` §11, the M5 safety protocol in
+`docs/EXECUTION.md`, and this session's M4 finding below (especially the `maestro/watchdog.py` gap
+and the model-limits naming mismatch) before starting M5. Precondition for M5: M0–M4 all green — true
+as of this commit.
 
 **ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
 ` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
@@ -929,6 +929,94 @@ No git commands were run by either agent. Diff surface: `maestro/orchestrator.py
 - Treating "DESIGN.md §8's constant-replacement clause has nothing to replace" as a documentation
   note rather than reopening the finding as a bug — no reference-code behaviour was mis-extracted;
   the plan's assumption was simply wrong going in.
+
+### Session 2026-08-16 (third session) — **M4 COMPLETE**
+
+Plan written first: `docs/plans/2026-08-16-m4-setup.md` (scope decisions recorded there before any
+code: `maestro/watchdog.py` explicitly out of scope — never scheduled in the M0–M1 mapping and still
+an open DESIGN.md §13 item, so `cli.py`'s `watchdog` subcommand is an honest stub, not a fabrication;
+"no-op supervised loop" defined precisely; `doctor` checks must be unit-testable with no real network
+call; `install-skills` destinations must be overridable for tests).
+
+Built via one `Workflow`, two batches: Batch 1 (3 parallel agents — `maestro/adapters.py`,
+`maestro/templates/`, `maestro/skills/{claude,codex}`), Batch 2 (`maestro/cli.py`, depends on all
+three). **The workflow hit the monthly spend limit mid-run on the `cli` agent** (Batch 1 had already
+landed cleanly); resumed via `Workflow({scriptPath, resumeFromRunId})` after the limit reset — Batch
+1's three agents replayed from cache with zero re-spend, `cli` reran clean. Total: 601K subagent
+tokens, 346 tool calls across both runs.
+
+**Verified myself, not just trusted the agents' self-report:**
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite, zero skips | `python3 -m pytest` | **4192 passed, 0 failed, 0 skipped** (exit 0; this environment's pytest does not render the final summary line — confirmed via exit code + zero `F`/`E` markers instead, both independently, twice) |
+| New files alone | agents' own runs | `test_adapters.py` 14, `test_templates.py` 15, `test_skills.py` 9, `test_cli.py` 30 → 68 new, matches 4124 (M3 baseline) + 68 = 4192 |
+| **The literal EXECUTION.md M4 Done-when, run for real on `/tmp/maestro-m4-accept-943519`** | `maestro init` (fresh) → `maestro init` (unchanged re-run) → hand-edit `project.yaml` → `maestro init` (edited re-run) → `maestro doctor` | Fresh init: 18 files created, no-op supervised loop completed cleanly (returncode 0). Unchanged re-run: 0 created, 17 unchanged, **1 written as `.new`** — `.orchestrator/state.json` legitimately differs because the first run's own no-op-loop pass had already mutated it (`paused_by_user`/`proposal_test_notified` flip to `true`), which is correct non-destructive behaviour catching real runtime drift, not a test artefact. Edited re-run: `project.yaml` correctly preserved with the operator's appended line intact, `project.yaml.new` written alongside showing the diff. `doctor` ran its full checklist and correctly exited 1 (only `adapter:test` — a REQUIRED check — fails, honestly, because the throwaway project has no `tests/` dir; every optional check reported OK or WARN, never a fabricated pass). |
+| AbuAliArchive read-only check, before and after | HEAD/`git status`/`.orchestrator/state.json` stat/HALT | Unchanged throughout: HEAD `68056b58…`, baseline `git status --porcelain` exactly (four standing-modified + five untracked), `state.json` `888 1786256976`, `HALT` present. No abort condition. |
+
+**⚠️ Incident during the `cli` agent's manual verification, must be reported per EXECUTION.md's
+secret-handling rule.** Before writing `tests/test_cli.py`'s isolation, the agent ran `maestro init`
+once **without** `$MAESTRO_TOKEN_FILE` overridden, which invoked the real
+`scripts/telegram_creds.py` against the real `~/.config/maestro/dev_bot_token` and made two real
+Telegram API calls (`getMe`, `getUpdates`). **No message was sent and no `.env` was written** — it
+failed at "no inbound messages found" before reaching the write step — and **the token itself was
+never read or printed** by the agent (that guarantee comes from `telegram_creds.py` itself, per its
+design). Every subsequent run, including the whole `test_cli.py` suite and my own acceptance run
+above, set `$MAESTRO_TOKEN_FILE` to a guaranteed-nonexistent path so the real script fails at its
+first line, before any file or network access. Flagging in full per "anything that failed, verbatim,
+with no softening" — this should not have happened even once, and the root cause (a manual
+verification command run before the isolation env var was in place) is now understood but not
+structurally prevented from recurring in some *other* future manual-testing sequence.
+
+**Two real findings, not reference bugs, that don't fit `docs/FOUND_BUGS.md`'s reference-code
+purpose — recorded here for a deliberate follow-up decision:**
+
+1. **`maestro/hitl/commands.py` binds `_finalize_manual_action`, `park_regression`,
+   `attempt_self_fix`, `_remove_from_state` to `pending()` placeholders that unconditionally raise**,
+   even though the modules that now own that behaviour (`maestro.parking`,
+   `maestro.selfheal.selffix`, `maestro.orchestrator`) were extracted for real in M1. `commands.py`
+   was never updated to import the real implementations. **`/approve` and `/fix` against a real
+   matching task id will crash today.** `tests/test_cli.py`'s `ctl` coverage deliberately only
+   exercises the safe "no such id" early-return path, so this gap is invisible to the suite. This is
+   a maestro-side integration gap from M1/M2, not a reference-code defect — needs a real fix, not a
+   `FOUND_BUGS.md` entry, before M5 makes `/approve`/`/fix` reachable against a live task.
+2. **`limits.py`'s tables key by human display name** (`"Claude Sonnet 5"`, `"GPT-5.6 Terra"`, …)
+   but **`project.yaml`'s `roles:` block uses machine model-id slugs** (`claude-sonnet-5`,
+   `gpt-5.6-terra`, per DESIGN.md §5's own example). `doctor`'s `model_limits` check passes the
+   slugs straight through and gets zero resolutions — surfaced as a `WARN` in the acceptance run
+   above (`no context-limit entry for: claude-opus-5, claude-sonnet-5, gpt-5.6-sol, gpt-5.6-terra`),
+   never a hard failure (per DESIGN.md §8's "never a hard failure" rule, correctly honoured), but the
+   check is currently a no-op in practice on every real project. Needs either a slug→display-name
+   mapping table or a `limits.py` lookup that's tolerant of both spellings — an M5/M6-adjacent fix,
+   not blocking M4's own Done-when (M3's Done-when for this was `resolve_all()` against display
+   names directly, which already passed).
+
+**Judgement calls for morning review:**
+
+- **`maestro/watchdog.py` left unbuilt, `cli.py watchdog` an honest stub.** DESIGN.md §3 lists it in
+  the package layout but it was never in the M0–M1 mapping and DESIGN.md §13 still lists watchdog
+  stall-detection semantics as unresolved. Building it now would have meant inventing behaviour with
+  no spec and no reference to extract from. The generated systemd/tmux launcher template runs
+  `maestro run` today (the real orchestrator loop) with an honest comment, not a call to a
+  nonexistent module.
+- **`doctor`'s exit code is binary on REQUIRED checks only** (`docs`, `adapter:test`) — every other
+  check nags via WARN without affecting the exit code, per the plan's explicit scoping. Calibrating
+  this further needs real usage, not more guessing.
+- **`pyproject.toml` package-data for `maestro/templates/`** — flagged by the `templates` agent but
+  not fixed: `[tool.setuptools.packages.find]` only picks up Python packages, not the template data
+  tree. Harmless for a dev checkout (which is all that exists today) but will break `maestro init`
+  the moment maestro is installed as a wheel rather than run from a checkout. Worth fixing before any
+  external distribution, not before M5 (M5 runs from this checkout).
+- Left a persistent tmux session named `agents` running on this machine, created by the `cli` agent's
+  manual `maestro run` tests (the no-op-supervised-loop mechanism requires a session literally named
+  `agents` to exist — `cli.py` creates it if absent and never kills it, matching the reference's own
+  "never auto-killed" tmux convention). Harmless, but noting it exists in case it's unexpected.
+
+Diff surface: `maestro/adapters.py`, `maestro/templates/` (new tree), `maestro/skills/` (new tree),
+`maestro/cli.py` (new), `pyproject.toml` (+3 lines, console-script entry), `tests/test_adapters.py`,
+`tests/test_templates.py`, `tests/test_skills.py`, `tests/test_cli.py` (all new),
+`docs/plans/2026-08-16-m4-setup.md` (new), `docs/FOUND_BUGS.md` (+1 entry, #147). No git commands
+were run by any agent.
 
 ## Open questions
 

@@ -1,0 +1,32 @@
+# /etc/systemd/system/{{ project_name }}-watchdog.service
+#
+# Per DESIGN.md §10's Systemd-and-tmux subsection. ExecStart runs launch.sh, which
+# wraps `tmux new-session -d -s {{ project_name }}-watchdog` so the loop is
+# auditable from a phone with `tmux a -t {{ project_name }}-watchdog`.
+#
+# Type=simple, not Type=forking: the tracked process (the supervised loop) lives
+# inside the tmux server's cgroup, not a child systemd can find a PIDFile for —
+# launch.sh instead blocks until the tmux session ends, so systemd tracks the
+# launcher shell itself.
+#
+# Honesty note: this unit's name says "watchdog" per DESIGN.md's naming, but
+# `maestro/watchdog.py` doesn't exist yet (see launch.sh.tmpl's comment for the
+# full explanation) — what actually runs under this unit today is `maestro run`
+# (the supervised poll loop), not a watchdog process. The unit name is kept as
+# DESIGN.md specifies so the rename is free once `watchdog.py` lands; only the
+# launcher's command changes at that point, not this file.
+[Unit]
+Description={{ project_name }} — maestro supervised loop
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory={{ repo_path }}
+ExecStart=/bin/bash {{ repo_path }}/launch.sh
+ExecStop=/bin/sh -c 'tmux kill-session -t {{ project_name }}-watchdog 2>/dev/null || true'
+Restart=on-failure
+RestartSec=60
+
+[Install]
+WantedBy=multi-user.target

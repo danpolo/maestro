@@ -1123,3 +1123,19 @@ Because `_do_retry` re-reads state from disk, the bump is never written through,
 the in-memory dict dies with the process. After an orchestrator restart the same task
 is eligible for another "first" retry through those paths — the `< 1` cap becomes
 unbounded across restarts instead of one retry per task.
+
+## M4 — setup: init/doctor acceptance testing
+
+### 147. `main()` shells out to `<project>/.venv/bin/python3` with no existence check
+
+`run_dep_map()`/`run_status()` (reached from inside `main()`'s loop body) invoke
+`<REPO>/.venv/bin/python3` unconditionally, with no check that the path exists. On a
+project that has never had a virtualenv created at exactly that path — which includes
+brand-new projects and, notably, this reference project if its `.venv` were ever
+relocated or rebuilt elsewhere — the call raises an uncaught `FileNotFoundError` and
+crashes `main()` outright rather than falling back or reporting a clean error. Found
+verbatim in the extracted `maestro/orchestrator.py` while building M4's `cli.py init`
+acceptance test against a throwaway project with no `.venv/`; `cmd_init` works around it
+by scaffolding `.venv/bin/python3` as a symlink to `sys.executable`, but the underlying
+crash-on-missing-interpreter is reference behaviour, copied verbatim per the M1 rule, and
+is not fixed here.

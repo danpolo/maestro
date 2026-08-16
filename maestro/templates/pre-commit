@@ -1,0 +1,28 @@
+#!/bin/sh
+# pre-commit — the consistency hook DESIGN.md §10 mentions. `maestro init` installs
+# this at `.git/hooks/pre-commit` (copy or symlink; init's job, not this file's).
+#
+# Judgement call, documented rather than asserted: DESIGN.md §10 says this should
+# call `maestro doctor --pre-commit` (a fast subset of the full `doctor` checklist).
+# `doctor` itself is built in the same M4 stage as this template but by a different
+# component (`cli.py`), and whether it ends up with a `--pre-commit` flag at all is
+# that component's call, not this one's — so this hook cannot assume the flag
+# exists. Rather than ship a fake no-op (which would silently never gate anything,
+# even once `doctor` supports it) or hardcode a guess at `doctor`'s exact interface
+# (risking a call to a flag that doesn't exist, the same mistake DESIGN.md's own
+# watchdog.py caveat warns against), this hook probes for real support at commit
+# time via `maestro doctor --help` and only runs the fast check if it's actually
+# there. Until then it's an inert, honest skip — never blocks a commit on tooling
+# that isn't finished yet.
+
+if ! command -v maestro >/dev/null 2>&1; then
+    # No maestro install visible on PATH for this repo yet — nothing to check.
+    exit 0
+fi
+
+if ! maestro doctor --help 2>&1 | grep -q -- '--pre-commit'; then
+    echo "pre-commit: this maestro build doesn't support 'doctor --pre-commit' yet — skipping" >&2
+    exit 0
+fi
+
+maestro doctor --pre-commit

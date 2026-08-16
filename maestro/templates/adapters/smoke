@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""Project adapter: smoke (DESIGN.md §4 — optional).
+
+Contract: JSON payload on stdin (ignored by this stub), a single JSON object
+`{"pass": bool, "metrics": {}, "reason": str}` on stdout, exit 0.
+
+`pass: false` is deliberate here, not a bug: "not implemented" is not the same
+claim as "succeeded", and a smoke check the project hasn't wired up yet must
+never be silently read as green — same D8 philosophy `adapters/eval` follows.
+Replace the body with a real smoke check (a handful of representative requests
+against a running instance, a CLI dry-run, ...) once this project has one.
+"""
+import json
+import sys
+
+
+def main() -> int:
+    sys.stdin.read()  # drain the JSON payload; this stub takes no input fields
+    print(json.dumps({
+        "pass": False,
+        "metrics": {},
+        "reason": "smoke adapter not implemented — see templates/adapters/smoke",
+    }))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

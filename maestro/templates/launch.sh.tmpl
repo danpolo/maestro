@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# launch.sh — systemd wrapper for {{ project_name }}'s maestro loop.
+#
+# Same pattern as maestro's own scripts/maestro-build-launcher.sh: creates a
+# dedicated, named tmux session so the loop is auditable from a phone with
+# `tmux a -t {{ project_name }}-watchdog`, then blocks in a wait loop so systemd
+# (Type=simple, per DESIGN.md §10) tracks THIS shell rather than the tmux child —
+# Type=forking is unusable here because the tracked process lives in the tmux
+# server's cgroup, not this script's.
+#
+# Honesty note (read before "fixing" this): `maestro/watchdog.py` does not exist
+# yet. DESIGN.md §3 lists it in the package layout, but the M4 build stage
+# (docs/plans/2026-08-16-m4-setup.md) explicitly deferred it — the stall-detection
+# window and the definition of "journal progress" are still open items in
+# DESIGN.md §13. `maestro watchdog` (the CLI subcommand) is therefore an honest
+# stub today, not something this launcher can wrap. What this launcher actually
+# runs is `maestro run`, which sets MAESTRO_REPO to this project and calls the
+# real, already-existing `maestro.orchestrator.main()` supervised poll loop. Once
+# `watchdog.py` lands, change the one command below — nothing else in this file
+# needs to change.
+set -euo pipefail
+
+PROJECT_NAME="{{ project_name }}"
+REPO_PATH="{{ repo_path }}"
+SESSION="${PROJECT_NAME}-watchdog"
+
+# Kill any stale session from a previous run (manual relaunch, prior boot, ...).
+tmux kill-session -t "$SESSION" 2>/dev/null || true
+
+# Launch the supervised loop in a named, detached session.
+tmux new-session -d -s "$SESSION" -n main -c "$REPO_PATH" \
+    "MAESTRO_REPO='$REPO_PATH' maestro run"
+
+# Block here; systemd tracks this shell as the "service process". When `maestro
+# run` exits (clean stop or crash) the session disappears and we exit too, so
+# Restart=on-failure only relaunches on an actual crash.
+while tmux has-session -t "$SESSION" 2>/dev/null; do
+    sleep 10
+done

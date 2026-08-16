@@ -1,0 +1,25 @@
+#!/usr/bin/env python3
+"""Project adapter: healthcheck (DESIGN.md §4 — optional).
+
+Contract: JSON payload on stdin (ignored by this stub), a single JSON object
+`{"healthy": bool, "detail": str}` on stdout, exit 0.
+
+`healthy: false` is deliberate: a stub that hasn't been wired up must never
+claim the deployed thing is healthy. Replace the body with a real check (ping an
+endpoint, run a status command, ...) once this project has one to run.
+"""
+import json
+import sys
+
+
+def main() -> int:
+    sys.stdin.read()  # drain the JSON payload; this stub takes no input fields
+    print(json.dumps({
+        "healthy": False,
+        "detail": "healthcheck adapter not implemented — see templates/adapters/healthcheck",
+    }))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

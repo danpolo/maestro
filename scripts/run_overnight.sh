@@ -145,7 +145,14 @@ for i in $(seq 1 "$MAX_ITER"); do
     # original pattern required the literal phrase "hit your limit" and never matched
     # it, so real usage-limit hits were falling through to the stale-session guard
     # instead of sleeping and retrying. Broadened to catch phrasing variants.
-    if grep -qiE "usage limit|hit (your|the) .*limit|rate.?limit|resets at|spend limit" "$log"; then
+    #
+    # is_live_usage_limit() (not a bare grep on the whole log) since 2026-08-17: a
+    # session that finishes normally can still contain the same phrase while
+    # narrating a *sub-agent's* past limit hit already recovered from within that
+    # session (observed: session-08.log, a full clean M4a completion, rc=0, two real
+    # commits - false-matched on a mid-report sentence and cost a ~44h stall waiting
+    # on a reset nothing was actually blocked on). See lib_maestro_ops.sh.
+    if is_live_usage_limit "$log"; then
         wait_s="$(seconds_until_reset)"
         wake="$(date -u -d "+${wait_s} seconds" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo unknown)"
         echo "[chain] $(ts) usage limit detected; sleeping ${wait_s}s (until ~$wake, per the reset time reported by the usage API)"

@@ -8,6 +8,7 @@
 # seconds_until_reset()    requires: LIMIT_SLEEP (fallback seconds if the usage
 #                          API lookup fails). Optional: MAESTRO_CREDENTIALS_FILE
 #                          (default ~/.claude/.credentials.json).
+# is_live_usage_limit()    arg1: path to a session log.
 
 ts() { date -u +%Y-%m-%dT%H:%M:%SZ; }
 
@@ -67,4 +68,23 @@ try:
 except Exception:
     print(fallback)
 PYEOF
+}
+
+# A LIVE usage-limit block prints the CLI's message and nothing else: the turn
+# stops right there. Confirmed 2026-08-17 against 20 real hits in this build's
+# .run/session-*.log history - every one is a short log ending in the literal
+# message, e.g.:
+#   You've hit your monthly spend limit · raise it at claude.ai/settings/usage...
+# A session that finishes normally can still contain that same phrase - e.g.
+# narrating a *sub-agent* that hit the limit earlier and was recovered from
+# within the same session (observed: session-08.log, 31 lines, match on line
+# 26, five more lines of report follow) - which false-matched a whole-file
+# grep and cost a ~44h stall waiting on a reset nothing was blocked on.
+# Restricting the check to the log's last non-empty line tells a live block
+# apart from narration: narration is never the last thing a finished report
+# says.
+is_live_usage_limit() {
+    local log="$1"
+    grep -v '^[[:space:]]*$' "$log" 2>/dev/null | tail -1 \
+        | grep -qiE "usage limit|hit (your|the) .*limit|rate.?limit|resets at|spend limit"
 }

@@ -89,3 +89,42 @@ def test_seconds_until_reset_uses_the_more_utilized_window(tmp_path):
 def test_ts_prints_an_iso8601_utc_timestamp():
     result = run_bash("ts", env={})
     assert re.fullmatch(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", result.stdout.strip())
+
+
+def test_is_live_usage_limit_true_for_a_real_block(tmp_path):
+    # Real shape observed across 20 genuine hits in .run/session-*.log: two
+    # permission-warning lines, then the CLI's block message as the last line.
+    log = tmp_path / "session-24.log"
+    log.write_text(
+        "Permission allow rule (...): Write(...) is not matched...\n"
+        "Permission allow rule (...): Write(...) is not matched...\n"
+        "You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_limit_message\n"
+    )
+    result = run_bash('is_live_usage_limit "$LOG" && echo yes || echo no', env={"LOG": str(log)})
+    assert result.stdout.strip() == "yes"
+
+
+def test_is_live_usage_limit_false_for_a_session_that_narrates_a_past_hit(tmp_path):
+    # Regression for 2026-08-17: session-08.log completed cleanly (rc=0, two real
+    # commits, full test suite green) but its report mentioned a *sub-agent* that
+    # hit the limit earlier and was already recovered from within that session.
+    # A whole-file grep false-matched this and cost a ~44h stall.
+    log = tmp_path / "session-08.log"
+    log.write_text(
+        "## M4a complete\n"
+        "\n"
+        "Two things to flag:\n"
+        "- The workflow's rebind agent died mid-edit on `quota.py` hitting the "
+        "monthly spend limit. After reset I finished the remaining bindings inline.\n"
+        "\n"
+        "Commits `de7d1e6` + `b60d717`. Context ended at ~150K - next session: M5 cutover.\n"
+    )
+    result = run_bash('is_live_usage_limit "$LOG" && echo yes || echo no', env={"LOG": str(log)})
+    assert result.stdout.strip() == "no"
+
+
+def test_is_live_usage_limit_false_for_a_log_with_no_mention_of_limits(tmp_path):
+    log = tmp_path / "session-clean.log"
+    log.write_text("Working tree clean.\nAll good, exiting.\n")
+    result = run_bash('is_live_usage_limit "$LOG" && echo yes || echo no', env={"LOG": str(log)})
+    assert result.stdout.strip() == "no"

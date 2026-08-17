@@ -1118,6 +1118,37 @@ mismatch that makes `doctor`'s `model_limits` check a no-op on every real projec
 by design, blocks nothing at cutover), and `maestro/watchdog.py` remaining unbuilt with `cli.py
 watchdog` an honest stub.
 
+### Session 2026-08-16 (fourth session, continued) — **M5 deliberately not started**
+
+The usage limit reset and this session was asked to resume rather than being relaunched fresh, so it
+carried its full M4a context forward. Measured at that point:
+**`context_usage.py` → 165,138 tokens**, 15K past `docs/EXECUTION.md`'s 150K ceiling.
+
+**M5 was not started, and this is the whole reason.** EXECUTION.md's rule is unconditional — *"at
+150K, finish the current stage, update `PROGRESS.md`, commit, and exit. Do not try to squeeze in
+another stage. Do not compact."* M5 is the single worst stage in the programme to begin degraded: it
+halts and cuts over the operator's live production loop under an 8-step safety protocol whose
+failure mode ("post-cutover verification fails **and** the automatic rollback also fails") is a
+programme abort against a real running system. Per EXECUTION.md's autonomy rule — *"if genuinely
+blocked on a judgement call, pick the more conservative option"* — handing M5 to a genuinely fresh
+session is the conservative option, and costs nothing: the driver relaunches on `IN-PROGRESS`.
+
+No code changed in this continuation. The per-stage reference-project check was re-run and is
+unchanged: HEAD `68056b5`, baseline `git status --porcelain` exactly (4 standing-modified + 5
+untracked), `.orchestrator/state.json` `888 1786256976`, HALT sentinel present, loop not running.
+
+Noted while checking: `1c9d95f fix(ops): stop usage-limit false positives on narrated past hits`
+sits on top of M4a — an operator ops commit touching `scripts/lib_maestro_ops.sh`,
+`scripts/run_overnight.sh` and `tests/ops/test_lib_maestro_ops.py`. Not build work, left alone.
+
+**Exact next action for the fresh session:** start M5. Read `docs/DESIGN.md` §11 and the **M5 safety
+protocol** in `docs/EXECUTION.md` in full before touching anything, then follow it in order —
+precondition check (M0–M4a green, true as of `de7d1e6`), baseline capture, **write and dry-run the
+rollback script before any cutover step**, confirm `in_flight` is empty, HALT via the sentinel only,
+cut over on a branch. Note that M5 deletes `scripts/prepared_actions.py` per DESIGN.md §11's
+superseded list; M4a extracted it to `maestro/prep_actions.py` first, so that deletion is now safe —
+it was not before. Whatever happens, M5 does not end with the loop halted.
+
 ## Open questions
 
 Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the answer here.

@@ -57,6 +57,13 @@ class LimitsResult:
     models: dict = field(default_factory=dict)
     warnings: list = field(default_factory=list)
 
+    def get(self, model: str):
+        """Look one model up with the same both-spellings tolerance `resolve()` has, so a
+        caller holding a `LimitsResult` doesn't have to know whether it's carrying a display
+        name (`"Claude Opus 5"`) or a `project.yaml` slug (`claude-opus-5`). `None` when
+        neither spelling is present; `.models` remains the raw display-name-keyed map."""
+        return _lookup(self.models, model)
+
 
 # Best-effort fallback for a machine that has neither table file. Mirrors the values
 # shipped in this build's own ~/.claude and ~/.codex tables at the time this module was
@@ -231,6 +238,38 @@ def load_limits(paths=None) -> LimitsResult:
     return LimitsResult(models=models, warnings=warns)
 
 
+# ── model-name normalisation ──
+
+def _normalise_model_key(name: str) -> str:
+    """Fold a model name to the one spelling the tables and `project.yaml` agree on.
+
+    The two table files key by human display name (`"Claude Opus 5"`, `"GPT-5.6 Terra"`)
+    while `project.yaml`'s `roles:` block names models by machine slug (`claude-opus-5`,
+    `gpt-5.6-terra`, per DESIGN.md §5's example), so a literal lookup resolves nothing on
+    a real project (M4 finding #2). Casefolding and turning whitespace runs into single
+    hyphens closes the gap on both live tables exactly, with no mapping table to maintain:
+    a model added to either file works with no code change here. Idempotent — a name that
+    is already a slug normalises to itself."""
+    return "-".join(name.casefold().split())
+
+
+def _lookup(models: dict, name: str):
+    """`models[name]`, tolerant of display-name/slug spelling, or `None`.
+
+    An exact hit always wins, so a table that ever keys by slug directly keeps resolving
+    against its own keys untouched; only when there is no exact hit is the normalised form
+    compared. The value returned is whatever the table stored, so `ModelLimits.model` still
+    carries the table's own (display) spelling even for a slug lookup."""
+    entry = models.get(name)
+    if entry is not None:
+        return entry
+    wanted = _normalise_model_key(name)
+    for key, value in models.items():
+        if _normalise_model_key(key) == wanted:
+            return value
+    return None
+
+
 # ── per-model resolution ──
 
 def resolve(model: str, paths=None):
@@ -238,11 +277,16 @@ def resolve(model: str, paths=None):
     is in neither table and has no shipped default, with a `UserWarning` raised (via
     the stdlib `warnings` module — this function's own return type has no room for a
     warnings list) so a caller that isn't checking for `None` still gets a visible
-    signal."""
+    signal. `model` may be spelled either as the tables' display name or as a
+    `project.yaml` slug (see `_normalise_model_key`)."""
     result = load_limits(paths)
-    entry = result.models.get(model)
+    entry = _lookup(result.models, model)
     if entry is None:
-        warnings.warn(f"limits.resolve: no context-limit entry for model {model!r}", stacklevel=2)
+        warnings.warn(
+            f"limits.resolve: no context-limit entry for model {model!r} "
+            f"(also tried normalised {_normalise_model_key(model)!r})",
+            stacklevel=2,
+        )
     return entry
 
 
@@ -251,14 +295,18 @@ def resolve_all(model_names, paths=None) -> dict:
     `doctor` CLI command's per-model report until M4 builds `doctor` itself — it is a
     library function, not `doctor`, and should not be mistaken for it. Each name not
     present in the merged tables (and without a shipped default) resolves to `None`
-    with a `UserWarning` raised, same as `resolve`."""
+    with a `UserWarning` raised, same as `resolve`. Names may be spelled either as the
+    tables' display names or as `project.yaml` slugs, mixed freely; the returned dict is
+    keyed by the names as passed in, so a caller gets its own spelling back."""
     result = load_limits(paths)
     out: dict = {}
     for name in model_names:
-        entry = result.models.get(name)
+        entry = _lookup(result.models, name)
         if entry is None:
             warnings.warn(
-                f"limits.resolve_all: no context-limit entry for model {name!r}", stacklevel=2
+                f"limits.resolve_all: no context-limit entry for model {name!r} "
+                f"(also tried normalised {_normalise_model_key(name)!r})",
+                stacklevel=2,
             )
         out[name] = entry
     return out

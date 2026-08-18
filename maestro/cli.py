@@ -1,9 +1,11 @@
 """The `maestro` console-script entry point (DESIGN.md §10, `docs/plans/2026-08-16-m4-setup.md`).
 
 Six subcommands: `init`, `doctor`, `status`, `run`, `ctl`, `watchdog`, plus `install-skills`.
-`init`/`doctor`/`status`/`run`/`ctl` are Component D wiring `run_adapter` (Component A),
-the templates (Component B) and the setup skill (Component C) together; none of the actual
-orchestration logic lives here.
+All six are Component D wiring `run_adapter` (Component A), the templates (Component B) and
+the setup skill (Component C) together; none of the actual orchestration logic lives here.
+`run` wraps `maestro.orchestrator.main()` and `watchdog` wraps `maestro.watchdog.main()`
+(extracted in M4b, `docs/plans/2026-08-17-m4b-watchdog.md`) — both are three-line wrappers
+that set `$MAESTRO_REPO` and call through.
 
 **One project per process — read this before adding a subcommand.** Every extracted module
 this file imports (`maestro.state`, `maestro.docs.roadmap`, `maestro.config`, `maestro.limits`,
@@ -868,16 +870,32 @@ def cmd_ctl(repo_root: Path, verb: str, args: list[str]) -> int:
     return 2
 
 
-def cmd_watchdog() -> int:
-    """`maestro watchdog` — HONEST STUB. `maestro/watchdog.py` does not exist; DESIGN.md §13
-    still lists the stall-detection window and the definition of journal progress as open
-    items, and building it now would mean inventing behaviour with no spec to extract from
-    (see `docs/plans/2026-08-16-m4-setup.md`'s scope decision). `run`/`ctl`/`status` are real
-    wrappers; this is not."""
-    print("maestro watchdog: not yet implemented (maestro/watchdog.py does not exist — "
-          "see docs/plans/2026-08-16-m4-setup.md's scope decision). Use `maestro run` under "
-          "the systemd unit + tmux launcher `maestro init` scaffolds instead.")
-    return 1
+def cmd_watchdog(repo_root: Path) -> int:
+    """`maestro watchdog` — invokes `maestro.watchdog.main()` with `MAESTRO_REPO` set to
+    `repo_root`, the same shape as `cmd_run` above.
+
+    This is the *supervisor*, not the loop: it polls every `POLL_INTERVAL` (30s), relaunches
+    `maestro run` in the shared `agents` tmux session whenever the orchestrator process is
+    gone, schedules a resume at the quota reset time, reaps dead implementer windows, and
+    HALTs after `MAX_STALL_RESTARTS` (3) consecutive stalls of `STALL_WINDOW_MIN` (20 min)
+    journal silence. It is what the generated `launch.sh` runs under the
+    `<project>-watchdog` systemd unit; `maestro run` is what *it* launches.
+
+    **This does not return in normal operation.** `main()`'s `while True:` only leaves by
+    returning `0` when the HALT sentinel (`.orchestrator/HALT`) appears — which `maestro ctl
+    halt` writes — or `1` when repeated stalls make it write that sentinel itself. Every
+    other error is caught, journalled and slept through. Callers that need it bounded (tests,
+    `doctor`) must arrange for HALT to exist rather than expect a timeout.
+
+    M4b (`docs/plans/2026-08-17-m4b-watchdog.md`) replaced the M4 honest stub this used to be:
+    `maestro/watchdog.py` is now a real extraction of the reference `scripts/watchdog.py`, so
+    DESIGN.md §13's "exact stall-detection window / definition of journal progress" open item
+    is answered by that extraction (20 minutes; the journal's last line advancing) rather than
+    by invention."""
+    repo_root = repo_root.resolve()
+    os.environ["MAESTRO_REPO"] = str(repo_root)
+    from maestro.watchdog import main as watchdog_main
+    return watchdog_main()
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -953,7 +971,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_ctl.add_argument("verb")
     p_ctl.add_argument("args", nargs="*")
 
-    sub.add_parser("watchdog", help="NOT YET IMPLEMENTED — honest stub, exits 1.")
+    p_watchdog = sub.add_parser(
+        "watchdog",
+        help="Supervise the loop: relaunch `maestro run`, schedule resumes, detect stalls.")
+    p_watchdog.add_argument("--repo", default=None)
 
     p_install = sub.add_parser("install-skills", help="Install the setup skill for Claude + Codex.")
     p_install.add_argument("--home", default=None, help="Override $HOME (default: real $HOME)")
@@ -976,7 +997,7 @@ def main(argv: Optional[list] = None) -> int:
     if args.command == "ctl":
         return cmd_ctl(_resolve_repo(args.repo), args.verb, args.args)
     if args.command == "watchdog":
-        return cmd_watchdog()
+        return cmd_watchdog(_resolve_repo(args.repo))
     if args.command == "install-skills":
         return cmd_install_skills(Path(args.home) if args.home else None)
 

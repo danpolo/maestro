@@ -4,19 +4,22 @@
 # wraps `tmux new-session -d -s {{ project_name }}-watchdog` so the loop is
 # auditable from a phone with `tmux a -t {{ project_name }}-watchdog`.
 #
-# Type=simple, not Type=forking: the tracked process (the supervised loop) lives
+# Type=simple, not Type=forking: the tracked process (the watchdog) lives
 # inside the tmux server's cgroup, not a child systemd can find a PIDFile for —
 # launch.sh instead blocks until the tmux session ends, so systemd tracks the
 # launcher shell itself.
 #
-# Honesty note: this unit's name says "watchdog" per DESIGN.md's naming, but
-# `maestro/watchdog.py` doesn't exist yet (see launch.sh.tmpl's comment for the
-# full explanation) — what actually runs under this unit today is `maestro run`
-# (the supervised poll loop), not a watchdog process. The unit name is kept as
-# DESIGN.md specifies so the rename is free once `watchdog.py` lands; only the
-# launcher's command changes at that point, not this file.
+# The unit's name matches what it runs: launch.sh starts `maestro watchdog`
+# (maestro/watchdog.py, extracted in M4b), which supervises the orchestrator and
+# launches `maestro run` itself in the shared `agents` tmux session.
+#
+# Restart=on-failure, not Restart=always: systemd tracks launch.sh, whose exit
+# status is the wait loop's, not the watchdog's (tmux swallows that) — so this
+# restarts when the launcher itself fails, and a watchdog that stopped on the HALT
+# sentinel (`maestro ctl halt`) stays stopped, which is the point of HALT. Bringing
+# it back after a deliberate halt is `systemctl restart` plus removing the file.
 [Unit]
-Description={{ project_name }} — maestro supervised loop
+Description={{ project_name }} — maestro watchdog (supervises the orchestrator loop)
 After=network-online.target
 Wants=network-online.target
 

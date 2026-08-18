@@ -98,6 +98,57 @@ def test_launch_sh_tmpl_is_executable():
     assert _is_executable(TEMPLATES_DIR / "launch.sh.tmpl")
 
 
+# ── launcher + unit run the watchdog, not the loop (M4b) ──
+#
+# Until M4b these two templates carried an "Honesty note" saying `maestro/watchdog.py` did not
+# exist and the launcher therefore ran `maestro run` directly. It exists now
+# (docs/plans/2026-08-17-m4b-watchdog.md), the note is gone, and these pin the replacement so a
+# future edit cannot quietly regress the launcher to the unsupervised command.
+
+
+def test_launch_sh_tmpl_runs_the_watchdog_not_the_orchestrator_loop():
+    """`maestro run` here instead of `maestro watchdog` loses relaunch-on-crash, resume
+    scheduling, stall detection and implementer reaping — systemd supervises this shell, so it
+    fires when the tmux session ends, not when the orchestrator inside it dies."""
+    text = (TEMPLATES_DIR / "launch.sh.tmpl").read_text(encoding="utf-8")
+    command_lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
+    body = "\n".join(command_lines)
+
+    assert "maestro watchdog" in body
+    assert "maestro run" not in body
+    assert "MAESTRO_REPO='$REPO_PATH' maestro watchdog" in body
+
+
+def test_launch_sh_tmpl_still_wraps_tmux_and_blocks_for_type_simple():
+    """DESIGN.md §10's Systemd-and-tmux subsection: named session for phone auditing, then a
+    wait loop so systemd tracks this shell (Type=forking is unusable — the tracked process lives
+    in the tmux server's cgroup)."""
+    text = (TEMPLATES_DIR / "launch.sh.tmpl").read_text(encoding="utf-8")
+    assert 'SESSION="${PROJECT_NAME}-watchdog"' in text
+    assert "tmux new-session -d -s" in text
+    assert 'while tmux has-session -t "$SESSION"' in text
+
+
+def test_watchdog_unit_keeps_the_deliberate_systemd_settings():
+    text = (TEMPLATES_DIR / "systemd" / "maestro-watchdog.service.tmpl").read_text(encoding="utf-8")
+    assert "Type=simple" in text
+    assert "Type=forking" not in text.split("[Service]")[1]
+    assert "ExecStart=/bin/bash {{ repo_path }}/launch.sh" in text
+    assert "Restart=on-failure" in text
+    assert "tmux kill-session -t {{ project_name }}-watchdog" in text
+
+
+@pytest.mark.parametrize(
+    "path",
+    ["launch.sh.tmpl", "systemd/maestro-watchdog.service.tmpl"],
+)
+def test_no_template_still_claims_the_watchdog_module_is_missing(path):
+    text = (TEMPLATES_DIR / path).read_text(encoding="utf-8").lower()
+    for stale in ("honesty note", "does not exist", "doesn't exist", "not yet implemented",
+                  "honest stub"):
+        assert stale not in text, f"{path} still carries the pre-M4b note: {stale!r}"
+
+
 # ── adapter stub contracts (Component A's run_adapter, exercised for real) ──
 
 

@@ -11,9 +11,14 @@ may already have imported `maestro.state` bound to a *different* root. Calling `
 `cmd_status()`/`cmd_ctl()`/`cmd_run()` in-process would silently read or write whichever root
 that module happened to bind to first — for `maestro.state` that could be this maestro checkout's
 own `.orchestrator/state.json`. A subprocess is a fresh interpreter every time, so it is the only
-way to test two different target projects safely in the same pytest session. `install-skills` and
-`watchdog` have no such dependency (no `Paths.from_env()` in their call graph) and are called
-in-process directly, which is both safe and much faster.
+way to test two different target projects safely in the same pytest session. `install-skills` has
+no such dependency (no `Paths.from_env()` in its call graph) and is called in-process directly,
+which is both safe and much faster. `watchdog` *does* have one as of M4b — `maestro/watchdog.py`
+binds `REPO`/`STATE_JSON`/`JOURNAL`/`HALT_FILE` from `Paths.from_env()` at import time, exactly
+like `maestro.state` — so the one test here that runs the real module runs it in a subprocess
+too. The in-process `cmd_watchdog` test never imports it: it substitutes a recording stub into
+`sys.modules["maestro.watchdog"]`, which is what lets it assert the wiring (env var, exit-code
+passthrough) without binding a root or entering a `while True:` supervisor loop.
 
 **Telegram**: no test here ever reaches `api.telegram.org`. `init`'s subprocess calls always set
 `$MAESTRO_TOKEN_FILE` to a path that does not exist, so the real `scripts/telegram_creds.py`
@@ -463,20 +468,119 @@ def test_install_skills_overwrites_on_reinstall(tmp_path):
     assert claude_dest.read_text() != "stale content from a previous version"
 
 
-# ── watchdog: honest stub ──
+# ── watchdog ──
+#
+# M4b (docs/plans/2026-08-17-m4b-watchdog.md) turned `cmd_watchdog` from an honest stub that
+# printed "not yet implemented" and exited 1 into a real wrapper around `maestro.watchdog.main()`.
+# The two tests that pinned the stub's exit-1/message contract described behaviour that no longer
+# exists and were replaced by the four below — argument wiring, exit-code passthrough, the real
+# module's one bounded exit path, and the negative assertion that none of it spawns anything.
 
 
-def test_watchdog_is_an_honest_stub_not_a_fabricated_implementation():
+def _stub_watchdog_module(monkeypatch, rc: int) -> dict:
+    """Put a recording stand-in at `sys.modules["maestro.watchdog"]` so `cmd_watchdog`'s
+    function-body `from maestro.watchdog import main` resolves to it. Keeps the real module
+    (and its import-time `Paths.from_env()` binding, and its `while True:` loop) out of this
+    interpreter entirely — see this module's docstring."""
+    import types
+
+    calls: dict = {"count": 0, "repo_at_call": None}
+    stub = types.ModuleType("maestro.watchdog")
+
+    def main() -> int:
+        calls["count"] += 1
+        calls["repo_at_call"] = os.environ.get("MAESTRO_REPO")
+        return rc
+
+    stub.main = main
+    monkeypatch.setitem(sys.modules, "maestro.watchdog", stub)
+    return calls
+
+
+def test_watchdog_calls_maestro_watchdog_main_with_repo_bound(tmp_path, monkeypatch):
+    """The wrapper's whole job: resolve the repo, export `$MAESTRO_REPO` *before* the import,
+    then call through. Same shape as `cmd_run`."""
     from maestro import cli
 
-    rc = cli.cmd_watchdog()
-    assert rc == 1
+    monkeypatch.setenv("MAESTRO_REPO", "/nonexistent/should-be-overwritten")
+    calls = _stub_watchdog_module(monkeypatch, rc=0)
+
+    rc = cli.cmd_watchdog(tmp_path)
+
+    assert rc == 0
+    assert calls["count"] == 1
+    assert calls["repo_at_call"] == str(tmp_path.resolve())
+    assert os.environ["MAESTRO_REPO"] == str(tmp_path.resolve())
 
 
-def test_watchdog_cli_exits_nonzero():
-    proc = _run_cli("watchdog", timeout=15)
-    assert proc.returncode == 1
-    assert "not yet implemented" in proc.stdout
+@pytest.mark.parametrize("rc", [0, 1, 2])
+def test_watchdog_passes_the_loops_exit_code_straight_through(tmp_path, monkeypatch, rc):
+    """`main()` returns 0 on the HALT sentinel and 1 on a stall-HALT; systemd and the launcher
+    both read that, so the wrapper must not normalise it."""
+    from maestro import cli
+
+    monkeypatch.setenv("MAESTRO_REPO", "/nonexistent/should-be-overwritten")
+    _stub_watchdog_module(monkeypatch, rc=rc)
+    assert cli.cmd_watchdog(tmp_path) == rc
+
+
+def test_watchdog_argv_accepts_repo_and_dispatches(tmp_path, monkeypatch):
+    """`maestro watchdog --repo <path>` — the subcommand grew a `--repo` flag when it stopped
+    being a no-argument stub, matching `run`/`status`/`ctl`."""
+    from maestro import cli
+
+    monkeypatch.setenv("MAESTRO_REPO", "/nonexistent/should-be-overwritten")
+    calls = _stub_watchdog_module(monkeypatch, rc=0)
+
+    assert cli.main(["watchdog", "--repo", str(tmp_path)]) == 0
+    assert calls["repo_at_call"] == str(tmp_path.resolve())
+
+
+def test_watchdog_help_advertises_a_real_supervisor():
+    proc = _run_cli("watchdog", "--help", timeout=15)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    combined = (proc.stdout + proc.stderr).lower()
+    assert "not yet implemented" not in combined
+    assert "honest stub" not in combined
+    assert "--repo" in combined
+
+
+def _no_spawn_bin(tmp_path: Path) -> Path:
+    """A PATH shim whose every entry records the fact it was called and then fails. Any real
+    `tmux`/`pgrep`/`pkill`/`crontab`/`at`/`claude`/`codex` invocation from the watchdog under
+    test therefore leaves evidence instead of touching this machine's tmux server, process
+    table, crontab or a model API."""
+    shim = tmp_path / "no-spawn-bin"
+    shim.mkdir()
+    for name in ("tmux", "pgrep", "pkill", "crontab", "at", "systemd-run", "claude", "codex"):
+        p = shim / name
+        p.write_text(f'#!/bin/sh\necho "{name} $*" >> "{shim}/CALLED"\nexit 1\n')
+        p.chmod(0o755)
+    return shim
+
+
+def test_watchdog_returns_zero_on_the_halt_sentinel_without_spawning_anything(tmp_path):
+    """The real `maestro/watchdog.py`, in a real subprocess, with a real project root — and the
+    one bounded exit its `while True:` has. `main()` checks `.orchestrator/HALT` at the top of
+    its first iteration, before `pgrep`, `tmux` or `crontab` can be reached, so this exercises
+    the whole wrapper + import + loop-entry path in milliseconds and proves the stub's exit 1 is
+    gone. The PATH shim is the guard that it really is the HALT path and not a supervisor that
+    got as far as touching the machine."""
+    repo = tmp_path / "proj"
+    (repo / ".orchestrator").mkdir(parents=True)
+    (repo / ".orchestrator" / "HALT").write_text("halted by the test\n")
+    shim = _no_spawn_bin(tmp_path)
+
+    proc = _run_cli(
+        "watchdog", "--repo", str(repo), timeout=60,
+        extra_env={"PATH": f"{shim}{os.pathsep}{os.environ.get('PATH', '')}"},
+    )
+
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "HALT sentinel present" in proc.stdout
+    assert not (shim / "CALLED").exists(), (shim / "CALLED").read_text()
+    journal = (repo / ".orchestrator" / "journal.ndjson").read_text()
+    assert "watchdog_halt_respected" in journal
 
 
 # ── pyproject.toml wiring ──

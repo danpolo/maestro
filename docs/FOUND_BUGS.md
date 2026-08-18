@@ -1191,3 +1191,308 @@ are ISO-8601 and lexicographic order is normally date order) gets the wrong answ
 `"…56.789012+00:00" < "…56Z"` is true because `.` sorts below `Z`.
 
 Pinned by `test_set_action_prepared_at_is_offset_isoformat_not_the_zulu_stamp`.
+
+## M4b — watchdog (`watchdog.py`)
+
+Found while extracting the reference `scripts/watchdog.py` into `maestro/watchdog.py` and
+characterising it in `tests/characterization/test_watchdog.py`. All of them are copied
+verbatim per the M1 rule and pinned, not fixed.
+
+### 151. The watchdog carries its own copy of `read_json`, with the same ambiguous contract
+
+`scripts/watchdog.py` is a standalone script: it re-declares `now_iso`, `read_json` and
+`append_journal` rather than importing the orchestrator's. Its `read_json` repeats bug #1
+exactly — `except Exception: return {}` — so a missing `state.json`, a truncated one, a
+directory at that path and a permission error are one answer. In the watchdog that answer
+is "no `halted`, no `paused_until`, no `blocked_on`, no `in_flight`", i.e. the state that
+makes it relaunch the orchestrator. A `.orchestrator/` the watchdog cannot read looks
+identical to a healthy idle project.
+
+Pinned by `test_read_json_missing_file_is_empty_dict`,
+`test_read_json_corrupt_file_is_empty_dict`, `test_read_json_directory_is_empty_dict`.
+
+### 152. `read_json` is annotated `-> dict` and returns whatever JSON it finds
+
+Well-formed JSON that is not an object comes back unchanged, so a `state.json` holding a
+list reaches `main()` as a list and the first `state.get("halted")` raises
+`AttributeError` — caught by the poll's `except Exception`, journalled as
+`watchdog_error`, and repeated every 30 seconds forever. Same class as #2 and #149.
+
+Pinned by `test_read_json_returns_non_dict_json_unchanged`.
+
+### 153. `append_journal` loses every supervision event when the journal's directory is missing
+
+The whole body is wrapped in `try: ... except Exception: pass`. If `.orchestrator/` does
+not exist (a fresh clone, a project whose state directory was moved), every
+`watchdog_start`, `stall_restart`, `orchestrator_relaunched` and `watchdog_halt_stall`
+record is discarded with no error, no warning and no stdout line. The watchdog goes on
+killing and relaunching the orchestrator, and the journal an operator reads afterwards
+shows none of it. Unlike `notify`, it never creates the parent directory.
+
+Pinned by `test_append_journal_missing_parent_directory_is_a_silent_noop`.
+
+### 154. `notify` is not exception-safe, and it is the last act of the HALT path
+
+`append_journal` guards its I/O; `notify` does not. It shells out to the notifier with
+`timeout=15` and lets `subprocess.TimeoutExpired` (or any other failure) propagate. On the
+stall-HALT path `notify` is called *after* `HALT_FILE.touch()` and immediately before
+`return 1`, so a slow notifier turns a deliberate failure exit into an exception — see
+#178 for what `main` then does with it.
+
+Pinned by `test_notify_lets_a_notifier_timeout_escape`, `test_notify_ignores_a_failing_notifier`.
+
+### 155. `orchestrator_alive` reads any nonzero `pgrep` exit as "the loop is dead"
+
+`return r.returncode == 0`. `pgrep` exits 1 for "no match" but 2 for a usage error and 3
+for a fatal error, and all three answer False. A malformed pattern, or a `pgrep` that
+cannot read `/proc`, therefore reports a healthy orchestrator as dead — and the liveness
+branch relaunches it, every poll, alongside the one already running.
+
+Pinned by `test_orchestrator_alive_false_when_pgrep_itself_errors`.
+
+### 156. `tmux_window_exists` drops the return code entirely
+
+`return window in r.stdout.splitlines()` never looks at `r.returncode`, so "no tmux server
+running" and "that window does not exist" are the same answer, and a nonzero exit whose
+stdout happens to contain a matching line still reads True. `reap_dead_implementers` uses
+this as its gate, so a dead tmux server silently means "nothing to reap".
+
+Pinned by `test_tmux_window_exists_ignores_the_return_code`,
+`test_tmux_window_exists_false_on_empty_output`.
+
+### 157. `launch_orchestrator` reports success it never checked
+
+`subprocess.run(cmd, shell=True)` is called without `check=`, and the result is discarded.
+The next two statements unconditionally journal `orchestrator_relaunched` and print
+"Launched orchestrator in …". If the tmux session does not exist — the exact situation
+after a reboot, which is why the reference launcher script recreates it — the launch fails,
+the journal records a relaunch that never happened, and the operator's only evidence says
+the loop is back.
+
+Pinned by `test_launch_orchestrator_claims_success_even_when_tmux_fails`.
+
+### 158. The launch command is an unquoted `shell=True` string
+
+`cmd` is built by f-string interpolation of `REPO` (and, in the reference, the interpreter
+and launcher paths) into a `shell=True` command line, with no `shlex.quote`. A repository
+path containing a space produces a command the shell splits in the wrong place; anything
+more hostile in that path is a shell injection. It fails as a broken command line rather
+than as an error, so the failure surfaces via #157 as a *successful* relaunch. The same
+shape is repeated in `ensure_resume_job`'s `resume_cmd`, where it is additionally written
+into the user's crontab.
+
+Pinned by `test_launch_orchestrator_interpolates_paths_into_a_shell_string_unquoted`.
+
+### 159. `ensure_resume_job` schedules at most one resume for the life of the crontab
+
+The idempotence guard is `if "cron-orch-resume" in existing: return` — a substring test on
+the *tag*, not on the schedule. Nothing ever removes the entry once cron has fired it. So
+the first quota pause schedules a resume, and every later pause, at every later reset time,
+finds the stale line and returns silently: no new entry, no journal record, no stdout. The
+orchestrator exits on quota exhaustion expecting the watchdog to bring it back, and from
+the second exhaustion onward nothing does.
+
+Pinned by `test_ensure_resume_job_is_a_noop_once_any_resume_entry_exists`.
+
+### 160. A failed `crontab -l` makes `ensure_resume_job` destroy the whole crontab
+
+`existing = r.stdout if r.returncode == 0 else ""`. `crontab -l` exits nonzero for "no
+crontab for user" — the case this line is written for — but also for a transient failure,
+a locked spool file or a permissions problem, and those still have the user's real crontab
+on stdout. The very next statement pipes `existing.rstrip("\n") + "\n" + cron_line` into
+`crontab -`, so every other entry the user had is replaced by the single resume line. There
+is no backup and no confirmation.
+
+Pinned by `test_ensure_resume_job_discards_the_crontab_when_reading_it_fails`.
+
+### 161. The resume entry is an annually recurring cron line, not a one-shot
+
+`f"{minute} {hour} {day} {month} * {resume_cmd}"` has a wildcard day-of-week, so it matches
+that minute of that day *every year*. Combined with #159 (nothing ever deletes it), a single
+quota pause leaves a permanent cron entry that relaunches the orchestrator on the same
+calendar minute next year, into a tmux session that may not exist, for a project that may
+have been archived.
+
+Pinned by `test_ensure_resume_job_cron_entry_recurs_annually`.
+
+### 162. `_parse_epoch` reads a naive timestamp as local time and `main` compares it against UTC
+
+`datetime.fromisoformat(...)` on a string with no offset yields a naive datetime, whose
+`.timestamp()` is interpreted in the machine's local zone. `main` compares the result
+against `now_epoch()`, which is explicitly UTC. A `paused_until` written without a `Z` is
+therefore off by the UTC offset — the loop resumes an hour early or stays paused an hour
+late, and further east or west, proportionally more.
+
+Pinned by `test_parse_epoch_reads_a_naive_timestamp_as_local_time`.
+
+### 163. `_parse_epoch` turns an 8-digit epoch-looking string into a calendar date
+
+ISO parsing is attempted before the numeric fallback, and `fromisoformat` accepts the
+compact `YYYYMMDD` form. So the string `"20260817"` — which is a plausible thing to find in
+a hand-edited state file, and is only 8 digits away from being a real epoch — parses as
+2026-08-17 rather than as the epoch second 20 260 817 (1970-08-23). The two readings are
+56 years apart and both are "valid".
+
+Pinned by `test_parse_epoch_reads_an_eight_digit_number_as_a_calendar_date`.
+
+### 164. `_parse_epoch(True)` is 1.0, i.e. one second after the Unix epoch
+
+The numeric fallback is `float(value)` with no type check, and `float(True)` is `1.0`. A
+`paused_until: true` in `state.json` — the obvious YAML/JSON spelling of "yes, paused" —
+parses as 1970-01-01T00:00:01Z, which is in the past, so `main` takes the *expired* branch,
+rewrites `state.json` with `paused_until: null` and relaunches the orchestrator. The pause
+is not merely ignored; it is erased.
+
+Pinned by `test_parse_epoch_coerces_a_bool_to_one_second_past_the_epoch`.
+
+### 165. Progress is "the last line changed", so a repeating loop looks frozen
+
+`journal_last_line` returns raw text and `main` compares it for inequality. An orchestrator
+that writes the *same* line twice — same second (`now_iso` is second-resolution), same
+event, same detail — advances the journal without changing its last line, so the silence
+timer is never reset. Twenty minutes of a genuinely working loop emitting one identical
+heartbeat is indistinguishable from twenty minutes of a wedged one, and gets killed.
+
+Pinned by `test_journal_last_line_cannot_see_a_repeated_identical_entry`.
+
+### 166. An in-flight task whose window is already gone is never reaped and never reported
+
+`if not window or not tmux_window_exists(window): continue`. The one case that most needs
+operator attention — the tmux window for an in-flight task has vanished entirely, so the
+implementer is definitely not running — is the case the loop skips silently. No journal
+line, no stdout, and the `in_flight` entry stays (see #169), so the concurrency cap keeps
+counting a task nothing is working on.
+
+Pinned by `test_reap_skips_a_window_that_no_longer_exists`.
+
+### 167. A failed `tmux list-panes` is treated as proof the window is dead
+
+`if r.returncode != 0 or "1" in r.stdout.splitlines():` — the window was confirmed to exist
+one line earlier, so a nonzero `list-panes` means tmux itself hiccupped, not that the panes
+died. The watchdog responds by killing the window, which terminates a running implementer
+and loses its unmerged work.
+
+Pinned by `test_reap_kills_the_window_when_listing_panes_fails`.
+
+### 168. One dead pane kills the whole window, including every live pane in it
+
+The test is `"1" in r.stdout.splitlines()`, evaluated over all of the window's panes. A
+window with a live implementer pane and one exited helper pane matches, and
+`tmux kill-window` takes the whole window down. The journal records it as
+`implementer_reaped`, "dead window …", which is not what happened.
+
+Pinned by `test_reap_kills_a_window_with_one_dead_pane_among_live_ones`.
+
+### 169. Reaping kills the window but never clears the `in_flight` entry
+
+`reap_dead_implementers` reads `state.json` and never writes it. After a reap the tmux
+window is gone and the entry that pointed at it is still in `in_flight`, so the
+concurrency cap still counts it. Only the orchestrator's own `reconcile_in_flight` can
+clear it — which means the watchdog's reap does nothing for throughput if the orchestrator
+is the thing that is wedged, and the cap silently strangles the loop.
+
+Pinned by `test_reap_never_touches_state_json`.
+
+### 170. `in_flight` holding bare strings raises on every poll
+
+`entry.get("window")` assumes each entry is a dict; there is no shape check. A list of
+window names raises `AttributeError`, which inside `main` becomes a `watchdog_error`
+journal line — every 30 seconds, forever, with no other symptom. Worse, those repeating
+error lines then keep the stall timer fresh (see #179), so the watchdog's own failure hides
+a stalled orchestrator.
+
+Pinned by `test_reap_raises_when_in_flight_holds_bare_strings`.
+
+### 171. Only a five-hour reset schedules a resume; a weekly-cap pause schedules none
+
+The pause branch reads `(usage.get("five_hour") or {}).get("resets_at")` and nothing else.
+A pause caused by the weekly cap has its reset under `weekly`, so `resets_at` is falsy,
+`ensure_resume_job` is never called, and the watchdog idles at the poll interval
+indefinitely. The loop stays down until a human notices — which is the precise failure the
+resume job exists to prevent.
+
+Pinned by `test_main_pause_ignores_a_weekly_only_reset`.
+
+### 172. `float(resets_at)` in the pause branch is unguarded
+
+Every other value the watchdog reads goes through `_parse_epoch`, which returns `None`
+rather than raising. This one call does not. A `usage.json` whose `resets_at` is an ISO
+string or any non-numeric value raises `ValueError` straight into the poll's
+`except Exception`, so each poll prints `poll error:` and journals a `watchdog_error` — and
+no resume is ever scheduled, for as long as the pause lasts.
+
+Pinned by `test_main_pause_with_a_non_numeric_reset_journals_an_error_and_keeps_polling`.
+
+### 173. A `paused_until` of 0 is neither honoured nor cleared
+
+Both pause branches are guarded by `if paused_epoch and …`, and `_parse_epoch(0)` returns
+`0.0`, which is falsy. So a zero epoch skips the "still paused" branch (correctly, it is in
+the past) *and* the "pause expired" branch (incorrectly), leaving the stale `paused_until`
+in `state.json` forever. Every consumer that checks truthiness of `paused_until` rather
+than comparing it to now — and there are such consumers — reads the project as paused.
+
+Pinned by `test_main_pause_of_zero_is_treated_as_no_pause`.
+
+### 174. Clearing an expired pause is the one state change `main` does not journal
+
+Every other decision `main` makes writes a journal record: `watchdog_idle_halted`,
+`blocked_on_cleared`, `stall_restart`, `orchestrator_relaunched`, `watchdog_halt_stall`.
+Rewriting `state.json` to drop `paused_until` prints "Pause expired — cleared." to stdout
+and nothing else, so the journal — the artefact an operator actually reads after the fact —
+has no record that the project was ever paused or when it came back.
+
+Pinned by `test_main_expired_pause_is_not_journalled`.
+
+### 175. Any in-flight task disables stall detection completely
+
+Step 2c is `if state.get("in_flight") and orchestrator_alive(): reap…; sleep; continue` —
+and it sits *above* the stall check. So while any entry is in `in_flight`, journal silence
+is never measured, however long it lasts. Combined with #169 (a reaped entry is never
+removed from `in_flight`) and #166 (a vanished window is skipped), a single stale entry
+turns stall detection off permanently: the wedged orchestrator this module exists to
+restart is exactly the one that cannot clear the entry.
+
+Pinned by `test_main_in_flight_and_alive_disables_stall_detection_entirely`.
+
+### 176. The stall alert hardcodes the project's name
+
+`f"[AbuAliArchive] Orchestrator stalled …"` is the only project-identifying string in the
+whole module. It is not derived from `REPO.name`, from `project.yaml`, or from anything
+else — so the script is otherwise portable and this one line is not, and a copy of the
+watchdog moved to another project sends alerts attributed to the wrong one. (In the
+extracted module the tag is `PROJECT_NAME`; the hardcoding is the defect being recorded,
+and it is the one place plan §5's "project name" generalisation actually lands.)
+
+Pinned by `test_main_stall_alert_is_tagged_with_the_project_name`.
+
+### 177. `stall_restarts` only ever increments — three stalls days apart still HALT
+
+The counter is initialised once, before the loop, and there is no path that decrements or
+resets it when the orchestrator recovers. Three unrelated stalls, each fully recovered by
+a successful relaunch, days apart, escalate to `HALT_FILE.touch()` and a "stalled 3x" alert
+that describes a system which has been healthy in between. The escalation is meant to
+catch a *repeatedly* failing loop and instead measures the process's whole lifetime.
+
+Pinned by `test_main_stall_restart_counter_never_resets_after_recovery`.
+
+### 178. A failing notifier converts the stall HALT into a clean exit and loses the alert
+
+The escalation path is `append_journal(...)` → `HALT_FILE.touch()` → `notify(msg)` →
+`return 1`, all inside the poll's `try`. `notify` is not exception-safe (#154), so a
+notifier that times out or errors raises *before* the `return 1`; the `except Exception`
+catches it, journals a `watchdog_error`, and the loop sleeps and polls again. The next poll
+sees the HALT file it just wrote and returns **0**. Net effect: the operator gets no
+Telegram alert, and systemd sees a successful exit for a supervisor that halted the system.
+
+Pinned by `test_main_notify_failure_downgrades_the_stall_halt_to_a_clean_exit`.
+
+### 179. The watchdog writes to the same journal it uses to measure the orchestrator's progress
+
+Progress is "`journal.ndjson`'s last line changed", and `append_journal` appends to that
+same file. Any watchdog event — most importantly the `watchdog_error` line a repeating poll
+failure emits every 30 seconds — changes the last line and resets the silence timer. So
+while the watchdog is itself malfunctioning it reports the orchestrator as making progress,
+and a genuinely stalled loop is never restarted. The failure modes compound rather than
+cancel.
+
+Pinned by `test_main_own_journal_writes_count_as_orchestrator_progress`.

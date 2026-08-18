@@ -256,3 +256,175 @@ def test_resolve_all_uses_the_defaults_when_paths_omitted():
     resolved = limits.resolve_all(REAL_MODEL_NAMES)
     for name in REAL_MODEL_NAMES:
         assert resolved[name] is not None, f"{name} did not resolve"
+
+
+# ── display-name ↔ slug tolerance (M4 finding #2) ──
+#
+# The tables key by human display name; `project.yaml`'s `roles:` block names models by
+# machine slug, so `doctor`'s `model_limits` check resolved nothing on a real project. The
+# fix is one normalisation (casefold, whitespace runs → single hyphens), not a mapping table.
+
+REAL_MODEL_SLUGS = [
+    "claude-sonnet-5",
+    "claude-opus-5",
+    "gpt-5.6-luna",
+    "gpt-5.6-terra",
+    "gpt-5.6-sol",
+]
+
+
+def test_normalise_model_key_folds_display_names_to_project_yaml_slugs():
+    assert limits._normalise_model_key("Claude Sonnet 5") == "claude-sonnet-5"
+    assert limits._normalise_model_key("Claude Opus 5") == "claude-opus-5"
+    assert limits._normalise_model_key("GPT-5.6 Luna") == "gpt-5.6-luna"
+    assert limits._normalise_model_key("GPT-5.6 Terra") == "gpt-5.6-terra"
+    assert limits._normalise_model_key("GPT-5.6 Sol") == "gpt-5.6-sol"
+
+
+def test_normalise_model_key_is_idempotent():
+    for name in REAL_MODEL_NAMES + REAL_MODEL_SLUGS:
+        once = limits._normalise_model_key(name)
+        assert limits._normalise_model_key(once) == once
+
+
+def test_resolve_finds_a_display_name_row_by_its_slug(tmp_path):
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Known Model | 90–100K | 120–140K | 180K |\n",
+        encoding="utf-8",
+    )
+
+    result = limits.resolve("known-model", [table])
+    assert result == limits.ModelLimits("Known Model", 90_000, 100_000, 120_000, 140_000, 180_000)
+
+
+def test_resolve_by_slug_still_reports_the_tables_display_name(tmp_path):
+    """`ModelLimits.model` must keep carrying the table's own spelling — a slug lookup
+    must not rewrite it, or the cache and `doctor`'s output disagree with the source file."""
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Known Model | 90–100K | 120–140K | 180K |\n",
+        encoding="utf-8",
+    )
+
+    assert limits.resolve("known-model", [table]).model == "Known Model"
+
+
+def test_exact_match_wins_over_a_normalised_match(tmp_path):
+    """A table carrying both spellings must hand back the exactly-named row, not whichever
+    row happens to normalise the same way first."""
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Known Model | 90–100K | 120–140K | 180K |\n"
+        "| known-model | 10–20K | 30–40K | 50K |\n",
+        encoding="utf-8",
+    )
+
+    assert limits.resolve("known-model", [table]) == limits.ModelLimits(
+        "known-model", 10_000, 20_000, 30_000, 40_000, 50_000
+    )
+    assert limits.resolve("Known Model", [table]) == limits.ModelLimits(
+        "Known Model", 90_000, 100_000, 120_000, 140_000, 180_000
+    )
+
+
+def test_a_table_keyed_by_slugs_directly_still_resolves_both_ways(tmp_path):
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| slug-only-model | 90–100K | 120–140K | 180K |\n",
+        encoding="utf-8",
+    )
+
+    exact = limits.resolve("slug-only-model", [table])
+    assert exact == limits.ModelLimits("slug-only-model", 90_000, 100_000, 120_000, 140_000, 180_000)
+    # The display-ish spelling normalises onto the same slug, so it resolves too.
+    assert limits.resolve("Slug Only Model", [table]) == exact
+
+
+def test_a_name_in_neither_spelling_still_misses_and_still_warns(tmp_path):
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Known Model | 90–100K | 120–140K | 180K |\n",
+        encoding="utf-8",
+    )
+
+    with pytest.warns(UserWarning) as caught:
+        assert limits.resolve("Totally Other Model", [table]) is None
+
+    message = str(caught[0].message)
+    assert "Totally Other Model" in message
+    assert "totally-other-model" in message  # the normalised form tried, for the operator
+
+
+def test_resolve_all_accepts_slugs_and_display_names_mixed(tmp_path):
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| First Model | 90–100K | 120–140K | 180K |\n"
+        "| Second Model | 70K-90K | 100K-120K | 150K |\n",
+        encoding="utf-8",
+    )
+
+    resolved = limits.resolve_all(["first-model", "Second Model"], [table])
+
+    # Keyed by the caller's own spelling, valued by the table's row.
+    assert set(resolved) == {"first-model", "Second Model"}
+    assert resolved["first-model"].model == "First Model"
+    assert resolved["Second Model"].model == "Second Model"
+
+
+def test_resolve_all_warns_per_name_that_matches_in_neither_spelling(tmp_path):
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Known Model | 90–100K | 120–140K | 180K |\n",
+        encoding="utf-8",
+    )
+
+    with pytest.warns(UserWarning, match="nope-model"):
+        resolved = limits.resolve_all(["known-model", "nope-model"], [table])
+
+    assert resolved["known-model"] is not None
+    assert resolved["nope-model"] is None
+
+
+def test_resolve_all_against_the_real_tables_by_project_yaml_slugs():
+    """The M4 finding closed: the slugs `doctor` actually passes (from `project.yaml`'s
+    `roles:` block) resolve against the two real display-name-keyed tables."""
+    resolved = limits.resolve_all(REAL_MODEL_SLUGS, [CLAUDE_TABLE, CODEX_TABLE])
+
+    assert set(resolved) == set(REAL_MODEL_SLUGS)
+    for slug in REAL_MODEL_SLUGS:
+        assert resolved[slug] is not None, f"{slug} did not resolve"
+        # Still the human-readable name from the table, never the slug we asked with.
+        assert resolved[slug].model in REAL_MODEL_NAMES
+
+
+def test_limits_result_get_is_tolerant_of_both_spellings(tmp_path):
+    table = tmp_path / "table.md"
+    table.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Known Model | 90–100K | 120–140K | 180K |\n",
+        encoding="utf-8",
+    )
+
+    result = limits.load_limits([table])
+
+    assert result.get("Known Model") is result.get("known-model")
+    assert result.get("known-model").model == "Known Model"
+    assert result.get("no-such-model") is None
+    # `.models` itself is untouched: still the raw, display-name-keyed table.
+    assert list(result.models) == ["Known Model"]

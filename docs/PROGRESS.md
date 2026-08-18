@@ -22,15 +22,26 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M4 — Setup: init, doctor, skills | **done** | 2026-08-16 | `pytest` → 4192 passed, 0 skipped, 0 failed + real `/tmp` acceptance run (see finding below) |
 | M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`de7d1e6`) |
 | M4b — Extract `maestro/watchdog.py` + limits slug fix (unplanned pre-M5 stage) | **done** | 2026-08-18 | `pytest` → 4530 collected, exit 0, 0 F/E/s markers; watchdog characterisation 236/236 both subjects, zero skips (`a20b485`) |
+| M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | pending | — | — |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** M5 — cutover of `AbuAliArchive`, **in progress this session (2026-08-18)**.
-Two unplanned stages ran before it, both opened to clear blockers earlier stages had recorded:
-**M4a** (`de7d1e6`, 2026-08-16) resolved the `pending()` placeholders, and **M4b** (`a20b485`,
-2026-08-18) extracted `maestro/watchdog.py` and fixed the `limits.py` slug lookup. Both of the
-"still open" items M4/M4a flagged as needing a fix before cutover are now closed. Precondition for
-M5: M0–M4b all green — verified as of `a20b485` (`pytest -q` exit 0, 4530 collected, zero F/E/s).
+**Current stage:** **M4c — give the remaining superseded sidecars a maestro owner.** Not started;
+planned in full in `docs/plans/2026-08-18-m4c-superseded-sidecars.md`, which the next session should
+read first, together with its evidence annex `docs/plans/2026-08-18-m5-cutover-survey-annex.md`.
+
+**M5 is blocked, and deliberately so.** The 2026-08-18 session surveyed the cutover before starting
+it and found that M5 as specified would silently break the operator's production loop: maestro's own
+modules still shell out to ten of the sixteen scripts DESIGN.md §11 deletes, every call site
+`.exists()`-guarded, so the verification gate would **fail open** and every Telegram notification
+would **vanish** with no error. See the 2026-08-18 finding below for the full list. M4c closes it;
+M5 follows.
+
+Three unplanned stages have now run before M5, each opened to clear a blocker an earlier stage had
+recorded: **M4a** (`de7d1e6`) the `pending()` placeholders, **M4b** (`a20b485`) `maestro/watchdog.py`
+and the `limits.py` slug lookup, and now **M4c**. All three are the same defect class — M1's mapping
+covered `orchestrator_run.py` only, and never its sidecars. Precondition for M5: M0–M4c green.
+M0–M4b are green as of `a20b485` (`pytest -q` exit 0, 4530 collected, zero F/E/s).
 
 **ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
 ` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
@@ -1228,6 +1239,89 @@ tmux window but never clears the `in_flight` entry (#169).
 - **`maestro/watchdog.py` is not in `test_extraction_complete.py`'s `MAPPING`** — same call M4a made
   for `prep_actions`, same reason.
 
+### Session 2026-08-18 (sixth session) — **M5 NOT STARTED: it is not safe to run as specified.** M4c opened instead
+
+This session did three things: recovered and committed M4b, surveyed the cutover, and **stopped M5
+before it started** on the survey's evidence. `docs/plans/2026-08-18-m4c-superseded-sidecars.md` is
+the plan for the next session; `docs/plans/2026-08-18-m5-cutover-survey-annex.md` is the raw evidence
+(kept verbatim — it cost 253,226 subagent tokens across 3 read-only agents and should not be
+re-derived).
+
+**The finding, in one line: M5 deletes 16 scripts, and maestro's own extracted modules still shell
+out to ten of them by path — every call site `.exists()`-guarded, so the failures are silent.**
+
+The three that would do real damage to the operator's production loop, all verified by the
+orchestrating session directly (`sed`-ing the exact lines, not taking an agent's word):
+
+- **`maestro/gates.py:29,55-56` — the verification gate fails OPEN.** `CHECK_VERIFICATIONS = REPO /
+  "scripts" / "check_verifications.py"`, then `if not CHECK_VERIFICATIONS.exists(): return True,
+  "(check_verifications.py not found — gate skipped)"`. Delete the script and **every task graduates
+  "verified" without a single check ever running.** No error, no journal line. This is the worst
+  defect found in the programme so far, and it would have been invisible until an unverified change
+  reached production.
+- **`maestro/hitl/telegram.py:35,51-52` — every operator notification silently vanishes.**
+  `notify_telegram()` is a `.exists()`-guarded shell-out to the deleted `scripts/notify_telegram.sh`.
+  ~20 call sites in `orchestrator.py` plus `quota.py`, `selfheal/*`, `hitl/commands.py` go dark. The
+  operator's only window into an unattended loop closes, quietly.
+- **`scripts/hooks/pre-commit:19` — every `git commit` in the reference project is blocked.** The
+  hook survives the delete (it is not on the list) and calls the deleted
+  `check_roadmap_consistency.py`; python exits 2, the hook prints "commit blocked" and exits 1. That
+  includes the commits maestro itself makes when it merges a task.
+
+Plus, from the same survey: `/status` returns nothing; `/ask`, `/redo` and self-fix announce work
+over Telegram and then hang forever (`check=True` guards the `tmux new-window`, not the python that
+dies inside it); `docs/UPCOMING.md` and `dependency_map.md` stop regenerating and completed tasks
+stop graduating, unguarded and silent; `merge.py`'s `_RESUMABLE_HARD_STOP` auto-merge guard becomes a
+dead guard naming three paths that can no longer exist while its **new** equivalents
+(`maestro/orchestrator.py`, `maestro/watchdog.py`) are absent from it; 13 of the project's 14 test
+files `import orchestrator_run`; and the installed **system** unit's `ExecStart` points at a deleted
+launcher. 19 dangling callers, ranked R1–R19 in the annex.
+
+**Why four green stages never noticed — the same mechanism as M4a, for the third time.** M1's
+mapping table covered `scripts/orchestrator_run.py` only; the sidecar scripts it *calls* were never
+in scope. The characterisation tests monkeypatch exactly those shell-outs, so a missing script is
+invisible to them, and `.exists()` guards convert "the thing I depend on is gone" into "skip this
+branch". M4a caught this pattern for `prepared_actions.py`; M4b for `watchdog.py`; **eight more
+remain, and this is the largest instance.**
+
+**One correction to the survey, found by the orchestrating session and now in the plan (§2b):** the
+agents scanned §11's delete list, so they missed that `grep -rn 'REPO / "scripts"' maestro/` finds
+**21 call sites across 12 distinct scripts** — two of them, `send_dan_request.py` (200 lines, HITL)
+and `render_dependency_map.sh` (54 lines, 3-doc engine), are maestro's own by DESIGN.md §4 but are
+**not** on the delete list. Nothing breaks when they survive, so they are not a cutover hazard, but
+leaving them means maestro keeps reaching into the consuming project for its own escalation and
+doc-generation paths — exactly the seam violation §3 and §4 forbid. M4c extracts twelve scripts
+(≈2,623 lines), not ten. Only `canary_deploy.py` stays project-owned, correctly ("how to ship").
+
+**Judgement call for morning review — this is the one to check.** `docs/EXECUTION.md` says to prefer
+stopping a *stage* over stopping the *programme*, and to pick the more conservative option when
+genuinely blocked. Running M5 tonight was possible; it would have produced a "green" cutover whose
+verification gate passed everything and whose operator notifications were switched off. Opening M4c
+costs one more stage. **If the operator disagrees and wants the cutover sooner, the middle path is a
+partial M5: cut over but delete only the six scripts with no surviving caller** (`orchestrator_ctl.py`
+has none at all), keeping the ten sidecars in place until M4c lands. That leaves the seam violated
+but the loop safe, and it is a one-line change to the delete list. It was not taken unilaterally
+because DESIGN.md §11's list is a locked decision.
+
+**Pre-flight facts M5 will need, measured this session and written into the plan's §6** — none of
+them are in DESIGN.md §11: `maestro init` is *not* safe to run unsupervised on the reference project
+(two of its writes bypass the `.new` rule — it resets `halted`/`paused_by_user` in an existing
+`state.json` and then runs a **live** `maestro run` for up to 120 s as its own smoke check); `init`
+ignores `$MAESTRO_REPO`; `project.yaml` needs a hand-merge v1→v2 and `config.py` swallows every
+error in that file with a bare `except`, so a half-merged config fails silently; maestro is **not**
+installed in the project's `.venv`, which is the interpreter everything there runs under; nothing in
+`maestro/` loads `.env`, so `TELEGRAM_BOT_TOKEN` must be exported by whatever starts the loop, since
+the `load_dotenv` that used to do it lives in a file M5 deletes; and the installed watchdog unit is a
+root-owned `/etc/systemd/system` unit — **the build must not touch it**, so M5 packages those
+commands into `scripts/m5-install-unit.sh` and names it in the morning report instead.
+
+**Verification for this session** (no code changed after the M4b commit; the rest is docs):
+`pytest -q` exit 0, **4530** collected, zero `F`/`E`/`s`; `tests/test_purity.py` green after adding
+both plan documents (they live under `docs/plans/`, which the purity gate allowlists). Reference
+project checked before and after: HEAD `68056b5`, exactly the 4 standing-modified + 5 untracked
+baseline, `.orchestrator/state.json` `888 1786256976`, HALT present, **zero** `orchestrator_run.py`
+processes. **No abort condition fired.**
+
 ## Open questions
 
 Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the answer here.
@@ -1244,5 +1338,10 @@ Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the a
   (poll). See the 2026-08-12 finding below and plan F3.
 - **M2/M6** — Calibration of the default usage-threshold percentages (currently 85% five-hour,
   90% weekly) once switching has run for real.
-- **M3** — Exact stall-detection window and the definition of journal progress for the generic watchdog.
+- ~~**M3** — Exact stall-detection window and the definition of journal progress for the generic watchdog.~~
+  **ANSWERED 2026-08-18 by M4b, through extraction rather than design:** the window is 20 minutes
+  (`STALL_WINDOW_MIN`), the strike count is 3 (`MAX_STALL_RESTARTS`, then HALT), and progress is the
+  journal's last line changing. Those are the reference's values, now defaults overridable under
+  `project.yaml`'s `thresholds:`. Note `docs/FOUND_BUGS.md` #165: "last line changed" means a loop
+  that repeats an identical event looks frozen.
 - **M4** — Should `upcoming.py` explanation generation be backend-agnostic or pinned to one role?

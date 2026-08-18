@@ -21,15 +21,16 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M3 — Model limits + self-update | **done** | 2026-08-16 | `pytest` → 4124 passed, 0 skipped, 0 failed + resolve_all/red-candidate done-when tests seen individually (`98b2c23`) |
 | M4 — Setup: init, doctor, skills | **done** | 2026-08-16 | `pytest` → 4192 passed, 0 skipped, 0 failed + real `/tmp` acceptance run (see finding below) |
 | M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`de7d1e6`) |
+| M4b — Extract `maestro/watchdog.py` + limits slug fix (unplanned pre-M5 stage) | **done** | 2026-08-18 | `pytest` → 4530 collected, exit 0, 0 F/E/s markers; watchdog characterisation 236/236 both subjects, zero skips (`a20b485`) |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** M5 — cutover of `AbuAliArchive`, **not yet started**. **M4a closed green on
-2026-08-16**; it was an unplanned stage opened to clear a blocker M4 had recorded (see the M4a
-finding below — it was materially worse than M4's note described). The next session should read
-`docs/DESIGN.md` §11, the M5 safety protocol in `docs/EXECUTION.md`, and the M4 + M4a findings below
-(especially the `maestro/watchdog.py` gap and the model-limits slug mismatch, both still open)
-before starting M5. Precondition for M5: M0–M4a all green — true as of this commit.
+**Current stage:** M5 — cutover of `AbuAliArchive`, **in progress this session (2026-08-18)**.
+Two unplanned stages ran before it, both opened to clear blockers earlier stages had recorded:
+**M4a** (`de7d1e6`, 2026-08-16) resolved the `pending()` placeholders, and **M4b** (`a20b485`,
+2026-08-18) extracted `maestro/watchdog.py` and fixed the `limits.py` slug lookup. Both of the
+"still open" items M4/M4a flagged as needing a fix before cutover are now closed. Precondition for
+M5: M0–M4b all green — verified as of `a20b485` (`pytest -q` exit 0, 4530 collected, zero F/E/s).
 
 **ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
 ` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
@@ -1148,6 +1149,84 @@ rollback script before any cutover step**, confirm `in_flight` is empty, HALT vi
 cut over on a branch. Note that M5 deletes `scripts/prepared_actions.py` per DESIGN.md §11's
 superseded list; M4a extracted it to `maestro/prep_actions.py` first, so that deletion is now safe —
 it was not before. Whatever happens, M5 does not end with the loop halted.
+
+### Session 2026-08-17/18 (fifth session) — **M4b COMPLETE** (unplanned pre-M5 stage)
+
+Plan written first: `docs/plans/2026-08-17-m4b-watchdog.md`.
+
+**Recovered work, and that is the first thing to know about this stage.** The 2026-08-17 session
+wrote the plan and built the whole stage but **never committed** — it was cut off before its commit
+step, leaving 3 untracked files and 8 modified ones in the working tree with `PROGRESS.md` still
+saying "M5 not yet started". The 2026-08-18 session found that tree, re-ran every one of the plan's
+seven Done-when checks itself rather than trusting the uncommitted state, and committed it as
+`a20b485`. **Nothing was taken on faith from the previous session's self-report.** Practical lesson
+for the chain: an uncommitted working tree is the failure mode to check for *first* on resume —
+`PROGRESS.md` alone would have sent this session into M5 with a stale picture.
+
+**Why this stage exists.** M5 deletes `scripts/watchdog.py` (322 lines) and `watchdog-launcher.sh`
+per DESIGN.md §11, and `maestro/watchdog.py` did not exist — M4 had left it out deliberately (never
+in the M0–M1 mapping table; DESIGN.md §13 still listed stall-detection semantics as open). Cutting
+over in that state would have silently regressed the operator's production supervision layer:
+orchestrator relaunch-on-death inside tmux, `ensure_resume_job()` scheduling the post-quota resume
+(the orchestrator *exits* on exhaustion expecting the watchdog to bring it back — it says so in
+three comments), journal-silence stall detection, and `reap_dead_implementers()` without which
+`in_flight` accumulates ghosts until the concurrency cap strangles the loop. Keeping the reference
+watchdog instead was not an option: its `launch_orchestrator()` launches a script M5 deletes.
+
+**DESIGN.md §13's open question is answered by extraction, not by design.** The stall window is
+**20 minutes** (`STALL_WINDOW_MIN`), the strike count is **3** (`MAX_STALL_RESTARTS`, then HALT),
+and "progress" is the journal's last line changing — because that is what the reference does. Those
+became defaults, overridable under `project.yaml`'s `thresholds:`. No new semantics were invented.
+
+**What landed.**
+
+- `maestro/watchdog.py` (368 lines) — extracted under M1 rules. Four generalisations, all forced:
+  paths from `Paths` (the `prep_actions.py` precedent), the notifier from `maestro.hitl.telegram`
+  instead of the deleted `notify_telegram.sh`, tmux session/window names from `project.name`, and
+  `launch_orchestrator()` shelling to `maestro run` instead of the deleted `launch_orchestrator.py`.
+- `tests/characterization/test_watchdog.py` — **236 tests, dual-subject, zero skips.**
+- `maestro/cli.py` — `cmd_watchdog()` is real; the exit-1 stub and its "not yet implemented" text
+  are gone. `launch.sh.tmpl` and `systemd/maestro-watchdog.service.tmpl` now invoke `maestro
+  watchdog` instead of carrying an honesty note about a module that did not exist.
+- `maestro/limits.py` — lookup normalises (casefold, spaces→hyphens) so `claude-opus-5` and
+  `Claude Opus 5` both resolve; exact match still wins and `ModelLimits.model` still reports the
+  display name, so M3's `resolve_all()` Done-when stays green. Closes M4 finding #2.
+
+**Verified this session, command by command:**
+
+| Check | Command | Result |
+|---|---|---|
+| Full suite | `python3 -m pytest -q` | **exit 0, zero `F`/`E`/`s` markers**; **4530** collected vs M4a's 4270 — delta explained exactly: +236 watchdog characterisation, +24 across `test_cli`/`test_limits`/`test_templates` |
+| Watchdog characterisation | `pytest tests/characterization/test_watchdog.py -q` | exit 0, **236 passed, zero skips**, both subjects |
+| Stub gone | `maestro watchdog --help`; `grep -n "not yet implemented" maestro/cli.py` | real `--help` (`[--repo REPO]`), exit 0; **zero grep hits** |
+| No import cycle | fresh interpreter `import maestro.watchdog` | OK |
+| Gates | `test_purity.py`, `test_no_unresolved_pending.py`, `test_extraction_complete.py` | all exit 0 |
+| Slugs resolve | `limits.resolve()` on 6 spellings | 6/6 → display name, both spellings each |
+| No elevated privileges | `grep` for privilege-escalation calls in `watchdog.py` | none — `ensure_resume_job()` uses the **user** crontab (`crontab -l` / `crontab -`), so the plan's "if it needs elevation, stop" condition did not fire |
+| Reference project, before and after | HEAD / porcelain / `state.json` stat / HALT / `ps` | Unchanged: HEAD `68056b58…`, exactly 4 standing-modified + 5 untracked, `888 1786256976`, HALT present, no `orchestrator_run.py` process. **No abort condition.** |
+
+**Correction to an earlier record:** M4a's finding says `test_extraction_complete.py` is "still 12
+passed". It is **17**, and has been since M2 added five backend/roles/switch entries to `MAPPING`.
+The file is unmodified since `a26ea94`; only the note was stale. The substantive point M4a was
+making still holds — `watchdog` was **not** added to `MAPPING`, because that test pins the M0–M1
+plan's contract and editing it to match later work would defeat its purpose.
+
+**29 new entries in `docs/FOUND_BUGS.md` (#151–#179)**, all reference-watchdog defects copied across
+unfixed per the M1 rule. The ones worth the operator's eye, because they are live in production
+today: a failed `crontab -l` makes `ensure_resume_job` **destroy the whole crontab** (#160); the
+resume entry is an annually-recurring cron line rather than a one-shot (#161); `_parse_epoch` reads
+a naive timestamp as local time while `main` compares it against UTC (#162); `orchestrator_alive`
+treats any nonzero `pgrep` exit as "the loop is dead" (#155); `launch_orchestrator` reports success
+it never checked (#157) and builds an unquoted `shell=True` command (#158); and reaping kills the
+tmux window but never clears the `in_flight` entry (#169).
+
+**Judgement calls for morning review:**
+
+- **Committing the previous session's uncommitted work rather than rebuilding it.** Re-running all
+  seven Done-when checks green is stronger evidence than provenance is, and discarding 2,095 lines
+  of verified work to regenerate it would have burned a session for no gain.
+- **`maestro/watchdog.py` is not in `test_extraction_complete.py`'s `MAPPING`** — same call M4a made
+  for `prep_actions`, same reason.
 
 ## Open questions
 

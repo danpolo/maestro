@@ -34,8 +34,9 @@ step) is a *natural early return*, not an env var or an iteration cap. Traced by
    with zero task blocks) and `waiting_on_dan` empty, the *first* iteration of `main()`'s `while
    True:` loop hits the `not in_flight and not runnable and not waiting_on_dan` branch: it logs
    `"[done] Queue exhausted."`, calls `_notify_proposal_test_due()` (a Telegram no-op here, since
-   a fresh scaffold has no `scripts/notify_telegram.sh`), which sets `state["paused_by_user"] =
-   True`, then `time.sleep(POLL_INTERVAL)` (30s by default) and `continue`s.
+   a fresh scaffold has no `TELEGRAM_BOT_TOKEN`/`TELEGRAM_ALERT_CHAT_ID` in its environment),
+   which sets `state["paused_by_user"] = True`, then `time.sleep(POLL_INTERVAL)` (30s by
+   default) and `continue`s.
 3. The *second* iteration re-reads state at the very top of the loop, sees `paused_by_user`,
    prints `"[halt] ... — stopping."`, journals `halt_respected`, and `break`s out.
 4. `main()` falls through to `run_status(); return 0`.
@@ -731,8 +732,9 @@ def cmd_ctl(repo_root: Path, verb: str, args: list[str]) -> int:
 
     **Two groups, handled differently, on purpose.** `poll_control_commands` (the Telegram
     router this all normally lives behind) answers every command through `notify_telegram`,
-    which is a silent no-op unless the project has `scripts/notify_telegram.sh` — fine for a
-    Telegram-driven flow, useless for an operator watching a terminal. `pause`/`resume`/`halt`/
+    which is a silent no-op unless `TELEGRAM_BOT_TOKEN`/`TELEGRAM_ALERT_CHAT_ID` are set in
+    the environment — fine for a Telegram-driven flow, useless for an operator watching a
+    terminal. `pause`/`resume`/`halt`/
     `hitl`/`unpark` are simple enough (2-4 lines each in the reference `elif` chain) that this
     function reproduces the exact same `read_state`/`write_state`/`append_journal`/`HALT_FILE`
     primitives directly and *also* prints the result — not a reimplementation of logic, just
@@ -861,7 +863,7 @@ def cmd_ctl(repo_root: Path, verb: str, args: list[str]) -> int:
                   f"tests/test_no_unresolved_pending.py.")
             return 1
         print(f"[ctl] dispatched to hitl.commands.{fn.__name__}() — its reply goes to Telegram "
-              f"if this project has scripts/notify_telegram.sh, and to the journal where "
+              f"if TELEGRAM_BOT_TOKEN/TELEGRAM_ALERT_CHAT_ID are set, and to the journal where "
               f"applicable; nothing else is printed here by design (see this function's docstring).")
         return 0
 

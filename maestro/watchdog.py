@@ -24,9 +24,10 @@ module-level path globals and the five project-specific constants that plan
    does. The module still exposes the same module-level `Path` globals the reference code
    (and the characterisation harness's reflection-based sandbox) expects.
 2. `notify()` delivers through `maestro.hitl.telegram.notify_telegram` instead of shelling
-   out to `REPO/scripts/notify_telegram.sh`; the `NOTIFY_SCRIPT` global is therefore gone.
-   The alert `print()` and the notifier's `subprocess.run(..., timeout=15)` shape (including
-   its not-exception-safe behaviour, bug #154) are unchanged.
+   out to the reference's own notifier script; the `NOTIFY_SCRIPT` global is therefore gone.
+   The alert `print()` is unchanged; the notifier itself now sends natively via
+   `requests.post` (R4), not `subprocess.run(..., timeout=15)` — see
+   `maestro/hitl/telegram.py`'s module docstring.
 3. `launch_orchestrator()` and `ensure_resume_job()` spawn `maestro run` instead of
    `{VENV_PYTHON} scripts/launch_orchestrator.py`, so the `LAUNCHER` and `VENV_PYTHON`
    globals are gone too. `MAESTRO_REPO` is set explicitly in the spawned command because

@@ -50,6 +50,7 @@ from maestro.paths import Paths
 from maestro.pending import deferred
 from maestro.quota import _elapsed_min, _elapsed_str, _fmt_min, _parse_est_minutes
 from maestro.state import append_journal, now_iso, read_json, read_state, write_state
+from maestro.status import print_status
 from maestro.switch import REASON_MANUAL, switch_task
 from maestro.worktree import TMUX_SESSION, _tail_tmux_pane, remove_worktree
 
@@ -59,7 +60,6 @@ REPO                  = _PATHS.repo
 WORKSPACES            = _PATHS.workspaces
 HALT_FILE             = REPO / ".orchestrator" / "HALT"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
-STATUS_SCRIPT         = REPO / "scripts" / "orchestrator_status.py"
 CANARY_DEPLOY         = REPO / "scripts" / "canary_deploy.py"
 DIAGNOSES_DIR         = REPO / ".orchestrator" / "diagnoses"
 REDO_DIR              = REPO / ".orchestrator" / "redo"
@@ -76,7 +76,9 @@ _remove_from_state = deferred("_remove_from_state", "maestro.orchestrator")
 
 
 def run_status() -> None:
-    subprocess.run([str(VENV_PYTHON), str(STATUS_SCRIPT)], cwd=str(REPO))
+    """R13: `maestro.status.print_status()` called in-process instead of shelling out to
+    the now-retired `orchestrator_status.py` script. See `maestro/status.py`."""
+    print_status()
 
 
 # ── B6: Telegram control-plane ──

@@ -1496,3 +1496,43 @@ and a genuinely stalled loop is never restarted. The failure modes compound rath
 cancel.
 
 Pinned by `test_main_own_journal_writes_count_as_orchestrator_progress`.
+
+## M4c — status report (`status.py`)
+
+Found while extracting the reference `scripts/orchestrator_status.py` into
+`maestro/status.py` (R13). Both copied verbatim per the M1 rule and not fixed. Neither is
+pinned by `tests/characterization/test_status.py`, which asserts only on `print_json_status`'s
+`state`/`usage` fields (per `docs/plans/2026-08-18-m4c-superseded-sidecars.md` §5) — both
+bugs live in `_task_readiness`'s `tasks` field and in `print_status`'s text-only rendering,
+neither of which that file pins.
+
+### 180. `_task_readiness`'s `done_ids` is declared, never populated, and drives the whole
+function
+
+```python
+def _task_readiness(tasks, active_ids):
+    done_ids: set[str] = set()
+    ...
+    elif not t.get("deps") or all(d in done_ids for d in t["deps"]):
+```
+
+`done_ids` is initialised to an empty set and nothing in the loop ever adds to it — so
+`all(d in done_ids for d in t["deps"])` is true only when a task has zero deps; a task with
+any dep at all is reported `blocked on: <deps>` forever, even when every one of those deps
+is long since graduated out of `docs/ROADMAP.md` (`get_completed_task_ids()` is never
+consulted here either — contrast `parse_runnable_tasks()`/`parse_prep_tasks()` in the
+already-extracted `maestro/docs/roadmap.py`, which both do). The `--json` `tasks` field and
+the human `--- Task queue ---` block both inherit this: any task with a satisfied dependency
+still prints/reports as blocked, not READY.
+
+### 181. `print_status`'s READY/ACTIVE row flag is dead code
+
+```python
+flag = "*" if r["status"] == "ACTIVE" else (" " if "READY" in r["status"] else " ")
+```
+
+Both arms of the inner conditional evaluate to `" "` — the `"READY" in r["status"]` check
+changes nothing. `flag` is therefore always `"*"` for an ACTIVE row and a single space for
+every other row, including a READY one that plainly reads as though it should get a distinct
+marker. Cosmetic only (it affects `print_status`'s text output, not `print_json_status`'s
+JSON), but the branch reads as intentional and isn't.

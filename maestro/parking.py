@@ -4,7 +4,9 @@ Extracted verbatim from the reference orchestrator. Bodies are unchanged — onl
 import block and the derivation of the module-level path globals differ. The prepared-action
 sidecar is `maestro.prep_actions`, imported as a module so the call sites stay byte-for-byte
 identical; four further bodies are owned here rather than
-imported, for the reason spelled out above them. Behavioural surprises are catalogued in
+imported, each for the reason spelled out above it (R13 narrowed `run_status`'s reason to
+"nothing forces un-duplicating the wrapper" — see `maestro/status.py`). Behavioural
+surprises are catalogued in
 `docs/found_bugs_inbox/parking.md` and pinned by `tests/characterization/test_parking.py`;
 none of them is fixed here — including the resume `attempts` counter that is bumped on
 productive sittings too, so steady progress still hits the attempt cap.
@@ -49,6 +51,7 @@ from maestro.selfheal.diagnose import (
 )
 from maestro.selfheal.selffix import _self_fix_eligible, attempt_self_fix
 from maestro.state import append_journal, now_iso, read_state, write_state
+from maestro.status import print_status
 from maestro.worktree import remove_worktree, worktree_path_for
 
 _PATHS = Paths.from_env()
@@ -61,7 +64,6 @@ VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
 GEN_DEP_MAP           = REPO / "scripts" / "gen_dependency_map.py"
 GEN_UPCOMING          = REPO / "scripts" / "gen_upcoming.py"
 RENDER_DEP_MAP        = REPO / "scripts" / "render_dependency_map.sh"
-STATUS_SCRIPT         = REPO / "scripts" / "orchestrator_status.py"
 SEND_DANREQ           = REPO / "scripts" / "send_dan_request.py"
 
 # B8/Maestro: failure diagnosis via Opus. Now default ON — Fix A captures impl.log,
@@ -75,16 +77,22 @@ ORCH_DIAGNOSE = os.environ.get("ORCH_DIAGNOSE", "1") == "1"
 
 # ── Bodies this module has to own rather than import ──
 #
-# `_danreq` (mapped to `maestro.hitl.telegram`), `run_dep_map` (`maestro.docs.roadmap`) and
-# `run_status` (`maestro.hitl.commands`) are already extracted, but all three shell out, and
-# the reference resolves `subprocess` in ONE flat namespace. `park_regression`, `park_failed`
-# and `handle_prep_done` reach them on paths the characterisation tests exercise unstubbed,
-# pinning the argv through *this* module's `subprocess` reference — importing them would send
-# those calls through a sibling module's reference instead, i.e. at a real `git`/`python3`.
-# `_remove_from_state` is mapped to `maestro.orchestrator`, which is extracted last, and
-# `handle_incomplete` likewise calls it unstubbed, so a `pending()` placeholder would make the
-# function untestable. All four bodies are copied verbatim; each is one half of a pair whose
-# other half becomes an import once the modules can share a single `subprocess` seam.
+# `_danreq` (mapped to `maestro.hitl.telegram`) and `run_dep_map` (`maestro.docs.roadmap`) are
+# already extracted, but both shell out, and the reference resolves `subprocess` in ONE flat
+# namespace. `park_regression`, `park_failed` and `handle_prep_done` reach them on paths the
+# characterisation tests exercise unstubbed, pinning the argv through *this* module's
+# `subprocess` reference — importing them would send those calls through a sibling module's
+# reference instead, i.e. at a real `git`/`python3`. `_remove_from_state` is mapped to
+# `maestro.orchestrator`, which is extracted last, and `handle_incomplete` likewise calls it
+# unstubbed, so a `pending()` placeholder would make the function untestable. All three bodies
+# are copied verbatim; each is one half of a pair whose other half becomes an import once the
+# modules can share a single `subprocess` seam.
+#
+# `run_status` below is the exception: R13 (`maestro/status.py`) moved the status report
+# in-process, so there is no more subprocess argv to pin here — it is a two-line wrapper
+# around `maestro.status.print_status()`, kept as this module's own copy (rather than an
+# import of `maestro.hitl.commands.run_status`) only so the existing unstubbed call sites
+# below need no further changes.
 def _danreq(question: str, options: list[str], req_type: str = "decision",
             req_id: str | None = None) -> None:
     cmd = [str(VENV_PYTHON), str(SEND_DANREQ),
@@ -117,7 +125,7 @@ def run_dep_map() -> None:
 
 
 def run_status() -> None:
-    subprocess.run([str(VENV_PYTHON), str(STATUS_SCRIPT)], cwd=str(REPO))
+    print_status()
 
 
 def _remove_from_state(entry: dict) -> None:

@@ -1817,6 +1817,18 @@ def test_reject_of_a_normal_parked_task_is_swallowed_by_the_router(
 def test_run_status_runs_the_status_script_in_the_repo_without_capturing_its_output(
     subject, sandbox, monkeypatch
 ):
+    """Legacy: a real subprocess, argv and cwd pinned. Maestro: R13 (`maestro/status.py`)
+    moved the report in-process — there is no more `STATUS_SCRIPT` to shell out to, so
+    the pinned contract becomes "no subprocess call, `print_status()` runs instead"."""
+    if _is_maestro(subject):
+        fake = _fake_subprocess(monkeypatch, subject, lambda: "")
+        calls = []
+        monkeypatch.setattr(subject, "print_status", lambda: calls.append(True))
+        subject.run_status()
+        assert calls == [True]
+        assert fake.calls == []
+        return
+
     fake = _fake_subprocess(monkeypatch, subject, lambda: "")
     subject.run_status()
     (args, kwargs), = fake.calls
@@ -1830,6 +1842,19 @@ def test_run_status_runs_the_status_script_in_the_repo_without_capturing_its_out
 def test_run_status_does_not_shield_the_caller_from_a_launch_failure(
     subject, sandbox, monkeypatch
 ):
+    """Legacy: `subprocess.run` itself raising (e.g. a missing interpreter) is not
+    caught. Maestro: R13 removed the interpreter launch entirely, but the same
+    "not caught" contract holds for whatever `maestro.status.print_status` raises —
+    `run_status()` has no try/except of its own."""
+    if _is_maestro(subject):
+        def boom():
+            raise FileNotFoundError("no interpreter")
+
+        monkeypatch.setattr(subject, "print_status", boom)
+        with pytest.raises(FileNotFoundError):
+            subject.run_status()
+        return
+
     def boom(*args, **kwargs):
         raise FileNotFoundError("no interpreter")
 

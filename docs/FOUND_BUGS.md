@@ -1536,3 +1536,156 @@ changes nothing. `flag` is therefore always `"*"` for an ACTIVE row and a single
 every other row, including a READY one that plainly reads as though it should get a distinct
 marker. Cosmetic only (it affects `print_status`'s text output, not `print_json_status`'s
 JSON), but the branch reads as intentional and isn't.
+
+## M4c — upcoming work guide (`scripts/gen_upcoming.py`)
+
+Found while characterising the reference `scripts/gen_upcoming.py` ahead of extracting it into
+`maestro/upcoming.py` (M4c batch 2, Wave A). `maestro.upcoming` does not exist yet — every bug below
+is pinned only against the reference, via `tests/characterization/test_upcoming.py`.
+
+### 182. `task_status`'s precedence check contradicts its own docstring
+
+The docstring says: "Precedence mirrors `gen_dependency_map._node_class`: running > awaiting-you >
+held > blocked > ready-needs-you > ready." The code checks `is_parked` (awaiting-you) *before*
+`tid in in_flight` (running) — the opposite order. A task that is simultaneously in
+`state["in_flight"]` and parked in `state["waiting_on_dan"]` renders "🟡 Awaiting you", not "🟢
+Running now". It also doesn't actually mirror `_node_class`, which has no "awaiting-you" class at
+all — parked tasks are simply excluded from its `active` set and fall through to whichever of
+blocked/dan/ready applies.
+
+Pinned by `test_task_status_parked_beats_in_flight_contradicting_its_own_docstring`.
+
+### 183. `detect_terms` matches glossary aliases as unanchored substrings
+
+`any(a in low for a in g["aliases"])` is a plain substring test against the whole lowercased task
+text, not a word-boundary match. Several aliases are short, common English morphemes — `"vision"`
+(SigLIP-2), `"adapter"` (LoRA fine-tune), `"triple"` (Triplets) — so ordinary prose triggers false
+hits: a `short_desc` reading "Add supervision to the watchdog restart loop" contains the substring
+"vision" and gets the SigLIP-2 image-embedding glossary box attached to an unrelated monitoring task.
+
+Pinned by `test_detect_terms_false_positive_on_substring_of_an_unrelated_word`.
+
+### 184. `_extract_json`'s object regex is greedy across multiple JSON blobs
+
+Same shape as `orchestrator_run.py`'s #23/#118: `re.search(r"\{.*\}", candidate, re.DOTALL)`
+matches first-brace-to-last-brace, not one balanced object. When an Opus refresh reply contains two
+JSON-looking fragments, the match spans both, `json.loads` on the resulting text fails, and
+`_extract_json` returns `None` — `refresh_explanations` then logs "no usable response" and keeps the
+old/fallback prose, discarding a reply that actually contained a valid answer.
+
+Pinned by `test_extract_json_greedy_regex_loses_both_objects_across_two_blobs`.
+
+## M4c — dependency map (`gen_dependency_map.py`, Wave A of R5)
+
+Found while characterising the reference `scripts/gen_dependency_map.py` for M4c batch 2 §4.
+Copied verbatim per the M1 rule, not fixed — extraction into `maestro/docs/depmap.py` is Wave B.
+Pinned by `tests/characterization/test_depmap.py`.
+
+### 182. A roadmap task block's `deps:` with no value parses as `None`, not `[]`, and crashes every downstream consumer
+
+```python
+def parse_tasks(roadmap_text: str) -> list[dict]:
+    ...
+        if isinstance(parsed.get("deps"), str):
+            ...
+        parsed.setdefault("deps", [])
+```
+
+`setdefault` only fires when the key is *absent*. A `docs/ROADMAP.md` yaml block that writes
+`deps:` with nothing after the colon parses under PyYAML as the key being *present* with value
+`None` — so the default never applies and `task["deps"]` stays `None`. `_validate`'s `for dep in
+t.get("deps", [])` and `_node_class`'s equivalent both assume `deps` is always iterable; both
+crash with an unhandled `TypeError: 'NoneType' object is not iterable` instead of the clean
+`SystemExit` a malformed roadmap block is meant to produce elsewhere in the same function.
+
+Pinned by `test_parse_tasks_null_deps_value_produces_none_not_a_list`,
+`test_validate_crashes_uncleanly_on_null_deps`, `test_node_class_crashes_uncleanly_on_null_deps`.
+
+## M4c — roadmap consistency guard (`check_roadmap_consistency.py`, Wave A of R2)
+
+Found while characterising the reference `scripts/check_roadmap_consistency.py` for M4c batch 2
+§4/§2b. Copied verbatim per the M1 rule, not fixed — extraction into `maestro/docs/consistency.py`
+is Wave B. Pinned by `tests/characterization/test_consistency.py`.
+
+### 185. `_registry_ids` only catches `JSONDecodeError` — a well-formed but non-list `completed_tasks.json` crashes the whole hook uncleanly
+
+```python
+def _registry_ids() -> set[str]:
+    if not REGISTRY.exists():
+        return set()
+    try:
+        reg = json.loads(REGISTRY.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return set()
+    return {str(r.get("id")) for r in reg if r.get("id")}
+```
+
+The degrade-gracefully path only covers a missing file or unparsable JSON. If
+`.orchestrator/completed_tasks.json` is ever valid JSON but shaped as a non-empty dict (e.g. `{"T1":
+{...}}` instead of `[{"id": "T1", ...}]`) or a bare string, `for r in reg` iterates the dict's string
+keys (or the string's characters) and `r.get("id")` raises `AttributeError: 'str' object has no
+attribute 'get'` — uncaught, so `main()` never gets to print its own "FAILED" problem list; the
+pre-commit hook just crashes with a traceback instead of the clean "commit blocked" message the rest
+of the module is designed to produce. An empty dict `{}` degrades harmlessly (nothing to iterate), so
+this only bites once the registry actually has malformed content, e.g. a hand edit or a bad merge.
+
+Pinned by `test_registry_ids_non_list_json_raises_attributeerror`.
+
+## M4c — task graduation (`scripts/mark_task_complete.py`)
+
+Found while characterising the reference `scripts/mark_task_complete.py` ahead of extracting it
+into `maestro/complete.py` (M4c batch 2, Wave A). `maestro.complete` does not exist yet — every bug
+below is pinned only against the reference, via `tests/characterization/test_complete.py`.
+
+### 186. `main()` raises an uncaught `IndexError` on `mark_task_complete.py --no-verify` with no task id
+
+```python
+if len(sys.argv) < 2:
+    print("Usage: mark_task_complete.py <task_id> [--no-verify]")
+    return 1
+
+no_verify = "--no-verify" in sys.argv[1:]
+args = [a for a in sys.argv[1:] if a != "--no-verify"]
+task_id = args[0]
+```
+
+The usage guard checks `len(sys.argv)` *before* `--no-verify` is filtered out of `args`. Running
+`mark_task_complete.py --no-verify` alone has `len(sys.argv) == 2`, so it sails past the guard;
+`args` then becomes `[]` once `--no-verify` is stripped, and `task_id = args[0]` raises an uncaught
+`IndexError` instead of printing the usage message the guard exists to produce.
+
+Pinned by `test_main_no_verify_alone_with_no_task_id_raises_indexerror`.
+
+### 187. `remove_task_section` orphans the `### ` heading when the target section opens the file
+
+```python
+head = content.rfind("\n### ", 0, m.start())
+start = head + 1 if head != -1 else m.start()
+```
+
+The section-start search requires a *leading newline* before the `### ` heading. Every real
+`docs/ROADMAP.md` has a blank line ahead of every heading, so this never bites in practice — but if
+the target task's section is the very first content in the string (no preceding `\n`), `rfind`
+returns `-1`, `start` falls back to the yaml fence's own position, and only the yaml block plus
+trailing prose are removed. The `### <id> …` heading line itself is left behind, orphaned, with
+nothing under it.
+
+Pinned by `test_remove_task_section_orphans_the_heading_when_the_section_opens_the_file`.
+
+### 188. `append_completed` silently discards the entire registry when `completed_tasks.json` is corrupt
+
+```python
+existing: list[dict] = []
+if COMPLETED_TASKS.exists():
+    try:
+        existing = json.loads(COMPLETED_TASKS.read_text())
+    except Exception:
+        existing = []
+```
+
+A present-but-unparsable `completed_tasks.json` (bare `except Exception`, so any read/decode failure
+qualifies) is treated identically to a missing file: `existing` resets to `[]`. The function then
+appends only the current task and overwrites the file — every previously graduated task recorded in
+the registry is permanently lost, with no error, warning, or trace of the prior contents.
+
+Pinned by `test_append_completed_corrupt_registry_silently_discards_prior_entries`.

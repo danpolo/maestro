@@ -171,6 +171,42 @@ def stub_prep_actions(subject, monkeypatch, prepared=()):
     )
 
 
+def stub_doc_engine(subject, monkeypatch, *, depmap_raises=None, upcoming_raises=None,
+                    complete_raises=None):
+    """R5–R7: `run_dep_map`/`mark_roadmap_complete` now call `maestro.docs.depmap`/
+    `.upcoming`/`.complete` in-process instead of shelling out to the deleted
+    `scripts/*.py`. Stand in for those three modules' `main()` (and `depmap.render_png`)
+    so a maestro-subject test never touches the filesystem or a real `mmdc` build, and
+    records the argv each `main()` was invoked with — `_call_main` substitutes `sys.argv`
+    for the call, so the fakes read it back exactly like `maestro.verifications.run_cli`'s
+    own tests do."""
+    calls = SimpleNamespace(depmap=[], render_png=0, upcoming=[], complete=[])
+
+    def depmap_main():
+        calls.depmap.append(list(sys.argv[1:]))
+        if depmap_raises is not None:
+            raise depmap_raises
+
+    def render_png():
+        calls.render_png += 1
+
+    def upcoming_main():
+        calls.upcoming.append(list(sys.argv[1:]))
+        if upcoming_raises is not None:
+            raise upcoming_raises
+
+    def complete_main():
+        calls.complete.append(list(sys.argv[1:]))
+        if complete_raises is not None:
+            raise complete_raises
+
+    monkeypatch.setattr(subject.doc_depmap, "main", depmap_main)
+    monkeypatch.setattr(subject.doc_depmap, "render_png", render_png)
+    monkeypatch.setattr(subject.doc_upcoming, "main", upcoming_main)
+    monkeypatch.setattr(subject.doc_complete, "main", complete_main)
+    return calls
+
+
 class FakeSubprocess:
     """Records argv instead of running anything."""
 
@@ -823,6 +859,12 @@ def test_roadmap_signature_changes_with_any_byte(subject, sandbox):
 
 
 def test_run_dep_map_always_runs_the_generator(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        # R5: in-process call to `maestro.docs.depmap.main()`, no subprocess/argv left.
+        calls = stub_doc_engine(subject, monkeypatch)
+        subject.run_dep_map()
+        assert calls.depmap == [[]]
+        return
     fake = no_subprocess(subject, monkeypatch)
     subject.run_dep_map()
     assert fake.argvs == [[str(subject.VENV_PYTHON), str(subject.GEN_DEP_MAP)]]
@@ -832,6 +874,8 @@ def test_run_dep_map_always_runs_the_generator(subject, sandbox, monkeypatch):
 def test_run_dep_map_does_not_check_that_the_generator_exists(subject, sandbox, monkeypatch):
     """FOUND_BUGS: the two optional steps are `.exists()`-guarded, the mandatory one is
     not — a missing gen_dependency_map.py is a swallowed non-zero exit, not an error."""
+    if _is_maestro(subject):
+        pytest.skip("R5: no on-disk generator to check for — always called in-process now")
     fake = no_subprocess(subject, monkeypatch)
     assert not subject.GEN_DEP_MAP.exists()
     subject.run_dep_map()
@@ -839,6 +883,13 @@ def test_run_dep_map_does_not_check_that_the_generator_exists(subject, sandbox, 
 
 
 def test_run_dep_map_renders_the_png_when_the_renderer_exists(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        # R7: `maestro.docs.depmap.render_png()` is always called in-process, unguarded
+        # by an `.exists()` check — there is no longer a separate script to be absent.
+        calls = stub_doc_engine(subject, monkeypatch)
+        subject.run_dep_map()
+        assert calls.render_png == 1
+        return
     subject.RENDER_DEP_MAP.parent.mkdir(parents=True, exist_ok=True)
     subject.RENDER_DEP_MAP.write_text("#!/bin/bash\n", encoding="utf-8")
     fake = no_subprocess(subject, monkeypatch)
@@ -848,6 +899,12 @@ def test_run_dep_map_renders_the_png_when_the_renderer_exists(subject, sandbox, 
 
 
 def test_run_dep_map_regenerates_upcoming_when_present(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        # R7: `maestro.docs.upcoming.main()` is always called in-process.
+        calls = stub_doc_engine(subject, monkeypatch)
+        subject.run_dep_map()
+        assert calls.upcoming == [[]]
+        return
     subject.GEN_UPCOMING.parent.mkdir(parents=True, exist_ok=True)
     subject.GEN_UPCOMING.write_text("x", encoding="utf-8")
     fake = no_subprocess(subject, monkeypatch)
@@ -857,6 +914,14 @@ def test_run_dep_map_regenerates_upcoming_when_present(subject, sandbox, monkeyp
 
 
 def test_run_dep_map_runs_all_three_steps_in_order(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        order = []
+        monkeypatch.setattr(subject.doc_depmap, "main", lambda: order.append("depmap"))
+        monkeypatch.setattr(subject.doc_depmap, "render_png", lambda: order.append("render_png"))
+        monkeypatch.setattr(subject.doc_upcoming, "main", lambda: order.append("upcoming"))
+        subject.run_dep_map()
+        assert order == ["depmap", "render_png", "upcoming"]
+        return
     for path in (subject.RENDER_DEP_MAP, subject.GEN_UPCOMING):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("x", encoding="utf-8")
@@ -869,9 +934,28 @@ def test_run_dep_map_runs_all_three_steps_in_order(subject, sandbox, monkeypatch
     ]
 
 
+def test_run_dep_map_a_failing_render_does_not_break_the_rest(subject, sandbox, monkeypatch):
+    """R7 target: `render_png()` is no longer bounded by a subprocess the way
+    `render_dependency_map.sh` was — a failure here (e.g. no local `mmdc` build) is
+    swallowed so the .md/UPCOMING.md regen either side of it still runs. Gated to
+    maestro only: the reference's own render-step failure handling is pinned by
+    `test_run_dep_map_lets_a_timeout_escape` below."""
+    if not _is_maestro(subject):
+        pytest.skip("R7 target: render_png()'s own error handling is maestro-only")
+    calls = stub_doc_engine(subject, monkeypatch)
+    monkeypatch.setattr(subject.doc_depmap, "render_png",
+                        lambda: (_ for _ in ()).throw(RuntimeError("no mmdc")))
+    subject.run_dep_map()
+    assert calls.depmap == [[]]
+    assert calls.upcoming == [[]]
+
+
 def test_run_dep_map_lets_a_timeout_escape(subject, sandbox, monkeypatch):
     """FOUND_BUGS: the render step is bounded by a timeout but nothing catches
     TimeoutExpired, so a hung renderer takes the caller down with it."""
+    if _is_maestro(subject):
+        pytest.skip("R7: render_png() runs in-process — no subprocess timeout to escape "
+                    "(see test_run_dep_map_a_failing_render_does_not_break_the_rest)")
     subject.RENDER_DEP_MAP.parent.mkdir(parents=True, exist_ok=True)
     subject.RENDER_DEP_MAP.write_text("x", encoding="utf-8")
     no_subprocess(
@@ -884,6 +968,10 @@ def test_run_dep_map_lets_a_timeout_escape(subject, sandbox, monkeypatch):
 
 
 def test_run_dep_map_returns_none_and_ignores_exit_codes(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        stub_doc_engine(subject, monkeypatch, depmap_raises=SystemExit(3))
+        assert subject.run_dep_map() is None
+        return
     no_subprocess(subject, monkeypatch, rc=lambda argv: 3)
     assert subject.run_dep_map() is None
 
@@ -932,6 +1020,15 @@ def test_maybe_push_tolerates_trailing_whitespace_in_the_baseline(subject, sandb
 def test_maybe_push_on_change_regenerates_and_journals(subject, sandbox, monkeypatch, no_telegram):
     write_roadmap(subject, *REAL_SHAPES)
     subject.LAST_MAP_SIG.write_text("0" * 64)
+    if _is_maestro(subject):
+        calls = stub_doc_engine(subject, monkeypatch)
+        no_subprocess(subject, monkeypatch)
+        subject.maybe_push_roadmap_map_change()
+        assert calls.depmap == [[]]
+        record = json.loads(subject.JOURNAL.read_text(encoding="utf-8").strip())
+        assert record["event"] == "roadmap_map_pushed"
+        assert record["detail"] == "sig=" + subject._roadmap_signature()[:12]
+        return
     fake = no_subprocess(subject, monkeypatch)
     subject.maybe_push_roadmap_map_change()
     # the dep-map generator ran; nothing else could (no renderer, no notifier on disk)
@@ -1064,6 +1161,12 @@ def test_maybe_push_falls_back_to_send_document_when_send_photo_is_rejected(subj
 
 
 def test_mark_complete_runs_the_helper_with_no_verify(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        # R6: in-process call to `maestro.docs.complete.main()`.
+        calls = stub_doc_engine(subject, monkeypatch)
+        subject.mark_roadmap_complete("T-1")
+        assert calls.complete == [["T-1", "--no-verify"]]
+        return
     subject.MARK_TASK_COMPLETE.parent.mkdir(parents=True, exist_ok=True)
     subject.MARK_TASK_COMPLETE.write_text("x", encoding="utf-8")
     fake = no_subprocess(subject, monkeypatch)
@@ -1075,6 +1178,8 @@ def test_mark_complete_runs_the_helper_with_no_verify(subject, sandbox, monkeypa
 
 
 def test_mark_complete_skips_the_helper_when_it_is_absent(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        pytest.skip("R6: no on-disk helper to be absent — always called in-process now")
     fake = no_subprocess(subject, monkeypatch)
     subject.mark_roadmap_complete("T-1")
     assert not any(str(subject.MARK_TASK_COMPLETE) in a for c in fake.calls for a in c.argv)
@@ -1084,12 +1189,28 @@ def test_mark_complete_never_edits_the_roadmap_itself(subject, sandbox, monkeypa
     """All ROADMAP mutation is delegated to the external helper script."""
     path = write_roadmap(subject, *REAL_SHAPES)
     before = path.read_bytes()
+    if _is_maestro(subject):
+        # R6: the helper is now an in-process call, not a faked-away subprocess — stub
+        # it too, so the delegation still holds: mark_roadmap_complete itself never
+        # touches ROADMAP.md, only maestro.docs.complete.main() does.
+        stub_doc_engine(subject, monkeypatch)
+        subject.mark_roadmap_complete("T-MANUAL")
+        assert path.read_bytes() == before
+        return
     no_subprocess(subject, monkeypatch)
     subject.mark_roadmap_complete("T-MANUAL")
     assert path.read_bytes() == before
 
 
 def test_mark_complete_refreshes_explanations_with_a_long_timeout(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        # R6/R7: `--refresh-explanations` is passed to `maestro.docs.upcoming.main()`
+        # in-process; there is no outer subprocess timeout left to assert on (see
+        # `_refresh_upcoming`'s docstring in `maestro/docs/roadmap.py`).
+        calls = stub_doc_engine(subject, monkeypatch)
+        subject.mark_roadmap_complete("T-1")
+        assert calls.upcoming == [["--refresh-explanations"]]
+        return
     subject.GEN_UPCOMING.parent.mkdir(parents=True, exist_ok=True)
     subject.GEN_UPCOMING.write_text("x", encoding="utf-8")
     fake = no_subprocess(subject, monkeypatch)
@@ -1100,6 +1221,14 @@ def test_mark_complete_refreshes_explanations_with_a_long_timeout(subject, sandb
 
 
 def test_mark_complete_falls_back_to_the_cheap_upcoming_regen(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        # R6/R7: any exception from the `--refresh-explanations` in-process call (not
+        # specifically a subprocess timeout — there is no longer a subprocess to time
+        # out) falls back to a plain regen, exactly one further call with no flags.
+        calls = stub_doc_engine(subject, monkeypatch, upcoming_raises=RuntimeError("boom"))
+        subject.mark_roadmap_complete("T-1")
+        assert calls.upcoming == [["--refresh-explanations"], []]
+        return
     subject.GEN_UPCOMING.parent.mkdir(parents=True, exist_ok=True)
     subject.GEN_UPCOMING.write_text("x", encoding="utf-8")
 
@@ -1116,6 +1245,8 @@ def test_mark_complete_falls_back_to_the_cheap_upcoming_regen(subject, sandbox, 
 
 
 def test_mark_complete_stages_only_the_graduation_artifacts(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        stub_doc_engine(subject, monkeypatch)
     fake = no_subprocess(subject, monkeypatch)
     subject.mark_roadmap_complete("T-1")
     add = [c for c in fake.calls if c.argv[:2] == ["git", "add"]][0]
@@ -1133,12 +1264,16 @@ def test_mark_complete_stages_only_the_graduation_artifacts(subject, sandbox, mo
 
 
 def test_mark_complete_does_not_commit_when_nothing_was_staged(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        stub_doc_engine(subject, monkeypatch)
     fake = no_subprocess(subject, monkeypatch, rc=lambda argv: 0)
     subject.mark_roadmap_complete("T-1")
     assert not any(c.argv[:2] == ["git", "commit"] for c in fake.calls)
 
 
 def test_mark_complete_commits_when_something_was_staged(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        stub_doc_engine(subject, monkeypatch)
     fake = no_subprocess(
         subject, monkeypatch, rc=lambda argv: 1 if argv[:2] == ["git", "diff"] else 0
     )
@@ -1153,6 +1288,8 @@ def test_mark_complete_commits_when_something_was_staged(subject, sandbox, monke
 def test_mark_complete_diff_check_is_not_capture_output(subject, sandbox, monkeypatch):
     """FOUND_BUGS: the staged-check inherits the parent's stdout/stderr — the only
     subprocess call in this function that is not silenced."""
+    if _is_maestro(subject):
+        stub_doc_engine(subject, monkeypatch)
     fake = no_subprocess(subject, monkeypatch)
     subject.mark_roadmap_complete("T-1")
     diff = [c for c in fake.calls if c.argv[:2] == ["git", "diff"]][0]
@@ -1161,6 +1298,8 @@ def test_mark_complete_diff_check_is_not_capture_output(subject, sandbox, monkey
 
 
 def test_mark_complete_journals_the_removal(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        stub_doc_engine(subject, monkeypatch)
     no_subprocess(subject, monkeypatch)
     subject.mark_roadmap_complete("T-1")
     record = json.loads(subject.JOURNAL.read_text(encoding="utf-8").strip())
@@ -1171,6 +1310,15 @@ def test_mark_complete_journals_the_removal(subject, sandbox, monkeypatch):
 def test_mark_complete_journals_even_when_every_step_was_skipped(subject, sandbox, monkeypatch):
     """FOUND_BUGS: the journal records "removed from ROADMAP.md" unconditionally — the
     helper script may be absent and nothing at all may have happened."""
+    if _is_maestro(subject):
+        # R6: there is no more on-disk helper to be absent — every call now goes
+        # in-process, so pin the analogous surprise: the journal fires even when the
+        # in-process helper itself raised and did nothing.
+        calls = stub_doc_engine(subject, monkeypatch, complete_raises=RuntimeError("boom"))
+        subject.mark_roadmap_complete("T-1")
+        assert subject.JOURNAL.exists()
+        assert calls.complete == [["T-1", "--no-verify"]]
+        return
     fake = no_subprocess(subject, monkeypatch)
     assert not subject.MARK_TASK_COMPLETE.exists()
     subject.mark_roadmap_complete("T-1")
@@ -1179,6 +1327,12 @@ def test_mark_complete_journals_even_when_every_step_was_skipped(subject, sandbo
 
 
 def test_mark_complete_ignores_a_failing_helper(subject, sandbox, monkeypatch):
+    if _is_maestro(subject):
+        stub_doc_engine(subject, monkeypatch, complete_raises=SystemExit(2))
+        no_subprocess(subject, monkeypatch)
+        assert subject.mark_roadmap_complete("T-1") is None
+        assert subject.JOURNAL.exists()
+        return
     subject.MARK_TASK_COMPLETE.parent.mkdir(parents=True, exist_ok=True)
     subject.MARK_TASK_COMPLETE.write_text("x", encoding="utf-8")
     no_subprocess(subject, monkeypatch, rc=lambda argv: 2)

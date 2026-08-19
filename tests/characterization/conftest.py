@@ -120,6 +120,13 @@ def sandbox(subject, tmp_path, monkeypatch):
     for module in _modules_to_rebase(subject):
         root = getattr(module, "REPO", None)
         if not isinstance(root, Path):
+            # `maestro.docs.depmap` spells its anchor `REPO_ROOT`, matching the
+            # reference `gen_dependency_map.py`'s own naming (see that module's
+            # docstring) — fall back to it so a module reached only transitively
+            # (e.g. via `maestro.docs.roadmap.run_dep_map`) still gets rebased
+            # into the sandbox instead of silently keeping its real-repo paths.
+            root = getattr(module, "REPO_ROOT", None)
+        if not isinstance(root, Path):
             continue
         root = root.resolve()
         checked.append((module, root))

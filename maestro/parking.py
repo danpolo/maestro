@@ -3,9 +3,8 @@
 Extracted verbatim from the reference orchestrator. Bodies are unchanged — only the
 import block and the derivation of the module-level path globals differ. The prepared-action
 sidecar is `maestro.prep_actions`, imported as a module so the call sites stay byte-for-byte
-identical; four further bodies are owned here rather than
-imported, each for the reason spelled out above it (R13 narrowed `run_status`'s reason to
-"nothing forces un-duplicating the wrapper" — see `maestro/status.py`). Behavioural
+identical; three further bodies are owned here rather than
+imported, each for the reason spelled out above it. Behavioural
 surprises are catalogued in
 `docs/found_bugs_inbox/parking.md` and pinned by `tests/characterization/test_parking.py`;
 none of them is fixed here — including the resume `attempts` counter that is bumped on
@@ -25,7 +24,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from maestro import prep_actions
-from maestro.docs.roadmap import get_task_by_id, mark_roadmap_complete
+from maestro.docs.roadmap import get_task_by_id, mark_roadmap_complete, run_dep_map
 from maestro.gates import (
     AWAIT_VERIFY_TIMEOUT_SEC,
     _await_timed_out,
@@ -61,9 +60,6 @@ JOURNAL               = _PATHS.journal
 WORKSPACES            = _PATHS.workspaces
 QUESTIONS_DIR         = REPO / ".orchestrator" / "questions"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
-GEN_DEP_MAP           = REPO / "scripts" / "gen_dependency_map.py"
-GEN_UPCOMING          = REPO / "scripts" / "gen_upcoming.py"
-RENDER_DEP_MAP        = REPO / "scripts" / "render_dependency_map.sh"
 SEND_DANREQ           = REPO / "scripts" / "send_dan_request.py"
 
 # B8/Maestro: failure diagnosis via Opus. Now default ON — Fix A captures impl.log,
@@ -77,22 +73,28 @@ ORCH_DIAGNOSE = os.environ.get("ORCH_DIAGNOSE", "1") == "1"
 
 # ── Bodies this module has to own rather than import ──
 #
-# `_danreq` (mapped to `maestro.hitl.telegram`) and `run_dep_map` (`maestro.docs.roadmap`) are
-# already extracted, but both shell out, and the reference resolves `subprocess` in ONE flat
-# namespace. `park_regression`, `park_failed` and `handle_prep_done` reach them on paths the
-# characterisation tests exercise unstubbed, pinning the argv through *this* module's
-# `subprocess` reference — importing them would send those calls through a sibling module's
-# reference instead, i.e. at a real `git`/`python3`. `_remove_from_state` is mapped to
-# `maestro.orchestrator`, which is extracted last, and `handle_incomplete` likewise calls it
-# unstubbed, so a `pending()` placeholder would make the function untestable. All three bodies
-# are copied verbatim; each is one half of a pair whose other half becomes an import once the
-# modules can share a single `subprocess` seam.
+# `_danreq` (mapped to `maestro.hitl.telegram`) is already extracted, but it shells out,
+# and the reference resolves `subprocess` in ONE flat namespace. `park_failed` reaches it
+# on a path the characterisation tests exercise unstubbed, pinning the argv through *this*
+# module's `subprocess` reference — importing it would send those calls through a sibling
+# module's reference instead, i.e. at a real `git`/`python3`. `_remove_from_state` is
+# mapped to `maestro.orchestrator`, which is extracted last, and `handle_incomplete`
+# likewise calls it unstubbed, so a `pending()` placeholder would make the function
+# untestable. Both bodies are copied verbatim; each is one half of a pair whose other half
+# becomes an import once the modules can share a single `subprocess` seam.
 #
 # `run_status` below is the exception: R13 (`maestro/status.py`) moved the status report
 # in-process, so there is no more subprocess argv to pin here — it is a two-line wrapper
 # around `maestro.status.print_status()`, kept as this module's own copy (rather than an
 # import of `maestro.hitl.commands.run_status`) only so the existing unstubbed call sites
 # below need no further changes.
+#
+# `run_dep_map` used to be here too, for the same subprocess-pinning reason as `_danreq`
+# above — but R5–R7 moved `maestro.docs.roadmap.run_dep_map` itself off `subprocess` onto
+# in-process calls into `maestro.docs.depmap`/`.upcoming` (see that module), so there is no
+# more argv left to pin through a shared `subprocess` reference. It is imported directly
+# (above, alongside `get_task_by_id`/`mark_roadmap_complete`) rather than kept as a second
+# copy of a function that no longer shells out to anything.
 def _danreq(question: str, options: list[str], req_type: str = "decision",
             req_id: str | None = None) -> None:
     cmd = [str(VENV_PYTHON), str(SEND_DANREQ),
@@ -101,27 +103,6 @@ def _danreq(question: str, options: list[str], req_type: str = "decision",
     if req_id:
         cmd += ["--id", req_id]
     subprocess.run(cmd, cwd=str(REPO), capture_output=True)
-
-
-def run_dep_map() -> None:
-    """Regenerate the dependency map .md AND re-render the .png.
-
-    gen_dependency_map.py only writes the mermaid .md; the .png is rendered by
-    render_dependency_map.sh, which normally fires as a Claude Code PostToolUse
-    hook on edits to the .md. The orchestrator regenerates the .md via subprocess
-    (not a hooked tool call), so we must render the .png explicitly here — otherwise
-    notify_telegram_with_map ships a stale PNG from the last interactive edit/commit.
-    """
-    subprocess.run([str(VENV_PYTHON), str(GEN_DEP_MAP)], cwd=str(REPO), capture_output=True)
-    if RENDER_DEP_MAP.exists():
-        subprocess.run(["bash", str(RENDER_DEP_MAP)], cwd=str(REPO),
-                       capture_output=True, timeout=120)
-    # Keep the human-facing docs/UPCOMING.md in lock-step with the same sources
-    # (ROADMAP + live state). Deterministic/offline — no LLM here; the Opus-authored
-    # prose is refreshed separately at graduation (see mark_roadmap_complete).
-    if GEN_UPCOMING.exists():
-        subprocess.run([str(VENV_PYTHON), str(GEN_UPCOMING)], cwd=str(REPO),
-                       capture_output=True, timeout=60)
 
 
 def run_status() -> None:

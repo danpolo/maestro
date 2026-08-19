@@ -4,18 +4,34 @@ Extracted verbatim from the reference orchestrator. Bodies are unchanged — onl
 import block and the derivation of the module-level path globals differ. Behavioural
 surprises are catalogued in `docs/FOUND_BUGS.md` and pinned by
 `tests/characterization/test_roadmap.py`; none of them is fixed here.
+
+R5–R7 (`docs/plans/2026-08-18-m4c-superseded-sidecars.md` §2b): `run_dep_map` and
+`mark_roadmap_complete` used to shell out to `scripts/gen_dependency_map.py`,
+`scripts/render_dependency_map.sh`, `scripts/gen_upcoming.py` and
+`scripts/mark_task_complete.py` by path — all four now-deleted-at-M5 scripts. They are
+rewired below to call the M4c batch-2 in-process equivalents (`maestro.docs.depmap`,
+`.upcoming`, `.complete`) directly instead: `_call_main` substitutes `sys.argv` for the
+duration of the call (the same technique `maestro.verifications.run_cli` uses) so each
+module's own `sys.argv`-driven `main()` is invoked unmodified, in this interpreter, with
+no subprocess spawned and no `REPO / "scripts"` path to go stale.
 """
 from __future__ import annotations
 
+import contextlib
 import hashlib
+import io
 import json
 import os
 import re
 import subprocess
+import sys
 
 import yaml  # PyYAML
 
 from maestro import prep_actions
+from maestro.docs import complete as doc_complete
+from maestro.docs import depmap as doc_depmap
+from maestro.docs import upcoming as doc_upcoming
 from maestro.hitl.telegram import notify_telegram, notify_telegram_with_map
 from maestro.paths import Paths
 from maestro.state import append_journal, read_state, write_state
@@ -27,11 +43,6 @@ STATE_JSON            = _PATHS.state
 JOURNAL               = _PATHS.journal
 ROADMAP_FILE          = REPO / "docs" / "ROADMAP.md"
 LAST_MAP_SIG          = REPO / ".orchestrator" / "last_map_roadmap.sha"
-VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
-GEN_DEP_MAP           = REPO / "scripts" / "gen_dependency_map.py"
-GEN_UPCOMING          = REPO / "scripts" / "gen_upcoming.py"
-RENDER_DEP_MAP        = REPO / "scripts" / "render_dependency_map.sh"
-MARK_TASK_COMPLETE    = REPO / "scripts" / "mark_task_complete.py"
 COMPLETED_TASKS       = REPO / ".orchestrator" / "completed_tasks.json"
 DEP_MAP_PNG           = REPO / "docs" / "dependency_map.png"
 
@@ -46,25 +57,51 @@ DEP_MAP_PNG           = REPO / "docs" / "dependency_map.png"
 # imported above. `maestro.hitl.telegram` deliberately does not import this module, so
 # there is no cycle.
 
+
+def _call_main(module, argv: list[str], swallow: bool = True) -> None:
+    """In-process equivalent of `subprocess.run([VENV_PYTHON, <script>, *argv],
+    capture_output=True)` against one of the M4c batch-2 doc-engine modules (each of
+    which still has its own `sys.argv`-driven `main()`, left exactly as extracted).
+    Substitutes `sys.argv` for the call and redirects stdout/stderr into a throwaway
+    buffer — mirroring `capture_output=True` — then restores both.
+
+    `swallow=True` (the default) mirrors every one of the old subprocess call sites
+    here: none of them ever checked the child's return code, so a failing generator was
+    a swallowed non-zero exit, not an error. `swallow=False` lets `SystemExit`/any
+    exception the module raises escape, for the one caller (`_refresh_upcoming`) that
+    needs to know a step failed in order to fall back to a cheaper one.
+    """
+    old_argv = sys.argv
+    try:
+        sys.argv = [module.__name__, *argv]
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            module.main()
+    except BaseException:
+        if not swallow:
+            raise
+    finally:
+        sys.argv = old_argv
+
+
 def run_dep_map() -> None:
     """Regenerate the dependency map .md AND re-render the .png.
 
-    gen_dependency_map.py only writes the mermaid .md; the .png is rendered by
-    render_dependency_map.sh, which normally fires as a Claude Code PostToolUse
-    hook on edits to the .md. The orchestrator regenerates the .md via subprocess
-    (not a hooked tool call), so we must render the .png explicitly here — otherwise
+    `maestro.docs.depmap.main()` only writes the mermaid .md; the .png is rendered by
+    `maestro.docs.depmap.render_png()` (R7's in-process port of the reference
+    `render_dependency_map.sh`, which normally fired as a Claude Code PostToolUse hook
+    on edits to the .md). The orchestrator regenerates the .md out-of-band (not a hooked
+    tool call), so we must render the .png explicitly here — otherwise
     notify_telegram_with_map ships a stale PNG from the last interactive edit/commit.
     """
-    subprocess.run([str(VENV_PYTHON), str(GEN_DEP_MAP)], cwd=str(REPO), capture_output=True)
-    if RENDER_DEP_MAP.exists():
-        subprocess.run(["bash", str(RENDER_DEP_MAP)], cwd=str(REPO),
-                       capture_output=True, timeout=120)
+    _call_main(doc_depmap, [])
+    try:
+        doc_depmap.render_png()
+    except BaseException:
+        pass
     # Keep the human-facing docs/UPCOMING.md in lock-step with the same sources
     # (ROADMAP + live state). Deterministic/offline — no LLM here; the Opus-authored
     # prose is refreshed separately at graduation (see mark_roadmap_complete).
-    if GEN_UPCOMING.exists():
-        subprocess.run([str(VENV_PYTHON), str(GEN_UPCOMING)], cwd=str(REPO),
-                       capture_output=True, timeout=60)
+    _call_main(doc_upcoming, [])
 
 
 def _roadmap_signature() -> str:
@@ -234,40 +271,43 @@ def get_task_by_id(task_id: str) -> dict | None:
     return None
 
 
+def _refresh_upcoming() -> None:
+    """Best-effort UPCOMING.md refresh at graduation. The old subprocess call ran
+    `gen_upcoming.py --refresh-explanations` under a 900 s outer timeout, falling back
+    to the cheap (no-Opus) regen on `TimeoutExpired` so the doc was never left stale
+    just because the model calls ran long. In-process there is no outer process to
+    time out — each Opus call already bounds itself (`REFRESH_TIMEOUT`, best-effort,
+    inside `maestro.docs.upcoming._opus_complete`) — so the fallback now triggers on
+    any exception the refresh path raises instead of specifically a timeout."""
+    try:
+        _call_main(doc_upcoming, ["--refresh-explanations"], swallow=False)
+    except BaseException:
+        _call_main(doc_upcoming, [])
+
+
 def mark_roadmap_complete(task_id: str) -> None:
     """Remove task from ROADMAP.md, log to completed_tasks.json, and COMMIT the
     graduation artifacts so the caller's `git push origin main` actually persists
-    them. mark_task_complete.py only writes files (no commit), and every graduation
-    site does `mark_roadmap_complete` → `git push` with nothing staged in between,
-    so without this commit the strip + registry append live only in the working
-    tree and never reach git (P8B2/P8B3/P14 accumulated this way)."""
-    if MARK_TASK_COMPLETE.exists():
-        # --no-verify: the orchestrator already ran the verification gate on the worktree
-        # before reaching here (run_verification_gate); re-gating REPO would be redundant and
-        # mark_roadmap_complete ignores the rc anyway, so a spurious fail must not block graduation.
-        subprocess.run(
-            [str(VENV_PYTHON), str(MARK_TASK_COMPLETE), task_id, "--no-verify"],
-            cwd=str(REPO), capture_output=True
-        )
-    # mark_task_complete.py regenerates the dep-map .md but not the .png — render it
-    # so the committed PNG matches the freshly-graduated graph (see run_dep_map).
-    if RENDER_DEP_MAP.exists():
-        subprocess.run(["bash", str(RENDER_DEP_MAP)], cwd=str(REPO),
-                       capture_output=True, timeout=120)
+    them. `maestro.docs.complete.main()` only writes files (no commit), and every
+    graduation site does `mark_roadmap_complete` → `git push` with nothing staged in
+    between, so without this commit the strip + registry append live only in the
+    working tree and never reach git (P8B2/P8B3/P14 accumulated this way)."""
+    # --no-verify: the orchestrator already ran the verification gate on the worktree
+    # before reaching here (run_verification_gate); re-gating REPO would be redundant and
+    # mark_roadmap_complete ignores the rc anyway, so a spurious fail must not block graduation.
+    _call_main(doc_complete, [task_id, "--no-verify"])
+    # maestro.docs.complete.main() regenerates the dep-map .md but not the .png —
+    # render it so the committed PNG matches the freshly-graduated graph (see run_dep_map).
+    try:
+        doc_depmap.render_png()
+    except BaseException:
+        pass
     # The task set just shrank, so refresh the human-facing UPCOMING doc. Graduation
     # is the rare, natural point to spend Opus on the per-task prose: --refresh-explanations
     # only calls Opus for tasks whose cache entry is stale/missing (steady-state a no-op),
     # then regenerates docs/UPCOMING.md. Best-effort + bounded — a slow/absent CLI must not
     # block a graduation, and the deterministic fallback keeps the doc valid regardless.
-    if GEN_UPCOMING.exists():
-        try:
-            subprocess.run(
-                [str(VENV_PYTHON), str(GEN_UPCOMING), "--refresh-explanations"],
-                cwd=str(REPO), capture_output=True, timeout=900,
-            )
-        except Exception:
-            subprocess.run([str(VENV_PYTHON), str(GEN_UPCOMING)], cwd=str(REPO),
-                           capture_output=True, timeout=60)
+    _refresh_upcoming()
     # Stage only the Definition-of-Done artifacts mark_task_complete touches — never
     # `git add -A`, so unrelated working-tree changes are not swept into the commit.
     grad_files = [

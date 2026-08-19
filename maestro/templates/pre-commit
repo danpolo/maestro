@@ -25,4 +25,14 @@ if ! maestro doctor --help 2>&1 | grep -q -- '--pre-commit'; then
     exit 0
 fi
 
-maestro doctor --pre-commit
+maestro doctor --pre-commit || exit 1
+
+# R2: the 3-doc source-of-truth consistency guard (formerly the project's own
+# check_roadmap_consistency.py, extracted to maestro.docs.consistency in M4c).
+# Same call the reference's scripts/hooks/pre-commit made, just at its new home.
+if ! python3 -m maestro.docs.consistency; then
+    echo "" >&2
+    echo "pre-commit: ROADMAP/doc consistency guard FAILED — commit blocked." >&2
+    echo "  Fix the issues above, or bypass once with: git commit --no-verify." >&2
+    exit 1
+fi

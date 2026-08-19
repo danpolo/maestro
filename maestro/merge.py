@@ -390,8 +390,7 @@ RESUMABLE_MERGE_PREFIXES  = ("data/", "docs/")  # paths a resumable sitting may 
 # Orchestrator runtime + prod-critical files that must NEVER auto-merge on the no-eval
 # resumable path, even with Opus approval — a bad change here can brick the loop or prod.
 # (risky_set / bot_files from project.yaml are added to this set at check time.)
-_RESUMABLE_HARD_STOP = ("scripts/orchestrator_run.py", "scripts/launch_orchestrator.py",
-                        "scripts/watchdog.py")
+_RESUMABLE_HARD_STOP = ("maestro/orchestrator.py", "maestro/watchdog.py")
 
 # Regenerable auto-gen artifacts the orchestrator may safely discard before a merge.
 # These are produced by scripts/gen_dependency_map.py (the .png is non-deterministic

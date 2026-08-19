@@ -11,9 +11,8 @@ the fixture tree, then invoked with `--json`.
 This is *not* a byte-for-byte text-layout test — `docs/plans/2026-08-18-m4c-superseded-
 sidecars.md` section 5 requires semantic field parity: phase id/title, `in_flight` task
 ids, `parked_tasks`, `waiting_on_dan` ids, and the usage/quota numbers. Those are exactly
-the fields pinned below. `maestro/status.py` does not exist yet (M4c batch 1 Wave B) —
-every case's maestro side skips until it lands; this file exists to give that future
-module a fixed target.
+the fields pinned below. `maestro/status.py` landed in M4c batch 1 (R13); the maestro side
+of `status_source` now drives it for real (see `_maestro_report`).
 """
 from __future__ import annotations
 
@@ -170,22 +169,35 @@ def _run_reference_text(repo: Path) -> str:
     return _run_reference(repo, args=[]).stdout
 
 
-def _maestro_report(repo: Path) -> dict:
-    """The `maestro.status` equivalent, once M4c batch 1 Wave B extracts it. Every
-    call here skips today — `maestro/status.py` does not exist — so this pins only
-    the reference's values above for that future module to reproduce."""
-    pytest.importorskip("maestro.status", reason="maestro.status not extracted yet")
-    raise AssertionError(  # pragma: no cover
-        "maestro.status now exists — wire this helper to its real entry point"
-    )
+def _maestro_report(repo: Path, monkeypatch, as_json: bool = True):
+    """The `maestro.status` equivalent (R13). `maestro.status` binds its path globals
+    once, at import time, off `$MAESTRO_REPO` — the same "one project per process"
+    convention every extracted module follows (see `maestro/cli.py`'s module docstring).
+    This file does not use the shared `tests/characterization/conftest.py` `subject`/
+    `sandbox` fixtures (see the module docstring), so there is no reflection-based
+    rebasing here — instead we monkeypatch the module's four path globals directly onto
+    `repo`, the same targets `status_repo` already seeded, then drive the real
+    `run_cli`/`get_status_report` seam (`maestro/status.py`) so the in-process wiring
+    itself is exercised, not just its constituent functions."""
+    from maestro import status as maestro_status
+
+    monkeypatch.setattr(maestro_status, "STATE_JSON", repo / ".orchestrator" / "state.json")
+    monkeypatch.setattr(maestro_status, "USAGE_JSON", repo / ".orchestrator" / "usage.json")
+    monkeypatch.setattr(maestro_status, "JOURNAL", repo / ".orchestrator" / "journal.ndjson")
+    monkeypatch.setattr(maestro_status, "ROADMAP", repo / "docs" / "ROADMAP.md")
+
+    if as_json:
+        return maestro_status.get_status_report()
+    _rc, output = maestro_status.run_cli([])
+    return output
 
 
 @pytest.fixture(params=["legacy", "maestro"])
-def status_source(request, status_repo):
+def status_source(request, status_repo, monkeypatch):
     """Callable `report(as_json=True) -> dict` for either the reference script (a real
-    subprocess, read-only) or `maestro.status` (skips — not extracted yet)."""
+    subprocess, read-only) or the real `maestro.status` module (R13)."""
     if request.param == "maestro":
-        return lambda as_json=True: _maestro_report(status_repo)
+        return lambda as_json=True: _maestro_report(status_repo, monkeypatch, as_json=as_json)
 
     def _report(as_json: bool = True):
         return _run_reference_json(status_repo) if as_json else _run_reference_text(status_repo)

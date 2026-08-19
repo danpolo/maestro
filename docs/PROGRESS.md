@@ -22,13 +22,16 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M4 — Setup: init, doctor, skills | **done** | 2026-08-16 | `pytest` → 4192 passed, 0 skipped, 0 failed + real `/tmp` acceptance run (see finding below) |
 | M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`de7d1e6`) |
 | M4b — Extract `maestro/watchdog.py` + limits slug fix (unplanned pre-M5 stage) | **done** | 2026-08-18 | `pytest` → 4530 collected, exit 0, 0 F/E/s markers; watchdog characterisation 236/236 both subjects, zero skips (`a20b485`) |
-| M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | pending | — | — |
+| M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | **in progress** | batch 1/3 2026-08-19 | `pytest -q` → 4621 passed, 39 skipped, 0 failed (`2710bd7`) |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** **M4c — give the remaining superseded sidecars a maestro owner.** Not started;
-planned in full in `docs/plans/2026-08-18-m4c-superseded-sidecars.md`, which the next session should
-read first, together with its evidence annex `docs/plans/2026-08-18-m5-cutover-survey-annex.md`.
+**Current stage:** **M4c — give the remaining superseded sidecars a maestro owner.** Batch 1 of 3
+(R3 + R4 done, R13 test-only — see the 2026-08-19 finding below) landed in `2710bd7`. The next
+session should read `docs/plans/2026-08-18-m4c-superseded-sidecars.md` §4 (the three-batch shape)
+and pick up **R13** (finish `maestro/status.py` — test file already exists and is green/skipped),
+then batch 2 (the 3-doc engine: R5–R7, R2) and batch 3 (HITL/self-heal: R8–R10), together with the
+evidence annex `docs/plans/2026-08-18-m5-cutover-survey-annex.md`.
 
 **M5 is blocked, and deliberately so.** The 2026-08-18 session surveyed the cutover before starting
 it and found that M5 as specified would silently break the operator's production loop: maestro's own
@@ -1321,6 +1324,68 @@ both plan documents (they live under `docs/plans/`, which the purity gate allowl
 project checked before and after: HEAD `68056b5`, exactly the 4 standing-modified + 5 untracked
 baseline, `.orchestrator/state.json` `888 1786256976`, HALT present, **zero** `orchestrator_run.py`
 processes. **No abort condition fired.**
+
+### M4c batch 1 — 2026-08-19, commit `2710bd7`
+
+Ran the plan's batch 1 (`docs/plans/2026-08-18-m4c-superseded-sidecars.md` §4: "the silent-damage
+three" — R3, R4, R13) as a 3-item, 2-stage-per-item `Workflow` (write characterisation test, then
+extract). **R3 and R4 landed fully green; R13 landed test-only** — its extraction stage
+(`status-parity:extract`) did not run.
+
+- **R3 closed.** `maestro/verifications.py` extracted from `scripts/check_verifications.py`
+  (140 lines, verbatim engine + a new `run_cli()` wrapper so `gates.py` can call it in-process).
+  `maestro/gates.py`'s `run_verification_gate` no longer has a `CHECK_VERIFICATIONS` constant or
+  the `.exists()`-returns-`True` skip branch (`docs/FOUND_BUGS.md` #17's defect) — the gate now
+  always actually runs. `tests/characterization/test_verifications.py`: 76 passed, 0 skipped, both
+  subjects. `tests/characterization/test_gates.py` rewritten onto the `_is_maestro(subject)`
+  pattern already used in `test_commands.py`/`test_merge.py`/`test_watchdog.py`. No new
+  `docs/FOUND_BUGS.md` entries — the extraction surfaced nothing not already characterised in
+  stage A (candidates noted in that test file's docstrings for whoever reads it next: `expect`
+  trailing-newline never matching, same shape as the already-pinned `gates.py` bug; a corrupt
+  `result.json` silently swallowed by a bare `except`).
+- **R4 closed**, all three copies. `maestro/hitl/telegram.py`'s `notify_telegram()` now sends via
+  `requests.post` to the Bot API directly (token/chat id from `os.environ`, matching its
+  neighbours `notify_telegram_with_map`/`_tg_api` in the same file), silently no-op if either env
+  var is unset, never raises. `maestro/merge.py` had its own byte-identical duplicate of the old
+  shell-out `notify_telegram()` (a stopgap comment above it said as much) — deleted, now imports
+  the real one. `maestro/docs/roadmap.py` had a dead `NOTIFY_SH` constant left over from the same
+  stopgap era — deleted. Comments in `orchestrator.py`/`watchdog.py`/`cli.py` that named the
+  deleted shell script updated to describe the new mechanism. `grep -rn 'notify_telegram.sh\|NOTIFY_SH' maestro/`
+  → zero matches. Tests green: `test_telegram.py`, `test_merge.py`, `test_roadmap.py`.
+- **R13 test-only.** `tests/characterization/test_status.py` (15 cases, reference `--json` output
+  vs a to-be-written `maestro.status`) is written and green — 15 passed [reference], 15 skipped
+  [maestro, "not extracted yet"]. `maestro/status.py` itself, and the `cli.py`/`hitl/commands.py`/
+  `parking.py` rewiring, were **not done**. Next session: this is the very next thing to pick up: a
+  new `maestro/status.py` sourcing fields from `maestro.state`/`maestro.quota`/
+  `maestro.docs.roadmap` (see the plan §4 for the field list and the stage-B prompt this session
+  used, still valid) wired into `cli.cmd_status`, `hitl/commands.py:run_status()` and
+  `parking.py:run_status()` in place of their `STATUS_SCRIPT` subprocess calls.
+- **Why R13 stopped: repeated "monthly spend limit" failures, not a test or design failure.** The
+  first `Workflow` attempt failed all 3 agents instantly (0 tokens, ~1s) with
+  `You've hit your monthly spend limit`. A resume succeeded for R3 and R4's extraction stages but
+  the same error hit `telegram-native:extract`'s first attempt (later succeeded on its own retry
+  within the same resumed run) and `status-parity:extract` (did not recover before the workflow's
+  final report). Per this operator's standing note that this message also fires for ordinary 5h/
+  weekly caps, not just a real billing cap — this was **not** escalated as a billing problem: it
+  was treated as "the agent didn't run," R3/R4 were verified and committed as soon as they were
+  actually green, and R13 was left for the next session rather than forced.
+- **Judgement call for review:** one stage-B agent (R13's characterisation, `ae5a27ec1ea479527`,
+  writing `test_status.py`) self-reported running `git stash`/`git stash pop` mid-task to check
+  whether a neighbouring failure was pre-existing — a violation of this stage's explicit "run no
+  git commands" invariant. It says the stash used no `-u` (its own new file was untracked and
+  survived untouched) and the pop restored byte-identical tracked state, and the orchestrating
+  session's own diff review before committing found nothing resembling stash damage. Flagging it
+  rather than treating it as harmless by assertion — worth a second look given the operator's
+  standing rule that concurrent agents must never run git.
+
+**Verification for this session:** scoped run
+(`test_purity.py test_verifications.py test_gates.py test_telegram.py test_merge.py test_roadmap.py`)
+green, 0 failed. Full suite `pytest -q` exit 0, **4621 passed, 39 skipped, 0 failed** (up from
+M4b's 4530/0; the 39 skips are the 15 `test_status.py` not-extracted-yet cases plus the telegram
+native-target tests' by-design legacy-subject skips, same pattern as `test_watchdog.py`).
+Reference project unchanged: HEAD `68056b5`, `git status --porcelain` matches the standing
+baseline exactly (4 modified + 5 untracked), `.orchestrator/state.json` `888 1786256976`, no
+`orchestrator_run.py` process. **No abort condition fired.**
 
 ## Open questions
 

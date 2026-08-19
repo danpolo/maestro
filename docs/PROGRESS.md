@@ -22,16 +22,21 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M4 — Setup: init, doctor, skills | **done** | 2026-08-16 | `pytest` → 4192 passed, 0 skipped, 0 failed + real `/tmp` acceptance run (see finding below) |
 | M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`de7d1e6`) |
 | M4b — Extract `maestro/watchdog.py` + limits slug fix (unplanned pre-M5 stage) | **done** | 2026-08-18 | `pytest` → 4530 collected, exit 0, 0 F/E/s markers; watchdog characterisation 236/236 both subjects, zero skips (`a20b485`) |
-| M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | **in progress** | batch 1/3 2026-08-19 | `pytest -q` → 4621 passed, 39 skipped, 0 failed (`2710bd7`) |
+| M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | **in progress** | batch 2/3 2026-08-19 | `pytest` → 5076 passed, 31 skipped, 0 failed (`e1b4841`) |
 | M5 — Cutover of reference project | pending | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** **M4c — give the remaining superseded sidecars a maestro owner.** Batch 1 of 3
-(R3 + R4 done, R13 test-only — see the 2026-08-19 finding below) landed in `2710bd7`. The next
-session should read `docs/plans/2026-08-18-m4c-superseded-sidecars.md` §4 (the three-batch shape)
-and pick up **R13** (finish `maestro/status.py` — test file already exists and is green/skipped),
-then batch 2 (the 3-doc engine: R5–R7, R2) and batch 3 (HITL/self-heal: R8–R10), together with the
-evidence annex `docs/plans/2026-08-18-m5-cutover-survey-annex.md`.
+**Current stage:** **M4c — give the remaining superseded sidecars a maestro owner.** Batch 1
+(R3, R4, R13, all closed — `f8f8908`) and batch 2 (the 3-doc engine: R5–R7, R2 — `e1b4841`) are
+done. The next session should read `docs/plans/2026-08-18-m4c-superseded-sidecars.md` §4 (the
+three-batch shape) and pick up **batch 3** (HITL/self-heal helpers: `hitl/ask.py` from
+`maestro_ask.py` (R8), `selfheal/redo.py` from `maestro_redo.py` (R9), `selfheal/selffix.py` from
+`maestro_selffix.py` (R10) — plus `send_dan_request.py`, HITL-owned per §2b but not folded into any
+named batch; group it with batch 3 since its callers are `hitl/telegram.py`, `implementer.py` and
+`parking.py`), then the stage's own Done-when checklist (plan §6): the `tests/test_no_reference_sidecars.py`
+anti-vacuity gate test, the final `grep -rn 'REPO / "scripts"'` sweep (should show only
+`canary_deploy.py` after batch 3), and `/status` field-by-field parity per §5. Evidence annex:
+`docs/plans/2026-08-18-m5-cutover-survey-annex.md`.
 
 **M5 is blocked, and deliberately so.** The 2026-08-18 session surveyed the cutover before starting
 it and found that M5 as specified would silently break the operator's production loop: maestro's own
@@ -1386,6 +1391,102 @@ native-target tests' by-design legacy-subject skips, same pattern as `test_watch
 Reference project unchanged: HEAD `68056b5`, `git status --porcelain` matches the standing
 baseline exactly (4 modified + 5 untracked), `.orchestrator/state.json` `888 1786256976`, no
 `orchestrator_run.py` process. **No abort condition fired.**
+
+### M4c batch 1 close-out (R13) — 2026-08-19, commit `f8f8908`
+
+Extracted `maestro/status.py` (271 lines) from `orchestrator_status.py` (231 lines): `_load_json`,
+`_parse_roadmap_tasks`, `_manual_yaml`, `_fmt_epoch`, `_pct`, `_task_readiness`, `print_status`,
+`print_json_status`, `main` all body-unchanged, only path globals moved to `Paths.from_env()`. Added
+`run_cli()`/`get_status_report()` wrappers on the `verifications.py` (R3) pattern — this became the
+template every later M4c extraction followed. `hitl/commands.py` and `parking.py`'s `run_status()`
+now call `print_status()` in-process instead of shelling out to the deleted-at-M5 `STATUS_SCRIPT`.
+`cli.py`'s `cmd_status` was already maestro-native (reads `state.json` directly) and needed no
+change — checked first rather than assumed. `test_status.py`: 30/30 passed, zero skips both
+subjects. Two `docs/FOUND_BUGS.md` entries (#180, #181): `_task_readiness`'s `done_ids` is declared
+but never populated, so any task with a dep is reported "blocked" forever even after the dep
+graduates; the `READY`/blank row-flag ternary has two identical arms, dead code. Full suite: 4636
+passed, 24 skipped, 0 failed (up from batch 1's 4621/39 — the 15 `test_status.py` maestro-side skips
+are now real passes). Reference project unchanged, no abort condition. **M4c batch 1 (R3, R4, R13)
+fully closed.**
+
+### M4c batch 2 — the 3-doc engine — 2026-08-19, commit `e1b4841`
+
+Extracted the four remaining doc-generation scripts (R5–R7, R2) via a pipelined `Workflow`
+(wave-A test-write → wave-B extraction per module, then one serial wiring agent for the shared
+files) — **7 of 9 agents died on `You've hit your monthly spend limit` across two runs and had to
+be resumed via `Workflow({scriptPath, resumeFromRunId})`**, per this operator's standing note that
+this message also fires for ordinary usage-cap resets, not just a real billing cap. Both resumes
+picked up the completed agents from cache and only re-ran what had failed — no wasted work, no
+duplicate extraction.
+
+- `maestro/docs/depmap.py` (343 lines) from `gen_dependency_map.py` (270) + `render_dependency_map.sh`
+  (54) — the render step (rendering the mermaid dependency graph to PNG) is ported to a **native**
+  `mmdc` subprocess call inside the module rather than kept as an intermediate shell script, the same
+  treatment R4 gave `notify_telegram.sh`. The `.sh` script's `--hook` stdin-JSON mode (letting it
+  double as a Claude Code PostToolUse hook) has no analogue for a plain library function and is
+  documented as deliberately not reproduced, not silently dropped.
+- `maestro/docs/upcoming.py` (688 lines) from `gen_upcoming.py` (661) — the largest single module in
+  the whole build so far. The live `claude -p --model claude-opus-4-8` explanation-generation call
+  site is extracted **fully wired**, not stubbed; exercised via `subprocess` monkeypatching in the
+  test, the established pattern from `test_selfheal.py`. Three literal mentions of the reference
+  project's own name were replaced with a `project.yaml`-sourced `PROJECT_NAME` (same pattern as
+  `watchdog.py`) to keep `test_purity.py` green — no behaviour change.
+- `maestro/docs/complete.py` (219 lines) from `mark_task_complete.py` (215).
+- `maestro/docs/consistency.py` (271 lines) from `check_roadmap_consistency.py` (271).
+
+**A second "silent damage" layer, one level deeper than batch 1's.** `complete.py` and
+`consistency.py` don't just get called by other maestro modules — they themselves subprocess out to
+*each other's* reference siblings (`complete.py`'s `GEN_DEP_MAP`/`GUARD`/`CHECK_VERIFS`,
+`consistency.py`'s `GEN_SCRIPT`/`GEN_UPCOMING`), a cross-call structure the wave-B extraction agents
+correctly left untouched as a shared-file concern. All four new modules ship a
+`run_cli(argv) -> (rc, output)` wrapper (the `verifications.py`/`status.py` shape), and the wiring
+agent rewired every one of these internal cross-calls to call the sibling module in-process instead
+— including removing `consistency.py`'s `GEN_UPCOMING.exists()` guard, now meaningless since the
+sibling module always "exists". This was not in the original batch-2 wiring prompt; it surfaced when
+the orchestrating session diffed the working tree after the extraction agents finished and found
+these constants still pointing at `REPO / "scripts"` for scripts M5 deletes — the prompt was expanded
+before resuming rather than left for a later pass.
+
+**A previous agent's partial work survived a spend-limit death cleanly.** The first wire-callers
+attempt had already fully rewired `maestro/docs/roadmap.py` and `maestro/parking.py` (R5–R7) before
+dying on the resumed run's next call; the retried agent was told explicitly not to assume a clean
+slate, verified the existing edits rather than redoing them, and only added the net-new work
+(templates/pre-commit, `_RESUMABLE_HARD_STOP`, the two internal cross-call rewires). No rework, no
+conflicting edits.
+
+**One regression, caught and fixed before commit.** The already-landed `roadmap.py`/`parking.py`
+rewiring turned `run_dep_map()`/`run_status()` from subprocess calls into in-process calls, which
+broke `test_parking.py::test_handle_prep_done_refreshes_the_dep_map_and_status[maestro]` — it still
+asserted a subprocess call count. Fixed (test-only, one more agent) by asserting the in-process calls
+happened instead, using the same `_is_maestro(subject)` branch-and-stub idiom `test_roadmap.py`/
+`test_complete.py`/`test_consistency.py` already established. The legacy-subject branch is untouched.
+
+**`_RESUMABLE_HARD_STOP` (R14) fixed**: was `("scripts/orchestrator_run.py",
+"scripts/launch_orchestrator.py", "scripts/watchdog.py")` — three paths that no longer exist post-M1
+extraction — now `("maestro/orchestrator.py", "maestro/watchdog.py")`, the real current paths (no
+`maestro/launch_orchestrator.py` equivalent exists, so it's not carried forward). Before this fix a
+self-modifying change to the orchestrator runtime could have auto-merged without the hard-stop guard
+ever catching it.
+
+New `docs/FOUND_BUGS.md` entries (#182–188, copied verbatim, none fixed): `depmap`'s bare `deps:`
+parses as `None` not `[]` and crashes downstream consumers; `upcoming`'s `task_status` precedence
+contradicts its own docstring, `detect_terms` is an unanchored substring match, `_extract_json` uses
+a greedy cross-blob regex; `consistency`'s `_registry_ids` only catches `JSONDecodeError` so a
+well-formed-but-non-list `completed_tasks.json` crashes with `AttributeError`; `complete`'s
+`IndexError` on a bare `--no-verify`, an orphaned `###` heading, and silent registry-data loss on a
+corrupt `completed_tasks.json`.
+
+**Verification for this session:** full suite `python3 -m pytest tests` exit 0, **5076 passed, 31
+skipped, 0 failed** (up from R13's 4636/24), one pre-existing `DeprecationWarning` in a
+verbatim-copied `upcoming.py` docstring (an escaped backtick in a non-raw string), left unfixed per
+M1 rules. `grep -rn 'REPO / "scripts"' maestro/ --include=*.py` now shows only `canary_deploy.py`
+(project-owned, correctly out of scope) and the four batch-3 items not yet done
+(`maestro_ask.py`, `maestro_redo.py`, `maestro_selffix.py`, `send_dan_request.py`) —
+`complete.py`/`consistency.py` no longer appear. Reference project checked before and after: HEAD
+`68056b5`, baseline `git status --porcelain` (4 modified + 5 untracked), `.orchestrator/state.json`
+`888 1786256976`, HALT present, zero `orchestrator_run.py` processes. **No abort condition fired.**
+Context at handoff: ~173K tokens (past the 150K ceiling) — stopping here per `docs/EXECUTION.md`,
+batch 3 left for the next session.
 
 ## Open questions
 

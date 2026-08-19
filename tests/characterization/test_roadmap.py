@@ -15,9 +15,17 @@ import sys
 from types import SimpleNamespace
 
 import pytest
+import requests
 import yaml
 
 pytestmark = pytest.mark.maestro_module("docs.roadmap")
+
+
+def _is_maestro(subject) -> bool:
+    """R4: maestro's `notify_telegram` sends natively via `requests.post` instead of
+    shelling out to `notify_telegram.sh`; the legacy reference keeps the script forever.
+    Mirrors `test_telegram.py`'s `_is_maestro`."""
+    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
 
 
 # --- fixtures builders --------------------------------------------------------------
@@ -944,20 +952,47 @@ def test_maybe_push_updates_the_baseline_so_the_next_poll_is_quiet(subject, sand
     assert len(fake.calls) == before
 
 
+class _FakePost:
+    """Stand-in for `requests.post`, used to pin maestro's native R4 notifier send."""
+
+    def __init__(self):
+        self.calls: list[SimpleNamespace] = []
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append(SimpleNamespace(args=args, kwargs=kwargs))
+        return SimpleNamespace(status_code=200, text='{"ok":true}')
+
+    @property
+    def texts(self) -> list[str]:
+        return [c.kwargs.get("data", {}).get("text", "") for c in self.calls]
+
+
 def test_maybe_push_sends_the_notifier_the_task_counts(subject, sandbox, monkeypatch, no_telegram):
     write_roadmap(subject, *REAL_SHAPES)
     write_completed(subject, "T-DONE", "T-ALSO-DONE")
     subject.write_state({"version": "1", "in_flight": []})
     stub_prep_actions(subject, monkeypatch)
-    subject.NOTIFY_SH.parent.mkdir(parents=True, exist_ok=True)
-    subject.NOTIFY_SH.write_text("#!/bin/bash\n", encoding="utf-8")
     subject.LAST_MAP_SIG.write_text("0" * 64)
     fake = no_subprocess(subject, monkeypatch)
-    subject.maybe_push_roadmap_map_change()
-    notify = [c for c in fake.calls if c.argv[0] == "bash" and c.argv[1] == str(subject.NOTIFY_SH)]
-    assert len(notify) == 1
-    assert "2 runnable" in notify[0].argv[2]
-    assert "3 awaiting-you" in notify[0].argv[2]
+    if _is_maestro(subject):
+        # R4: the notifier sends natively via `requests.post`, not `notify_telegram.sh`.
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "unit-test-token")
+        monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
+        post = _FakePost()
+        monkeypatch.setattr(requests, "post", post)
+        subject.maybe_push_roadmap_map_change()
+        assert len(post.texts) == 1
+        assert "2 runnable" in post.texts[0]
+        assert "3 awaiting-you" in post.texts[0]
+    else:
+        subject.NOTIFY_SH.parent.mkdir(parents=True, exist_ok=True)
+        subject.NOTIFY_SH.write_text("#!/bin/bash\n", encoding="utf-8")
+        subject.maybe_push_roadmap_map_change()
+        notify = [c for c in fake.calls
+                  if c.argv[0] == "bash" and c.argv[1] == str(subject.NOTIFY_SH)]
+        assert len(notify) == 1
+        assert "2 runnable" in notify[0].argv[2]
+        assert "3 awaiting-you" in notify[0].argv[2]
 
 
 def test_maybe_push_drops_the_counts_when_state_json_is_missing(subject, sandbox, monkeypatch, no_telegram):
@@ -966,14 +1001,25 @@ def test_maybe_push_drops_the_counts_when_state_json_is_missing(subject, sandbox
     runnable count, which was computed successfully."""
     write_roadmap(subject, *REAL_SHAPES)
     stub_prep_actions(subject, monkeypatch)
-    subject.NOTIFY_SH.parent.mkdir(parents=True, exist_ok=True)
-    subject.NOTIFY_SH.write_text("#!/bin/bash\n", encoding="utf-8")
     subject.LAST_MAP_SIG.write_text("0" * 64)
     fake = no_subprocess(subject, monkeypatch)
-    subject.maybe_push_roadmap_map_change()
-    notify = [c for c in fake.calls if c.argv[0] == "bash" and c.argv[1] == str(subject.NOTIFY_SH)]
-    assert len(notify) == 1
-    assert "runnable" not in notify[0].argv[2]
+    if _is_maestro(subject):
+        # R4: the notifier sends natively via `requests.post`, not `notify_telegram.sh`.
+        monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "unit-test-token")
+        monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
+        post = _FakePost()
+        monkeypatch.setattr(requests, "post", post)
+        subject.maybe_push_roadmap_map_change()
+        assert len(post.texts) == 1
+        assert "runnable" not in post.texts[0]
+    else:
+        subject.NOTIFY_SH.parent.mkdir(parents=True, exist_ok=True)
+        subject.NOTIFY_SH.write_text("#!/bin/bash\n", encoding="utf-8")
+        subject.maybe_push_roadmap_map_change()
+        notify = [c for c in fake.calls
+                  if c.argv[0] == "bash" and c.argv[1] == str(subject.NOTIFY_SH)]
+        assert len(notify) == 1
+        assert "runnable" not in notify[0].argv[2]
 
 
 def test_maybe_push_never_calls_curl_without_credentials(subject, sandbox, monkeypatch, no_telegram):

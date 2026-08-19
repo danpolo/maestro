@@ -8,10 +8,12 @@ notifiers *from here*, so importing it back at module level would be a cycle. Be
 surprises are catalogued in `docs/FOUND_BUGS.md` and pinned by
 `tests/characterization/test_telegram.py`; none of them is fixed here.
 
-Nothing in this module talks to Telegram directly: every outbound call shells out through
-`subprocess.run` (`bash notify_telegram.sh`, `curl`, `send_dan_request.py`), and the
-characterisation tests swap this module's `subprocess` reference rather than letting
-anything reach the network.
+Most outbound calls in this module shell out through `subprocess.run` (`curl`,
+`send_dan_request.py`); the characterisation tests swap this module's `subprocess`
+reference rather than letting anything reach the network. `notify_telegram` is the one
+exception — R4 (`docs/plans/2026-08-18-m4c-superseded-sidecars.md`) moved it off the
+reference's now-deleted shell notifier script onto a native `requests.post` call straight
+to the Bot API; the tests stub `requests.post` for that one instead.
 """
 from __future__ import annotations
 
@@ -21,6 +23,8 @@ import os
 import re
 import subprocess
 from datetime import datetime, timezone
+
+import requests
 
 from maestro.paths import Paths
 from maestro.pending import deferred
@@ -32,7 +36,6 @@ REPO                  = _PATHS.repo
 ROADMAP_FILE          = REPO / "docs" / "ROADMAP.md"
 LAST_MAP_SIG          = REPO / ".orchestrator" / "last_map_roadmap.sha"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
-NOTIFY_SH             = REPO / "scripts" / "notify_telegram.sh"
 SEND_DANREQ           = REPO / "scripts" / "send_dan_request.py"
 QUESTIONS_DIR         = REPO / ".orchestrator" / "questions"
 DEP_MAP_PNG           = REPO / "docs" / "dependency_map.png"
@@ -48,8 +51,18 @@ parse_prep_tasks = deferred("parse_prep_tasks", "maestro.docs.roadmap")
 # ── Notification ──
 
 def notify_telegram(msg: str) -> None:
-    if NOTIFY_SH.exists():
-        subprocess.run(["bash", str(NOTIFY_SH), msg], capture_output=True, timeout=15)
+    token   = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+    chat_id = os.environ.get("TELEGRAM_ALERT_CHAT_ID", "")
+    if not token or not chat_id:
+        return
+    try:
+        requests.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            data={"chat_id": chat_id, "text": msg},
+            timeout=10,
+        )
+    except Exception:
+        pass
 
 
 def _roadmap_signature() -> str:

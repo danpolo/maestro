@@ -17,6 +17,7 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from maestro import verifications  # M1: the checking engine itself — see run_verification_gate.
 from maestro.paths import Paths
 from maestro.pending import deferred
 from maestro.state import append_journal
@@ -26,7 +27,6 @@ _PATHS = Paths.from_env()
 REPO                  = _PATHS.repo
 SMOKE_ADAPTER         = REPO / "adapters" / "smoke.py"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
-CHECK_VERIFICATIONS   = REPO / "scripts" / "check_verifications.py"
 
 # Async-verification park (Handoff B): a dispatch:manual task whose verification only
 # *kicks off* a long async job (e.g. a ~5 h eval) is parked as `awaiting-verification`
@@ -48,28 +48,29 @@ get_task_by_id = deferred("get_task_by_id", "maestro.docs.roadmap")
 
 def run_verification_gate(task_id: str, workspace: Path, worktree: Path | None = None,
                           auto_only: bool = False) -> tuple[bool, str]:
-    """Run check_verifications.py. Auto-checks run in the worktree (unmerged changes
+    """Run the verification checks. Auto-checks run in the worktree (unmerged changes
     live there, not in REPO). auto_only restricts to kind:auto items (used by
     dispatch:manual graduation, where there is no implementer result.json). Returns
-    (passed, message)."""
-    if not CHECK_VERIFICATIONS.exists():
-        return True, "(check_verifications.py not found — gate skipped)"
+    (passed, message).
+
+    M1 moved the checking engine in-process (`maestro.verifications.run_cli`) — it used
+    to be a standalone script the reference orchestrator shelled out to, with a
+    `.exists()` check that quietly PASSED every task if that script went missing (R3 /
+    FOUND_BUGS #17). Calling straight into the module means there is no longer a script
+    to go missing, so that skip branch has no equivalent here — the gate always
+    actually runs. The argv-shape quirk (FOUND_BUGS #18: --auto-only slides into the
+    worktree slot when worktree is None) is preserved exactly, since it is now the
+    module's own argv-parsing behaviour, not something this call site can fix."""
     try:
-        argv = [str(VENV_PYTHON), str(CHECK_VERIFICATIONS), task_id, str(workspace)]
+        argv = [task_id, str(workspace)]
         if worktree is not None:
             argv.append(str(worktree))
         if auto_only:
             argv.append("--auto-only")
-        r = subprocess.run(
-            argv,
-            cwd=str(REPO), capture_output=True, text=True, timeout=120
-        )
-        output = (r.stdout + r.stderr).strip()
-        return r.returncode == 0, output
-    except subprocess.TimeoutExpired:
-        return False, "check_verifications.py timed out (120 s)"
+        rc, output = verifications.run_cli(argv)
+        return rc == 0, output.strip()
     except Exception as exc:
-        return False, f"check_verifications.py error: {exc}"
+        return False, f"verification gate error: {exc}"
 
 
 def sonnet_review_proofs(task_id: str, verifications: list[dict],

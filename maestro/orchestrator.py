@@ -164,7 +164,7 @@ _last_self_update_check = 0.0
 # `poll_awaiting_verifications` reach them on paths the characterisation tests exercise
 # unstubbed, pinning the message through *this* module's `notify_telegram` reference —
 # importing them would send those pings through a sibling module's reference instead, i.e.
-# at a real `bash notify_telegram.sh` (or, in quota's case, at its `pending()` placeholder).
+# at a real Telegram send (or, in quota's case, at its `pending()` placeholder).
 # Both bodies are copied verbatim; each is one half of a pair whose other half becomes an
 # import once the modules can share a single notification seam.
 def _pause_for_usage_limit(task_id: str, reset_iso: str, evidence: str,

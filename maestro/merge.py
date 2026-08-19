@@ -15,6 +15,7 @@ import re
 import subprocess
 
 from maestro.config import _load_project_yaml
+from maestro.hitl.telegram import notify_telegram
 from maestro.paths import Paths
 from maestro.pending import deferred
 from maestro.state import append_journal
@@ -22,7 +23,6 @@ from maestro.state import append_journal
 _PATHS = Paths.from_env()
 
 REPO                  = _PATHS.repo
-NOTIFY_SH             = REPO / "scripts" / "notify_telegram.sh"
 
 # Every name below is owned by a module that sits *after* this one in the M1 extraction
 # order, so a top-level import would invert an edge those modules already depend on.
@@ -40,16 +40,6 @@ run_dep_map = deferred("run_dep_map", "maestro.docs.roadmap")
 # neither, so the old package-level owner would not have resolved either.
 _self_fix_path_ok = deferred("_self_fix_path_ok", "maestro.selfheal.selffix")
 _redo_path_ok = deferred("_redo_path_ok", "maestro.selfheal.redo")
-
-
-# `notify_telegram` is mapped to `maestro.hitl.telegram`, which is extracted after this
-# module. `_resumable_code_change_escalation` calls it on its approval path, which the
-# characterisation tests exercise without stubbing it, so a `pending()` placeholder would
-# make that path untestable. The body is copied verbatim here; when
-# `maestro.hitl.telegram` lands, one of the two copies becomes an import of the other.
-def notify_telegram(msg: str) -> None:
-    if NOTIFY_SH.exists():
-        subprocess.run(["bash", str(NOTIFY_SH), msg], capture_output=True, timeout=15)
 
 
 def _diff_files(branch: str) -> list[str]:

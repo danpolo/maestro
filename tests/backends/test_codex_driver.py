@@ -284,6 +284,8 @@ def test_launch_argv_is_the_verified_exec_invocation(driver, spec):
         "workspace-write",
         "-C",
         str(spec.worktree),
+        "--add-dir",
+        str(spec.workspace),
         "do the thing",
     ]
 
@@ -328,7 +330,21 @@ def test_an_unknown_sandbox_mode_is_refused_before_launch(driver, spec):
 def test_add_dirs_are_emitted_before_the_brief(tmp_path, runner, spec):
     plain = CodexBackend(binary=BINARY, runner=runner, add_dirs=[tmp_path / "shared"])
     argv = plain.launch_argv(spec)
-    assert argv[-3:] == ["--add-dir", str(tmp_path / "shared"), spec.brief]
+    # Configured dirs first, then the workspace every launch adds regardless of config.
+    assert argv[-5:] == [
+        "--add-dir", str(tmp_path / "shared"),
+        "--add-dir", str(spec.workspace),
+        spec.brief,
+    ]
+
+
+def test_the_workspace_is_always_a_writable_dir_even_with_no_configured_add_dirs(driver, spec):
+    """The sentinel contract (DONE/FAILED/result.json) lives in `spec.workspace`, a
+    sibling of the worktree — `-C worktree` alone never covers it. A launch with no
+    `add_dirs` configured at all must still be able to write there."""
+    argv = driver.launch_argv(spec)
+    assert "--add-dir" in argv
+    assert argv[argv.index("--add-dir") + 1] == str(spec.workspace)
 
 
 # ── launch (plan step 2) ──
@@ -441,12 +457,14 @@ def test_resume_argv_puts_the_flags_before_the_resume_subcommand(driver, spec):
         "workspace-write",
         "-C",
         str(spec.worktree),
+        "--add-dir",
+        str(spec.workspace),
         "resume",
         THREAD_ID,
         "carry on",
     ]
     resume_at = argv.index("resume")
-    for flag in ("-s", "-C", "-m", "--json", "--skip-git-repo-check", "-c"):
+    for flag in ("-s", "-C", "-m", "--json", "--skip-git-repo-check", "-c", "--add-dir"):
         assert argv.index(flag) < resume_at
 
 

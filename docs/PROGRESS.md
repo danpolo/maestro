@@ -23,8 +23,15 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`de7d1e6`) |
 | M4b — Extract `maestro/watchdog.py` + limits slug fix (unplanned pre-M5 stage) | **done** | 2026-08-18 | `pytest` → 4530 collected, exit 0, 0 F/E/s markers; watchdog characterisation 236/236 both subjects, zero skips (`a20b485`) |
 | M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | **done** | 2026-08-20 | `pytest -q` → 5234 passed, 31 skipped, 0 failed, 0 errors (`7c77a04`) |
-| M5 — Cutover of reference project | **in progress** — safety-protocol steps 1–5 done, step 6 fully planned (see 8th-session finding), 6–8 not started | — | — |
+| M5 — Cutover of reference project | **in progress** — safety-protocol steps 1–5 done; step 6's task list items 1–7 done (branch, scaffold, project.yaml merge, .gitignore, pre-commit, launch.sh.tmpl fix), items 8–15 not started | — | — |
 | M6 — Live switching validation | pending | — | — |
+
+**Update, 2026-08-20 (ninth session): M5 step 6 items 1–7 done and verified, AbuAliArchive still
+on `main` HEAD (uncommitted work sits on the `maestro-cutover` branch), one real purity-test
+regression found and fixed in maestro itself.** See "Session 2026-08-20 (ninth session)" below.
+**The next session should `cd AbuAliArchive`, confirm it is still on branch `maestro-cutover`
+with the same working-tree diff described there, then start directly at task-list item 8** (`pip
+install -e maestro` into `.venv`) — items 1–7 do not need repeating.
 
 **Current stage: M5 — cutover of the reference project.** M4c is now fully done — all three batches
 (batch 1 `f8f8908`, batch 2 `e1b4841`, batch 3 `7c77a04`) landed and its own Done-when checklist
@@ -1920,6 +1927,110 @@ rather than as one giant uncommitted change:
     automatically, then stop and report (protocol step 7).
 15. On success: leave the loop running (protocol step 8 — never end halted), report
     `scripts/m5-install-unit.sh` as the operator's next manual command, update `PROGRESS.md`, commit.
+
+### Session 2026-08-20 (ninth session) — M5 step 6 items 1–7 done, verified, nothing committed yet
+
+Read `docs/EXECUTION.md`'s M5 protocol and `docs/PROGRESS.md`'s eighth-session entry fresh, per the
+standing discipline. Executed step 6's task list in order, verifying and checkpointing rather than
+batching into one uncommitted mass, and stopped deliberately at item 7 (context ~130K, approaching
+the 150K ceiling, with items 8–15 — venv install, script deletion, the real cutover commit, and live
+verification — all still ahead and each individually risky enough to deserve a fresh session's full
+budget rather than a rushed tail end of this one).
+
+**Item 1 — baseline re-confirmed fresh, byte-for-byte the eighth session's numbers:** HEAD
+`68056b58e6c0c27c51379f807b823dad8f067247`, `git status --porcelain` exactly the standing baseline
+(4 modified: `docs/UPCOMING.md`, `docs/dependency_map.{md,png}`, `systemd/abuali-watchdog.service`
++ 5 untracked), `.orchestrator/state.json` stat `888 1786256976`, `.orchestrator/HALT` present
+(0 bytes, mtime 2026-08-09 09:07), `in_flight: []`, no `orchestrator_run.py`/`scripts/watchdog.py`
+process, `abuali-watchdog.service` inactive since 2026-08-10. No abort condition.
+
+**Item 2 — branched:** `cd AbuAliArchive && git checkout -b maestro-cutover` while on `main`
+(confirmed via `git symbolic-ref --short HEAD` immediately before). AbuAliArchive's `main` itself
+was never touched — the branch is the only thing that moved.
+
+**Item 3 — scaffolded, via a new script, not `cmd_init`:** wrote `/tmp/m5-scaffold-abuali.py`
+(not committed anywhere — it's a one-shot invocation of `maestro.cli`'s own `_scaffold_file` /
+`_derive_repo_facts` / `_render` / `_ensure_orchestrator_dirs` / `_ensure_venv_python_symlink`
+helpers, imported directly via `sys.path`, run with plain `python3`, no maestro install needed since
+none of those helpers touch `pyyaml`/`dotenv`/`requests`). Deliberately excluded `project.yaml`,
+`.gitignore`, `.git/hooks/pre-commit` (handled by hand in items 4–6 below) and `_run_telegram_creds`
+/ `_reset_control_flags_for_loop_check` / `_run_noop_supervised_loop_check` (per the eighth
+session's new finding — unsafe against AbuAliArchive's populated roadmap). Also overrode the
+`main_branch` template placeholder to the literal `"main"` rather than the derived (at that point)
+`"maestro-cutover"`, closing the "main_branch gotcha" the eighth session flagged, given step 2 (branch)
+necessarily runs before step 3 (scaffold) in this task list's actual order — the gotcha's own
+suggested fix ("scaffold before branching") doesn't fit the sequence that was already written, so the
+mapping override is the correct fix for *this* order, not a deviation from it. Result: 9 created
+(`adapters/{eval,latency,smoke,test}`, `profiles/{implementer,judge,orchestrator}.md`, `launch.sh`,
+`systemd/AbuAliArchive-watchdog.service`), 6 written as non-destructive `.new` siblings
+(`adapters/{deploy,healthcheck}.new`, `operating_preamble.md.new`, `docs/{ROADMAP,PROJECT}.md.new`,
+`.orchestrator/state.json.new`) — confirmed by `stat` immediately after that the *real*
+`.orchestrator/state.json` (`888 1786256976`) was untouched, and by `git status --porcelain` that
+the 4 standing-modified baseline files gained no new diff. 0 files overwritten.
+
+**Item 4 — `project.yaml` v1→v2 hand-merge, applied exactly per the eighth session's plan:** all 15
+v2 keys present (`version`, `project`, `roles`, `fallback_chain`, `switch`, `model_limits`, `gate`,
+`telegram`, `thresholds`, `risky_set`, `deny_list_extra`, `secrets`, `prod_stores`, `docs`,
+`bot_files`); `risky_set` is the 4 v1 survivors (`scripts/canary_deploy.py`, `adapters/deploy`,
+`adapters/healthcheck`, `.orchestrator/state.json`, `.env`) plus `project.yaml` itself in place of
+the 4 deleted script paths; `deny_list_extra`/`secrets`/`prod_stores`/`bot_files` carried verbatim.
+Verified with `yaml.safe_load` — parses clean, all keys and list contents match the plan exactly.
+
+**Item 5 — `.gitignore`:** appended exactly the two genuinely-missing lines (`*.pyc`, `.env.local`)
+with a one-line comment; the other 51 lines untouched.
+
+**Item 6 — `scripts/hooks/pre-commit` hand-edited**, not touched via `_scaffold_file` (it's a
+symlink target, per the eighth session's finding): replaced the call to the now-superseded
+`scripts/check_roadmap_consistency.py` with `.venv/bin/python3 -m maestro.cli doctor --pre-commit
+--repo "$repo_root"`. Verified the flag is real, not assumed: read `cmd_doctor` in full
+(`maestro/cli.py:644-674`) — `--pre-commit` skips everything except `_check_docs` +
+`_check_adapters`, matching the hook's own "fast subset" need — and the parser wiring
+(`maestro/cli.py:960-962`). `bash -n` clean.
+
+**Item 7 — `maestro/templates/launch.sh.tmpl` fixed (the Telegram env-var gap), maestro-repo
+change, committed separately as instructed:** the tmux command now does `set -a; [ -f
+'$REPO_PATH/.env' ] && source '$REPO_PATH/.env'; set +a;` before `MAESTRO_REPO=... maestro
+watchdog`. Hand-applied the identical edit to the already-scaffolded (uncommitted)
+`AbuAliArchive/launch.sh` so the two don't drift, and diffed the two post-edit to confirm they
+render identically. `tests/test_templates.py::test_launch_sh_tmpl_runs_the_watchdog_not_the
+_orchestrator_loop` still passes — its assertion is a substring check (`"MAESTRO_REPO='$REPO_PATH'
+maestro watchdog" in body`) that the new line still contains verbatim.
+
+**A real, pre-existing defect found and fixed in maestro itself, before trusting "M0–M4c green":**
+running the full suite (not just the dot-stream scan the eighth session used) turned up
+`tests/test_purity.py::test_no_project_identifying_strings` and `::test_no_hardcoded_legacy_repo_path`
+both **red at HEAD `b292079`** — `scripts/m5-install-unit.sh` (created in the eighth session) was
+never added to `test_purity.py`'s `BUILD_SCAFFOLD` exemption set, unlike its sibling
+`scripts/m5-rollback.sh`, which *is* exempted with an explicit comment. Same category, same
+rationale, just missed. This means the eighth session's step-1 precondition check
+("M0–M4c green") was **not actually true** at the time it was recorded — the "output-capture
+truncation" they flagged on the summary line evidently also hid these two `F`s inside the 97%
+dot-stream, not just the final count. Fixed by adding `scripts/m5-install-unit.sh` to
+`BUILD_SCAFFOLD` (same one-line pattern as its sibling — not a test weakening, just completing an
+already-established exemption category consistently). Full suite re-run after the fix: exit 0, 0
+`FAILED`/`ERROR` markers, 0 `F`/`E` in the dot-stream (checked explicitly with `grep`, not inferred
+from the exit code alone, since this environment's pytest run is missing its final summary count
+line for an unrelated, already-noted reason — see the eighth session's entry). Committed
+separately from the AbuAliArchive work, maestro repo commit `316b75d`, *before* proceeding with the
+AbuAliArchive scaffold — the M5 precondition needed to be genuinely true first, not just recorded
+as true.
+
+**State at handoff — nothing committed in AbuAliArchive, everything inspectable and reversible:**
+AbuAliArchive is on branch `maestro-cutover`, `main` untouched. `git status --porcelain` (re-checked
+immediately before stopping): 7 modified (the 4 standing-modified baseline files, unchanged content,
+plus `.gitignore`/`project.yaml`/`scripts/hooks/pre-commit`, this session's deliberate edits) + 14
+untracked (the 5 standing untracked baseline files + 9 new: `adapters/{deploy,healthcheck}.new`,
+`adapters/{eval,latency,smoke,test}`, `docs/{ROADMAP,PROJECT}.md.new`, `launch.sh`,
+`operating_preamble.md.new`, `profiles/`, `systemd/AbuAliArchive-watchdog.service`).
+`.orchestrator/state.json` stat unchanged (`888 1786256976`), `.orchestrator/HALT` unchanged. No
+abort condition at any point this session. **The next session should `cd AbuAliArchive`, confirm
+`git symbolic-ref --short HEAD` is `maestro-cutover` and the diff above still matches, then start at
+task-list item 8** (`.venv/bin/pip install -e /home/dan/projects/maestro pyyaml python-dotenv
+requests`; verify `import maestro` under `.venv/bin/python3`) **through item 15** (real cutover
+commit, live verification, rollback-on-failure, leave the loop running, report
+`scripts/m5-install-unit.sh` to the operator). If anything about the working tree looks different
+from this description, stop and treat it as a possible abort condition rather than assuming it's
+this session's own uncommitted work.
 
 ## Open questions
 

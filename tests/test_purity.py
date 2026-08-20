@@ -51,6 +51,7 @@ BUILD_SCAFFOLD = {
     # never installed into a consuming project by `maestro init`. Same category
     # as the two scripts above: it drives *this build*, not the maestro product.
     "scripts/m5-rollback.sh",
+    "scripts/m5-install-unit.sh",
     # The design spec for those two scripts. Same category as the scripts themselves:
     # it describes the machinery that *builds* maestro — including how that machinery
     # must leave the frozen reference project alone — and ships with none of it.

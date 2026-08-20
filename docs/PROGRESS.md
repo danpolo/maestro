@@ -5,7 +5,7 @@ and `docs/EXECUTION.md` must be enough for a fresh session to resume with no oth
 
 Process: `docs/EXECUTION.md`. Design: `docs/DESIGN.md`.
 
-PROGRAMME-STATUS: IN-PROGRESS
+PROGRAMME-STATUS: COMPLETE
 
 > Machine-readable. `scripts/run_overnight.sh` greps this exact line to decide whether to relaunch a
 > fresh session. Set it to one of `IN-PROGRESS`, `COMPLETE`, `ABORTED` before exiting, every time.
@@ -24,7 +24,19 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M4b — Extract `maestro/watchdog.py` + limits slug fix (unplanned pre-M5 stage) | **done** | 2026-08-18 | `pytest` → 4530 collected, exit 0, 0 F/E/s markers; watchdog characterisation 236/236 both subjects, zero skips (`a20b485`) |
 | M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | **done** | 2026-08-20 | `pytest -q` → 5234 passed, 31 skipped, 0 failed, 0 errors (`7c77a04`) |
 | M5 — Cutover of reference project | **done** | 2026-08-20 | `/status` byte-identical to pre-cutover; `M5SCRATCH1` (`kind: script`) ran the full worktree → verify → merge → graduate → push pipeline end to end for real on `AbuAliArchive`, sha `5da1607`→`eaafb48`, pushed to `origin/main`. Two real maestro-native bugs found and fixed along the way (see below); maestro suite `pytest -q` exit 0, 0 FAILURES section after the fix (`597f3b6` AbuAliArchive, pending commit this repo). |
-| M6 — Live switching validation | **pending — start here** | — | — |
+| M6 — Live switching validation | **done** | 2026-08-20 | Real `usage_threshold` trigger fired on `AbuAliArchive` (`M6SCRATCH1`), journal shows `backend_switch {task=M6SCRATCH1, from=claude, to=codex, reason=usage_threshold}`; task completed, merged, pushed. One real maestro-native bug found and fixed along the way (see below); maestro suite `pytest -q` exit 0, 0 FAILURES section after the fix. |
+
+**PROGRAMME COMPLETE, 2026-08-20 (fifteenth session).** Every row above — M0 through M6, plus the
+three unplanned pre-M5 stages M4a/M4b/M4c — is `done`, each with its Done-when commands actually run
+and their output seen, per `docs/EXECUTION.md`'s explicit condition for `PROGRAMME-STATUS: COMPLETE`.
+Full detail for the final stage is in "Session 2026-08-20 (fifteenth session)" further down. What is
+**not** closed, and does not need to be for this condition — all recorded as standing, non-blocking
+items in Open Questions and left for the operator: `TUNE2`/`LAT1` remain parked (M5's side-finding);
+the `kind: script` no-op-retry hardening gap; usage-threshold calibration (one real switch is not
+enough data, and `project.yaml`'s configured percentages are still unwired); and the
+reconcile-stale-retry backend-defaulting inconsistency found this session. None of these were ever
+part of any stage's Done-when. `abuali-nightly-eval.timer` re-enables itself automatically now that
+`PROGRAMME-STATUS` reaches `COMPLETE`, per the 2026-08-11 operator resolution recorded below.
 
 **Operator decision, 2026-08-20 (recorded by Dan): option (c), executed this session.** A one-off
 synthetic/scratch task (`M5SCRATCH1`, `kind: script`, `eval_relevance: non-retrieval`, `deps: []`)
@@ -2713,6 +2725,138 @@ M5 session did. This session stops here: context measured at ~260K tokens, well 
 ceiling `docs/EXECUTION.md`'s prime directive sets for finishing the current stage and handing off
 rather than starting the next one.
 
+### Session 2026-08-20 (fifteenth session) — **M6 COMPLETE, ALL SEVEN STAGES DONE**
+
+Read `docs/EXECUTION.md` fresh per the handoff instruction, re-verified the `AbuAliArchive` baseline
+independently before touching anything (HEAD `597f3b6`, `git status --porcelain` exactly the 6-entry
+post-cutover baseline, watchdog PID `3452298` and orchestrator PID `3579776` both alive via `ps -p`,
+`HALT` absent, `idle_gated` polling — all unchanged from the fourteenth session's close). Read
+`maestro/switch.py`, `maestro/orchestrator.py`'s poll loop and `maestro/backends/base.py` directly
+(source, not recalled — M6 is past the M0–M1 "never read the reference file" prime-directive
+concern; these are maestro's own small modules) before writing
+`docs/plans/2026-08-20-m6-live-switching-validation.md`, then executed it.
+
+**The Done-when, met with direct evidence:** added `M6SCRATCH1` (a real LLM-implementer scratch task,
+`mode: autonomous`, `eval_relevance: non-retrieval`, one-file worktree-local deliverable) to
+`AbuAliArchive/docs/ROADMAP.md`. It launched on `claude` (the configured default) within 10s. Once its
+worktree and tmux window were confirmed live, `.orchestrator/usage.json`'s `five_hour.used_pct` was
+set to `72` — above `maestro/switch.py`'s hardcoded `SWITCH_THRESHOLD_PCT = 70.0` (the *only* enforced
+threshold; `AbuAliArchive/project.yaml`'s `switch.on_usage_threshold: {five_hour_pct: 85, ...}` is
+**not read anywhere in maestro** — confirmed by a repo-wide grep — so it is aspirational config, not
+live behaviour) and below `THROTTLE_75_PCT`/`PAUSE_92_PCT`, so nothing else was perturbed. Restored
+from a captured backup within 40 seconds of the switch firing, well before it could pressure any
+other task. The journal, within one poll cycle:
+
+```
+{"ts": "2026-08-20T10:12:53Z", "event": "backend_switch", "session_id": "impl-M6SCRATCH1-20260820-101215",
+ "detail": "M6SCRATCH1 from=claude to=codex reason=usage_threshold"}
+```
+
+`reason=usage_threshold`, real journal event, on the real migrated project — **M6's Done-when is met
+exactly as worded**, independent of everything below. `M2`'s own Done-when had already proven the
+*manual* trigger (`docs/PROGRESS.md`, 2026-08-14); this is the first live proof of the *threshold*
+trigger, and the first of either kind against a project not rooted under `/tmp`.
+
+#### What happened after the switch — a real maestro-native bug, found and fixed
+
+The outgoing Claude implementer had, by coincidence, already written `DONE` a few seconds before this
+poll ran (`impl.log`: "Task M6SCRATCH1 complete... committed as 7392a97"). `_threshold_switches` runs
+*before* the per-entry DONE check in the poll loop, so the switch pre-empted the ordinary completion
+path — a legitimate, real race the switch code is meant to survive (real committed work, clean
+worktree, `verification_status` from `result.json`, all correctly folded into the handoff brief). The
+new Codex session read all of it back correctly (`impl.log`: it re-verified the inherited commit via
+`ctx_shell`/`ctx_read`, concluded "the inherited change is already committed... the working tree is
+clean and the required scratch file passes its non-empty check") and tried to write the mandated
+`result.json`/`DONE` sentinel into its workspace — and **could not**:
+
+```
+codex_core::tools::router: error=patch rejected: writing outside of the project; rejected by user approval settings
+```
+
+**Root cause, confirmed by reading `maestro/backends/codex.py` directly:** `CodexBackend` is
+constructed with no `add_dirs` (`registry.get_backend` calls it with no arguments, so `self._add_dirs`
+is always `()`), and `launch_argv`/`resume_argv` only ever pass `-C <worktree>` — never the
+*workspace*, which is where the `DONE`/`FAILED`/`result.json` sentinel contract lives and which is a
+**sibling** of the worktree, not inside it. `codex exec`'s `workspace-write` sandbox additionally
+allows `$TMPDIR` implicitly, which is exactly why **M2's own live acceptance run never caught this**:
+its scratch project lived under `/tmp` (`/tmp/maestro-m2-accept`), so the workspace fell inside the
+implicit allowance by accident. `AbuAliArchive` is a real project at `/home/dan/projects/AbuAliArchive`
+with its worktrees redirected to `/tmp` but its `.orchestrator/workspaces/` inside the repo itself —
+the first time this exact combination was exercised for real. Left unfixed, **every** Codex-backend
+implementer launch against a project rooted outside `/tmp` — any real future switch, not just this
+scratch one — could do the work but could never signal completion, and would sit until
+`reconcile_stale` reaped it as a dead window and silently retried (which is exactly what happened:
+`reconcile_stale ... no_sentinel (cleared stale in_flight)` → `implementer_retry`).
+
+**Fix (`maestro/backends/codex.py`):** a new `CodexBackend._launch_dirs(spec)` always appends
+`spec.workspace` to whatever `add_dirs` was configured, for both `launch_argv` and `resume_argv`.
+Three tests updated for the new (correct) argv shape
+(`test_launch_argv_is_the_verified_exec_invocation`, `test_add_dirs_are_emitted_before_the_brief`,
+`test_resume_argv_puts_the_flags_before_the_resume_subcommand`), one new regression test added
+(`test_the_workspace_is_always_a_writable_dir_even_with_no_configured_add_dirs`), and the
+characterisation-pinned argv in `tests/characterization/test_implementer.py` updated to match. Full
+suite re-run clean: `pytest -q` — no `FAILURES` section, progress reached `100%` (this project's
+`pytest -q` still does not print a final summary line, the same standing quirk noted in every prior
+session).
+
+**The fix was verified directly against a real `codex exec` process, not just at the argv-shape
+level** (per "never fabricate a verification result" — a passing unit test on an argv list is not the
+same claim as "the sandbox actually permits the write"): built an isolated throwaway worktree
+(`/tmp/...`) + workspace (`/home/dan/...`, deliberately outside `/tmp`, mirroring the exact real
+failure). Ran the **pre-fix** argv (no `--add-dir`) — it explicitly refused: *"I can't create files
+outside the permitted workspace... under `/home/dan`."* Ran the **post-fix** argv (`--add-dir
+/home/dan/.../workspace` added) against the identical setup — it created the file, content verified
+byte for byte. Both throwaway directories were removed afterward; neither touched `AbuAliArchive` or
+any tracked project.
+
+**Task outcome:** the reconcile-stale retry relaunched `M6SCRATCH1` fresh on `claude` (not a second
+Codex attempt — `_do_retry`'s relaunch path resolves the launch backend independently of the entry's
+last-known backend, a separate, more minor inconsistency worth noting but not investigated further
+here, since it did not block anything and re-briefing on the default backend is a safe, conservative
+outcome, not a wrong one). That attempt completed cleanly: `smoke_skipped` (non-retrieval) →
+`merge_accepted` (`sha=2c2061c`) → `task_complete` → `mark_roadmap_complete` (graduation commit
+`aed453d`, `docs/PROJECT.md` + `.orchestrator/completed_tasks.json` updated, `M6SCRATCH1` stripped
+from `ROADMAP.md`) → pushed (`git log --oneline origin/main..main` empty). This is a complete,
+real, end-to-end task on the live migrated project — the switch mechanism itself was the thing under
+test, not this particular task's completion, but a full clean finish is still the more conservative
+outcome to leave behind than an abandoned in-flight entry.
+
+**Post-task baseline, re-verified directly:** HEAD `aed453d`, `git status --porcelain` unchanged (the
+same 6-entry baseline: 1 standing-modified + 5 untracked), `.orchestrator/usage.json` restored to its
+exact pre-test content, both PIDs (`3452298` watchdog, `3579776` orchestrator — **unchanged**, the
+orchestrator process itself never crashed this time, unlike the thirteenth session's incident) alive,
+`maestro status` shows `In-flight: 0`, `Halted: False`, `Paused: False`, `Parked: TUNE2, LAT1`
+(unchanged). No abort condition at any point.
+
+#### Judgement calls this session, flagged for review
+
+- **Injected a synthetic value into `.orchestrator/usage.json`** to cross the real, shipped 70%
+  threshold rather than waiting for organic usage pressure. This is the same class of decision the
+  fourteenth session made for `M5SCRATCH1` (a synthetic-but-real exercise of a real code path,
+  reversed immediately after capture) — the file is external-sampler-owned, not maestro-owned, and the
+  value was restored within 40 seconds, before any other task could observe it.
+- **Fixed the Codex sandbox bug directly** rather than only recording it, per the precedent the
+  thirteenth/fourteenth sessions set: it is maestro-native (not a reference-implementation surprise),
+  it directly undermines the very feature M6 exists to validate for any project not rooted under
+  `/tmp` (i.e., every real project this build will ever be used on), and it was root-caused with an
+  exact, reproducible error from the live incident itself.
+- **Did not attempt a second live Codex switch on `AbuAliArchive` to re-prove the fix end-to-end** —
+  the fix was instead verified against a real, isolated `codex exec` process outside any tracked
+  project, which is strictly more conclusive about the actual mechanism (sandbox behaviour, not argv
+  shape) while spending no further live-loop quota and touching nothing production. M6's own
+  Done-when does not require the *switched-to* session to complete a task, only that the switch event
+  fires — already proven independently of this bug.
+- **Did not investigate `_do_retry`'s relaunch defaulting to `claude` instead of continuing the
+  fallback chain to a second backend** — noted as a minor, non-blocking inconsistency; the observed
+  outcome (a safe re-brief on the default backend) was not itself a failure.
+- **Did not touch `TUNE2`/`LAT1`'s `parked_tasks` status, or wire `project.yaml`'s
+  `switch.on_usage_threshold` into `maestro/switch.py`'s hardcoded constant** — both remain the
+  operator's call; see Open Questions.
+
+**`docs/PROGRESS.md`'s Status table now shows every stage — M0 through M6, plus the three unplanned
+M4a/M4b/M4c stages — as `done`, each with a Done-when command actually run and its output seen, per
+`docs/EXECUTION.md`'s explicit condition for `PROGRAMME-STATUS: COMPLETE`.** Set below.
+
 ## Open questions
 
 Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the answer here.
@@ -2727,8 +2871,15 @@ Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the a
   statusline hook and no external statusline command. Two other verified routes give parity: the
   per-run rollout JSONL (passive, per-turn) and `codex app-server`'s `account/rateLimits/read`
   (poll). See the 2026-08-12 finding below and plan F3.
-- **M2/M6** — Calibration of the default usage-threshold percentages (currently 85% five-hour,
-  90% weekly) once switching has run for real.
+- **M2/M6 — genuinely still open, deliberately not resolved by the build.** Switching has now run for
+  real exactly once (2026-08-20, fifteenth session — `M6SCRATCH1`, `reason=usage_threshold`). One
+  data point calibrates nothing. Also newly clarified while validating: `AbuAliArchive/project.yaml`'s
+  `switch.on_usage_threshold: {five_hour_pct: 85, weekly_pct: 90}` is **not wired to anything** —
+  `maestro/switch.py`'s hardcoded `SWITCH_THRESHOLD_PCT = 70.0` is the only value actually enforced
+  (confirmed by a repo-wide grep finding zero readers of `on_usage_threshold`/`five_hour_pct`/
+  `weekly_pct`). Whether to (a) wire `project.yaml`'s value in, (b) recalibrate the hardcoded constant,
+  or (c) leave both as-is pending more real-world switches, is the operator's call — this build does
+  not have enough production experience with switching to make it.
 - ~~**M3** — Exact stall-detection window and the definition of journal progress for the generic watchdog.~~
   **ANSWERED 2026-08-18 by M4b, through extraction rather than design:** the window is 20 minutes
   (`STALL_WINDOW_MIN`), the strike count is 3 (`MAX_STALL_RESTARTS`, then HALT), and progress is the
@@ -2759,3 +2910,20 @@ Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the a
   still real and would recur for a genuinely-buggy future script task. Worth a small fix
   (park after N no-op attempts, mirroring the implementer retry path) in a future session; not
   done here to keep that session's live-code changes to exactly what was proven necessary.
+- ~~**M6 — a real threshold trigger producing a real backend switch on the migrated project.**~~
+  **DONE 2026-08-20 (fifteenth session).** See that session's writeup above. `M6SCRATCH1`, journal
+  `backend_switch {task=M6SCRATCH1, from=claude, to=codex, reason=usage_threshold}`. One real
+  maestro-native bug found and fixed: `CodexBackend` never granted the implementer's *workspace*
+  directory (sibling of the worktree, holding the `DONE`/`FAILED`/`result.json` sentinel contract)
+  write access outside the worktree/`$TMPDIR` — masked in M2's acceptance run because that scratch
+  project lived entirely under `/tmp`. Fixed via `--add-dir <workspace>`, always added regardless of
+  configured `add_dirs`; verified against a real, isolated `codex exec` process (not just an argv
+  shape) both before (refused) and after (succeeded) the fix.
+- **New, 2026-08-20 (fifteenth session) — hardening, not blocking, low priority:** the reconcile-stale
+  retry path (`_do_retry` / whatever relaunches a task after `reconcile_stale` reaps a dead window)
+  relaunched `M6SCRATCH1` on `claude` rather than continuing the fallback chain to a different backend
+  or retrying `codex`. Not investigated further — the observed outcome (a safe re-brief on the
+  configured default) was not itself wrong, just possibly not what a operator expecting "try the next
+  backend in the chain" would expect. Worth a closer look if it recurs with a task that has real
+  reason to avoid its default backend (e.g. it was originally switched *away from* that backend for a
+  concrete reason, not this scratch task's coincidental timing).

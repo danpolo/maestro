@@ -749,6 +749,27 @@ class CodexBackend:
             window=self.window_name(spec.task_id),
         )
 
+    def _launch_dirs(self, spec: LaunchSpec) -> tuple[Path | str, ...]:
+        """`self._add_dirs` plus the one directory every launch structurally needs.
+
+        `spec.workspace` is where the sentinel contract (`DONE`/`FAILED`/`result.json`)
+        lives, and it is a **sibling** of the worktree, not a subdirectory of it — `-C
+        worktree` alone never covers it. Under `workspace-write` (`DEFAULT_SANDBOX`),
+        `codex exec` also allows `$TMPDIR` implicitly, which is why this was never seen
+        in the M2 research/acceptance runs: every scratch project they launched against
+        lived under `/tmp`, so the workspace fell inside the implicit allowance by
+        accident. The first real launch against a project rooted outside `/tmp` (M6's
+        live-switching validation, against the migrated reference project) hit it
+        directly: the implementer verified the inherited work was already correct, then
+        could not write `DONE`/`result.json` at all — `error=patch rejected: writing
+        outside of the project; rejected by user approval settings` — so the switch could
+        never be observed as complete and the task fell back to a stale-window retry on
+        the next poll. Always adding the workspace here, independent of whatever the
+        caller configured, is what makes the sentinel contract project-location-agnostic
+        rather than an accident of `/tmp`.
+        """
+        return (*self._add_dirs, spec.workspace)
+
     def launch_argv(self, spec: LaunchSpec) -> list[str]:
         return launch_argv(
             self.binary_path(),
@@ -756,7 +777,7 @@ class CodexBackend:
             worktree=spec.worktree,
             brief=spec.brief,
             sandbox=spec.sandbox,
-            add_dirs=self._add_dirs,
+            add_dirs=self._launch_dirs(spec),
         )
 
     def resume_argv(self, spec: LaunchSpec, thread_id: str, prompt: str) -> list[str]:
@@ -767,7 +788,7 @@ class CodexBackend:
             model=spec.model,
             worktree=spec.worktree,
             sandbox=spec.sandbox,
-            add_dirs=self._add_dirs,
+            add_dirs=self._launch_dirs(spec),
         )
 
     # ── resuming (plan step 3) ──

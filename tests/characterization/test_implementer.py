@@ -204,6 +204,11 @@ _AGENT_ARGV = {
         "-m", _CONFIGURED_MODELS["codex"],
         "-s", "workspace-write",
         "-C", str(out.worktree),
+        # The workspace (sentinel contract: DONE/FAILED/result.json) is a sibling of the
+        # worktree, not inside it — always added so `codex exec`'s sandbox can write there
+        # regardless of where the project lives relative to `$TMPDIR` (see
+        # `CodexBackend._launch_dirs`).
+        "--add-dir", str(out.workspace),
         "<brief>",
     ],
 }

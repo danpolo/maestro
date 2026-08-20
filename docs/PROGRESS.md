@@ -23,15 +23,20 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`de7d1e6`) |
 | M4b — Extract `maestro/watchdog.py` + limits slug fix (unplanned pre-M5 stage) | **done** | 2026-08-18 | `pytest` → 4530 collected, exit 0, 0 F/E/s markers; watchdog characterisation 236/236 both subjects, zero skips (`a20b485`) |
 | M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | **done** | 2026-08-20 | `pytest -q` → 5234 passed, 31 skipped, 0 failed, 0 errors (`7c77a04`) |
-| M5 — Cutover of reference project | **in progress** — safety-protocol steps 1–5 done; step 6's task list items 1–7 done (branch, scaffold, project.yaml merge, .gitignore, pre-commit, launch.sh.tmpl fix), items 8–15 not started | — | — |
+| M5 — Cutover of reference project | **in progress** — safety-protocol steps 1–5 done; step 6's task list items 1–12 done (branch, scaffold, project.yaml merge, .gitignore, pre-commit, launch.sh.tmpl fix, venv install, adapters/test verified, superseded-script deletion, baseline re-capture, **cutover commit landed**: `fd720ab` + `9e5c7ef`), items 13–15 (live halt/resume/verify, rollback-on-failure, report install-unit) not started | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Update, 2026-08-20 (ninth session): M5 step 6 items 1–7 done and verified, AbuAliArchive still
-on `main` HEAD (uncommitted work sits on the `maestro-cutover` branch), one real purity-test
-regression found and fixed in maestro itself.** See "Session 2026-08-20 (ninth session)" below.
-**The next session should `cd AbuAliArchive`, confirm it is still on branch `maestro-cutover`
-with the same working-tree diff described there, then start directly at task-list item 8** (`pip
-install -e maestro` into `.venv`) — items 1–7 do not need repeating.
+**Update, 2026-08-20 (tenth session): M5 step 6 items 8–12 done — the cutover commit is landed
+on the `maestro-cutover` branch (2 commits: `fd720ab` the cutover itself, `9e5c7ef` a PATH-bug
+fix found during pre-flight). AbuAliArchive is still on `main` HEAD `68056b5`, untouched — nothing
+irreversible has happened yet.** A real, previously-undiscovered bug was found and fixed in
+maestro itself before the live verification: see "Session 2026-08-20 (tenth session)" below.
+**The next session should `cd AbuAliArchive`, confirm branch `maestro-cutover` at `9e5c7ef`, then
+start directly at task-list item 13** (re-confirm the baseline one more time, run `bash launch.sh`,
+verify `maestro status` still matches, run one supervised task end to end) **through item 15**
+(rollback-on-failure per protocol step 7 if verification fails; on success, leave the loop running
+and report `sudo bash scripts/m5-install-unit.sh` to the operator as the next manual step). Items
+1–12 do not need repeating.
 
 **Current stage: M5 — cutover of the reference project.** M4c is now fully done — all three batches
 (batch 1 `f8f8908`, batch 2 `e1b4841`, batch 3 `7c77a04`) landed and its own Done-when checklist
@@ -2032,6 +2037,168 @@ commit, live verification, rollback-on-failure, leave the loop running, report
 `scripts/m5-install-unit.sh` to the operator). If anything about the working tree looks different
 from this description, stop and treat it as a possible abort condition rather than assuming it's
 this session's own uncommitted work.
+
+### Session 2026-08-20 (tenth session) — M5 step 6 items 8–12 done, cutover commit landed, one real bug found and fixed pre-flight
+
+Read `docs/EXECUTION.md`'s M5 protocol and the ninth-session entry fresh, per the standing
+discipline. Re-verified the working tree matched the ninth session's description exactly (branch
+`maestro-cutover`, same 7 modified + 17 untracked, `state.json` `888 1786256976`, HALT present,
+`in_flight: []`, no AbuAliArchive process running, `agents` tmux session has 1 window only) before
+touching anything. Executed task-list items 8–12 in order, verified and checkpointed. Stopped
+deliberately before item 13 (context ~174K, over the 150K ceiling) rather than rush the one part of
+M5 that is genuinely irreversible if botched — halting and resuming the operator's production loop.
+
+**Item 8 — `.venv/bin/pip install -e /home/dan/projects/maestro pyyaml python-dotenv requests`:**
+clean install, `maestro-0.2.0`. `import maestro` verified under `.venv/bin/python3` — version and
+`__file__` both correct (points at the editable-installed source, not a copy).
+
+**Item 9 — `adapters/test` verified against the real suite, not assumed:** ran it directly
+(`echo '{}' | .venv/bin/python3 adapters/test`) — `{"pass": true, ...}`, 92 passed in 4.64s at that
+point (before the superseded-script deletion below). Confirms the auto-detected `pytest -q` stub is
+not a no-op for this project.
+
+**Item 10 (deletion) sequenced after item 11 (baseline capture), per the task list's own instruction
+("capture, then delete"):**
+
+- **Item 11 — pre-cutover baseline re-captured fresh, the last moment the old script exists:**
+  `.venv/bin/python3 scripts/orchestrator_status.py --json` → `/tmp/m5-precutover-status-final.json`
+  (84 lines; checked for credential-shaped content — one hit, `context_total_input_tokens`, a metric
+  field, not a secret). `phase.id` = `LAT1` (`in_progress`), `in_flight: []`, `parked_tasks:
+  ["TUNE2", "LAT1"]`. `.orchestrator/state.json` copied to `/tmp/m5-precutover-state-final.json` —
+  note the **copy's** mtime is naturally "now" (`cp` doesn't preserve it); the **original** was
+  re-verified unchanged at `888 1786256976` immediately after, which is the number that matters.
+- **Item 10 — the 16 superseded scripts (DESIGN.md §11) deleted via `git rm`,** all 16 confirmed
+  present immediately before deletion, all 16 confirmed staged as `D` immediately after. Their stale
+  `scripts/__pycache__/*.pyc` (14 of the 16 have one; the two `.sh` files don't) removed directly —
+  `__pycache__` is gitignored, so no `git rm` needed there; the 16 pycache files belonging to
+  still-live, non-superseded scripts were left untouched.
+- **The "13 reference test files" (R11) were identified empirically, not assumed from memory:**
+  `pytest tests/ --collect-only -q` after the script deletion gave exactly 13 `ImportError`s (12 for
+  `orchestrator_run`, 1 — `test_prepared_actions.py` — for `prepared_actions`, which is also one of
+  the 16 deleted scripts). This reconciles a discrepancy in how the prior session's note phrased R11
+  ("13 files that import `orchestrator_run`" — only 12 actually do; the 13th is orphaned by a
+  different deleted script). All 13 deleted via `git rm`. Post-deletion collection: **0 errors**, 4
+  tests collected (`test_pair_model_pool.py`, which imports `generate_training_pairs` — untouched,
+  not superseded). `adapters/test` re-run after deletion: `{"pass": true}`, 4 passed in 1.10s — the
+  drop from 92 is expected and correct, not a regression: the 13 deleted files were AbuAliArchive's
+  own tests *of* `orchestrator_run.py`'s behaviour, which now lives in and is tested by maestro's own
+  suite instead.
+- **Swept for other references to the 16 deleted script names** (`grep -rl` across `.py`/`.sh`/
+  `.service`/`.md`, excluding `.git` and `.venv`) before committing. Two functional hits, both
+  correctly left alone: `systemd/abuali-watchdog.service` (the *old* unit file — part of the standing
+  pre-existing-modified baseline; EXECUTION.md's invariant says any further change to it aborts the
+  programme, so it stays exactly as-is; the operator's `scripts/m5-install-unit.sh`, not this commit,
+  is what disables the installed copy of this unit) and `launch.sh`'s own comment (prose, harmless).
+  Everything else was `handoffs/*.md`, `docs/*.md`, `AGENTS.md`, `CLAUDE.md` — historical/operational
+  prose naming the old scripts, out of scope for an automated cutover to rewrite.
+- **`scripts/hooks/pre-commit` re-verified working**, not just present: ran it directly
+  (`bash scripts/hooks/pre-commit`) — 7 `[OK]` lines (docs + 6 adapters), exit 0.
+
+**Item 12 — the cutover commit landed: `fd720ab`.** Staged precisely: the 16 deletions (already
+staged by `git rm`), the 13 test-file deletions (same), `.gitignore`, `project.yaml`,
+`scripts/hooks/pre-commit`, and the 13 new/`.new` scaffold paths from item 3. **Deliberately did
+NOT stage** the 4 standing pre-existing-modified files (`docs/UPCOMING.md`,
+`docs/dependency_map.{md,png}`, `systemd/abuali-watchdog.service`) or the 5 standing untracked
+baseline files — these predate this whole build and are the operator's/live-loop's own artefacts,
+not this cutover's to commit. `git status --porcelain` confirmed clean staging (only the intended
+paths as `A`/`D`/`M`, the baseline files still showing their pre-existing ` M`/`??` status)
+immediately before running `git commit`. 46 files changed, 576 insertions, 10732 deletions.
+
+**A real, previously-undiscovered defect found and fixed in maestro itself, before item 13's live
+verification — not during it:** while re-reading `launch.sh` immediately before running it for
+real, and independently confirmed by reading `maestro/watchdog.py`'s `launch_orchestrator()` /
+`ensure_resume_job()`, both the scaffolded `launch.sh` and maestro's own watchdog module spawn a
+**bare `maestro`** inside a `tmux new-window`/`new-session` command. `tmux`'s own docstring comment
+in `watchdog.py` already flags that a new tmux window inherits the *server's* environment, not the
+launching process's — and empirical testing proved the consequence: a fresh window spawned into the
+already-running `agents` tmux session (`tmux new-window -t agents -n path-check ... "which
+maestro"`) came back `NOTFOUND`, with the captured `PATH` containing no `.venv/bin` of any project.
+Because a tmux window running a not-found command just closes (`remain-on-exit` is off by default),
+this failure mode is invisible at a glance — the watchdog (or orchestrator) would appear to have
+"launched" (the window opens momentarily) while doing nothing, which is exactly the kind of "looks
+green" failure `docs/EXECUTION.md` was written to prevent. Fixed in three places, verified, tested,
+and committed **before** any live verification was attempted:
+
+- `maestro/watchdog.py`: new `VENV_MAESTRO = REPO / ".venv" / "bin" / "maestro"` global;
+  `launch_orchestrator()` and `ensure_resume_job()` now spawn `{VENV_MAESTRO} run` instead of bare
+  `maestro run`. `ORCHESTRATOR_PATTERN`'s `pgrep -f` match still holds — the absolute path still
+  contains the literal substring `"maestro run"`.
+- `maestro/templates/launch.sh.tmpl`: `'$REPO_PATH/.venv/bin/maestro' watchdog` instead of bare
+  `maestro watchdog`.
+- Three characterisation/template tests updated to pin the new correct string rather than the old
+  bare one (`test_templates.py::test_launch_sh_tmpl_runs_the_watchdog_not_the_orchestrator_loop`,
+  `test_watchdog.py::test_launch_orchestrator_runs_the_launcher_from_the_repo`,
+  `::test_ensure_resume_job_command_relaunches_the_loop_in_tmux`) — none weakened, all now assert
+  the absolute-path form positively.
+- **Two more failures surfaced by running the full suite, not just the touched files, both fixed
+  in the same commit:** (1) my own explanatory comments named the reference project by name,
+  tripping `test_purity.py::test_no_project_identifying_strings` — reworded to stay generic. (2)
+  `test_reference_repo_firewall.py::test_reads_from_the_repo_are_still_allowed` used
+  `scripts/orchestrator_run.py` as its "reads still work" marker file — a file M5's own cutover
+  commit deletes, which would have broken this maestro-repo test **permanently**, for every future
+  session, the moment the cutover commit landed. Repointed the marker to `.gitignore`, which exists
+  for the life of any git repo regardless of cutover state. This is exactly the class of
+  cross-repo coupling the M0 characterisation harness didn't anticipate because M5 wasn't real yet
+  when it was written — worth a general lesson: a firewall/marker test pinned to a file this same
+  programme later deletes is a landmine for its own future self.
+- **Full maestro suite after all of the above: 2983 passed, 2285 skipped, 0 failed, 0 errors,
+  152.01s** — matches the seventh session's 5268 collected count exactly (2983 + 2285 = 5268).
+  Committed as maestro repo `b34d073`, **before** touching AbuAliArchive's `launch.sh`.
+- **Applied the identical fix to the already-committed `AbuAliArchive/launch.sh`** (diffed
+  against the template to confirm they'd render identically), verified `bash -n` clean and the
+  pre-commit hook still passes, committed as a **second** AbuAliArchive commit on the
+  `maestro-cutover` branch: `9e5c7ef`, cleanly separate from the cutover commit itself, matching the
+  precedent the ninth session set for item 7's `.env`-sourcing fix.
+
+**State at handoff — nothing live touched, everything on `maestro-cutover` reversible by resetting
+the branch:** AbuAliArchive is on branch `maestro-cutover` at `9e5c7ef` (2 commits ahead of `main`'s
+`68056b5`), `main` itself untouched. `git status --porcelain` re-checked immediately before
+stopping: only the 4 standing pre-existing-modified files (unchanged content) + 5 standing untracked
+baseline files remain — identical to the pristine baseline's shape, nothing new. `.orchestrator/
+state.json` stat unchanged (`888 1786256976`), `.orchestrator/HALT` unchanged and still present. No
+abort condition at any point this session. **The loop has not been halted-and-resumed yet — the
+HALT sentinel already there since 2026-08-09 has never been touched by this build; item 13 is the
+first point at which anything live actually happens.**
+
+**Next action, precisely — M5 safety-protocol step 6 (cut over and verify), task-list items 13–15:**
+
+1. `cd AbuAliArchive`, confirm `git symbolic-ref --short HEAD` is `maestro-cutover` at `9e5c7ef`,
+   confirm the working-tree shape above still matches. If anything differs, stop and treat it as a
+   possible abort condition rather than assuming it's this session's own leftover work.
+2. Re-confirm the baseline one more time immediately before the first live action (HEAD, git
+   status, `state.json` stat, HALT present, `in_flight: []`, no orchestrator/watchdog process, tmux
+   `agents` session shape) — cheap, and freshness at the moment that matters is what step 2 asks
+   for; do not trust this session's numbers as still current without re-checking.
+3. Run `bash launch.sh` (**not** `sudo systemctl start ...` — the systemd unit is a separate,
+   operator-run, post-verification step via `scripts/m5-install-unit.sh`, per R1). This both
+   implicitly resumes past the HALT sentinel (removes the practical block on the loop running,
+   since the watchdog re-checks `HALT_FILE` and there is nothing in this launch path that removes
+   the sentinel file itself — **verify explicitly whether `.orchestrator/HALT` needs to be removed
+   by hand first**, by reading `maestro/watchdog.py`'s and `maestro/orchestrator.py`'s HALT-handling
+   before running anything, not assumed from this note) and installs the live monitoring loop.
+4. Verify: `maestro status` output matches the pre-cutover capture (`/tmp/m5-precutover-status-
+   final.json` if still present from this session, or re-derive: phase `LAT1 in_progress`,
+   `in_flight: []`, parked `TUNE2, LAT1`). One supervised task runs end to end — this is real
+   Claude/Codex quota spend against the live project, the only sanctioned one at this stage of M5,
+   analogous to M2's forced-switch acceptance test.
+5. **On any verification failure: run `scripts/m5-rollback.sh --pre-cutover-sha 68056b5`
+   immediately and automatically, then stop and report** (protocol step 7). The script's relaunch
+   step (closed by the eighth session) reproduces `scripts/watchdog-launcher.sh`'s exact tmux
+   command — but that script no longer exists post-cutover (it was one of the 16 deleted in
+   `fd720ab`); **the rollback script's own dry-run only exercised its no-op/refusal branches, never
+   the real relaunch branch against a tree where the old scripts are actually gone. Re-verify
+   `scripts/m5-rollback.sh`'s relaunch step still works against the post-cutover tree shape before
+   relying on it, ideally before step 3 above, not after a failure when it matters most.**
+6. **On success: leave the loop running — protocol step 8, "the run does not end with the loop
+   halted," applies for the rest of this program's life, not just this session.** Update
+   `docs/PROGRESS.md`, commit, and report `sudo bash scripts/m5-install-unit.sh` to the operator as
+   the exact next manual command (root-owned systemd unit swap — never run it yourself, per the
+   global privileged-commands rule).
+7. Only once M5's own Done-when is verified (`/status` matches, one supervised task completed,
+   `pgrep -f orchestrator_run.py`... **note this pgrep pattern is now stale post-cutover — the
+   process to check for is `maestro run`/`maestro.orchestrator`, per `watchdog.py`'s own
+   `ORCHESTRATOR_PATTERN`, not the deleted script's name; EXECUTION.md's own M5 Done-when wording
+   needs re-reading with this in mind, not applied literally**) does M6 begin.
 
 ## Open questions
 

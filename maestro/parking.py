@@ -60,7 +60,6 @@ JOURNAL               = _PATHS.journal
 WORKSPACES            = _PATHS.workspaces
 QUESTIONS_DIR         = REPO / ".orchestrator" / "questions"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
-SEND_DANREQ           = REPO / "scripts" / "send_dan_request.py"
 
 # B8/Maestro: failure diagnosis via Opus. Now default ON — Fix A captures impl.log,
 # so the diagnosis finally has real evidence to reason over (before, the journal only
@@ -97,7 +96,7 @@ ORCH_DIAGNOSE = os.environ.get("ORCH_DIAGNOSE", "1") == "1"
 # copy of a function that no longer shells out to anything.
 def _danreq(question: str, options: list[str], req_type: str = "decision",
             req_id: str | None = None) -> None:
-    cmd = [str(VENV_PYTHON), str(SEND_DANREQ),
+    cmd = [str(VENV_PYTHON), "-m", "maestro.hitl.dan_request",
            "--type", req_type, "--question", question,
            "--options", ",".join(options)]
     if req_id:

@@ -614,10 +614,9 @@ def _handle_ask(arg: str) -> None:
         "action": action, "brief": brief, "worktree": worktree, "log": str(log_path),
     }), encoding="utf-8")
 
-    helper   = REPO / "scripts" / "maestro_ask.py"
     window   = f"ask-{task_id}"
     tmux_cmd = (f"tmux new-window -t {TMUX_SESSION} -n {window} "
-                f"'cd {REPO} && {VENV_PYTHON} {helper} {req_path}'")
+                f"'cd {REPO} && {VENV_PYTHON} -m maestro.hitl.ask {req_path}'")
     try:
         subprocess.run(tmux_cmd, shell=True, check=True)
     except Exception as exc:
@@ -662,9 +661,8 @@ def _handle_redo(arg: str) -> None:
         "message": message, "action": action, "brief": brief, "worktree": worktree,
     }), encoding="utf-8")
 
-    helper   = REPO / "scripts" / "maestro_redo.py"
     tmux_cmd = (f"tmux new-window -t {TMUX_SESSION} -n redo-{task_id} "
-                f"'cd {REPO} && {VENV_PYTHON} {helper} {req_path}'")
+                f"'cd {REPO} && {VENV_PYTHON} -m maestro.selfheal.redo {req_path}'")
     try:
         subprocess.run(tmux_cmd, shell=True, check=True)
     except Exception as exc:

@@ -9,7 +9,8 @@ surprises are catalogued in `docs/FOUND_BUGS.md` and pinned by
 `tests/characterization/test_telegram.py`; none of them is fixed here.
 
 Most outbound calls in this module shell out through `subprocess.run` (`curl`,
-`send_dan_request.py`); the characterisation tests swap this module's `subprocess`
+`python -m maestro.hitl.dan_request` — the M4c batch-3 in-repo home of the reference's
+`scripts/send_dan_request.py`); the characterisation tests swap this module's `subprocess`
 reference rather than letting anything reach the network. `notify_telegram` is the one
 exception — R4 (`docs/plans/2026-08-18-m4c-superseded-sidecars.md`) moved it off the
 reference's now-deleted shell notifier script onto a native `requests.post` call straight
@@ -36,7 +37,6 @@ REPO                  = _PATHS.repo
 ROADMAP_FILE          = REPO / "docs" / "ROADMAP.md"
 LAST_MAP_SIG          = REPO / ".orchestrator" / "last_map_roadmap.sha"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
-SEND_DANREQ           = REPO / "scripts" / "send_dan_request.py"
 QUESTIONS_DIR         = REPO / ".orchestrator" / "questions"
 DEP_MAP_PNG           = REPO / "docs" / "dependency_map.png"
 REMINDER_INTERVAL_SEC = 86400
@@ -171,7 +171,7 @@ def phase_report(task_id: str, task_def: dict, smoke: dict) -> None:
 
 def _danreq(question: str, options: list[str], req_type: str = "decision",
             req_id: str | None = None) -> None:
-    cmd = [str(VENV_PYTHON), str(SEND_DANREQ),
+    cmd = [str(VENV_PYTHON), "-m", "maestro.hitl.dan_request",
            "--type", req_type, "--question", question,
            "--options", ",".join(options)]
     if req_id:

@@ -249,3 +249,51 @@ clock correction — blocks self-fixes for that class for up to `SELF_FIX_MIN_HO
 time that has not happened yet.
 
 Test: `test_rate_gate_window_boundary_is_greater_than_or_equal`.
+
+## SH-26 — The `/redo` runner's "authoritative" notebook syntax gate is skippable
+
+Reference `maestro_redo.py` (main): `nb_rel` — the notebook the syntax gate (Gate 2) and
+the belt-and-suspenders Drive re-upload both key off — is read from the agent's own
+`redo_result.json` manifest, and only if that key is empty does the runner fall back to
+"the single changed `.ipynb`, if there is exactly one." If the agent's manifest omits
+`notebook_path` (or gets it wrong) *and* the gate-passed diff touches zero or more than one
+`.ipynb` file, `nb_rel` stays `""` and BOTH Gate 2 and the re-upload are silently skipped —
+despite the module docstring's "Gate 2 (authoritative — don't trust the loop)" framing, a
+rewrite touching two notebooks (or a script-only diff the agent mislabels) ships with no
+syntax check at all. Copied behaviour wrong anyway.
+
+Test: `test_main_skips_the_notebook_gate_when_the_manifest_and_fallback_both_miss` in
+`tests/characterization/test_selfheal.py`.
+
+## SH-27 — The self-fix runner's "byte-compile" gate never inspects the fix
+
+Reference `maestro_selffix.py` (main), Gate 3: `pyfiles` are the changed files' relative
+paths (from `git diff --name-only main...{branch}`, i.e. paths inside the *worktree*), but
+`py_compile` is invoked with `cwd=str(REPO)` — the ORIGINAL checkout, not the worktree `wt`
+the fix was committed into. `python -m py_compile scripts/x.py` therefore byte-compiles
+whatever `scripts/x.py` already looks like on `main`, which the self-fix branch never
+touched, not the fixed content on the `selffix-*` branch. A self-fix that introduces a
+`SyntaxError` sails through Gate 3 as long as the *pre-fix* file on `main` still compiles
+(which it always does). The gate is a near no-op given the actual call site.
+
+Test: `test_main_byte_compile_gate_checks_the_original_repo_not_the_worktree`.
+
+## SH-28 — `import shutil` is dead code in the self-fix runner
+
+Reference `maestro_selffix.py` imports `shutil` at module scope but never calls
+`shutil.*` anywhere in the script — the worktree teardown goes through
+`git worktree remove --force`, not a manual `shutil.rmtree`. Not ported (imports are an
+explicit exception to "verbatim"), noted here only because it signals the module was
+copy-edited from something that once needed it.
+
+## SH-29 — A gate-passed self-fix left on ask-first mode never cleans up its worktree
+
+When `ORCH_SELF_FIX_MERGE=0`, `apply_ready_self_fixes` renames the `.ready.json` to
+`.notified` and returns without ever calling `_merge_self_fix_branch` — so the runner's
+"leave the worktree in place until the merge" (a deliberate success-path choice: every
+failure path calls `git worktree remove` + `git branch -D`, only the gate-passed path
+does not) has no counterpart cleanup at all on this branch. The `/tmp/maestro-selffix-*`
+worktree and its `selffix-*` branch persist on disk indefinitely unless Dan manually merges
+(or someone remembers to `git worktree remove` by hand). Copied behaviour wrong anyway.
+
+Test: `test_main_leaves_the_worktree_in_place_on_a_full_success`.

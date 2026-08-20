@@ -25,14 +25,20 @@ loops over it instead of copying the vocabulary into this file.
 """
 from __future__ import annotations
 
+import importlib
 import json
+import os
 import re
+import shutil
 import subprocess
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from tests.reference_repo import LEGACY_REPO
 
 DIAGNOSE = pytest.mark.maestro_module("selfheal.diagnose")
 SELFFIX = pytest.mark.maestro_module("selfheal.selffix")
@@ -66,6 +72,7 @@ def _fake_subprocess(monkeypatch, subject, handler=None):
         CalledProcessError=subprocess.CalledProcessError,
         PIPE=subprocess.PIPE,
         DEVNULL=subprocess.DEVNULL,
+        STDOUT=subprocess.STDOUT,
     )
     monkeypatch.setattr(subject, "subprocess", fake)
     return fake
@@ -102,6 +109,11 @@ def _events(sandbox) -> list[str]:
 
 def _detail(sandbox, event: str) -> str:
     return [r["detail"] for r in _journal(sandbox) if r["event"] == event][0]
+
+
+def _is_maestro(subject) -> bool:
+    """True for the extracted package, false for the legacy reference module."""
+    return subject.__name__.startswith("maestro.")
 
 
 # =====================================================================================
@@ -871,7 +883,10 @@ def test_attempt_self_fix_spawns_a_detached_tmux_window_through_a_shell(
     assert kwargs == {"shell": True, "check": True}
     assert cmd.startswith(f"tmux new-window -t {subject.TMUX_SESSION} -n selffix-T1 ")
     assert f"cd {subject.REPO} && {subject.VENV_PYTHON} " in cmd
-    assert str(subject.REPO / "scripts" / "maestro_selffix.py") in cmd
+    if _is_maestro(subject):
+        assert " -m maestro.selfheal.selffix " in cmd
+    else:
+        assert str(subject.REPO / "scripts" / "maestro_selffix.py") in cmd
     assert cmd.endswith(f"{req}'")
 
 
@@ -1346,3 +1361,694 @@ def test_apply_redo_has_no_kill_switch_and_no_ask_first_mode(subject, sandbox, r
     _ready(subject.REDO_DIR, "T1", task="T1", branch="redo-T1")
     subject.apply_ready_redo()
     assert redo_env.merges == ["redo-T1"]
+
+
+# =====================================================================================
+# RUNNER (R9): `main()` — the standalone scripts/maestro_redo.py logic folded in
+#
+# `main()` is new surface, not gated by `maestro_module` markers the way `subject` is:
+# the reference never had it living inside `orchestrator_run.py`, only in the separate
+# `scripts/maestro_redo.py`. Following "Established conventions" §5 pattern (a), this
+# section defines its own `redo_runner_subject` fixture (module-import parametrisation,
+# mirroring `conftest.py`'s `_load_legacy` and `test_dan_request.py`'s local override) —
+# the maestro branch is the SAME `maestro.selfheal.redo` module object the tests above
+# already exercise through the shared `subject` fixture, just imported directly here.
+# =====================================================================================
+
+
+def _load_legacy_redo_runner():
+    if LEGACY_REPO is None:
+        pytest.skip(
+            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
+        )
+    scripts = LEGACY_REPO / "scripts"
+    if not (scripts / "maestro_redo.py").is_file():
+        pytest.skip(f"reference repo not found at {LEGACY_REPO}")
+    env_before = dict(os.environ)
+    sys.path.insert(0, str(scripts))
+    try:
+        mod = importlib.import_module("maestro_redo")
+    finally:
+        sys.path.remove(str(scripts))
+        os.environ.clear()
+        os.environ.update(env_before)
+    return mod
+
+
+@pytest.fixture(params=["legacy", "maestro"])
+def redo_runner_subject(request):
+    if request.param == "legacy":
+        return _load_legacy_redo_runner()
+    return importlib.import_module("maestro.selfheal.redo")
+
+
+def _redo_handler(state: dict):
+    """`subprocess.run` replacement for the /redo runner's git/claude/check_notebook/
+    rclone calls, dispatched purely on argv[0]/argv[1] — never anything real. `state` is a
+    mutable dict the test populates before `redo_case.run(...)`:
+
+    `commits` (`git log --oneline` stdout), `changed` (list, joined for `git diff
+    --name-only` stdout — matches the reference's own `.split()`), `worktree_add_rc` /
+    `worktree_add_stderr`, `claude_outputs` (consumed one per `claude` invocation, in call
+    order, written into the real log file the reference opens for the agent's stdout),
+    `notebook_rc` / `notebook_stderr`, `rclone_rc` / `rclone_stderr`.
+    """
+
+    def handler(*args, **kwargs):
+        argv = list(args[0])
+        if argv[0] == "git":
+            if argv[1:3] == ["worktree", "add"]:
+                return _completed(returncode=state.get("worktree_add_rc", 0),
+                                  stderr=state.get("worktree_add_stderr", ""))
+            if argv[1] == "log":
+                return _completed(stdout=state.get("commits", ""))
+            if argv[1] == "diff":
+                return _completed(stdout=" ".join(state.get("changed", [])))
+            return _completed()
+        if argv[0] == "claude":
+            outputs = state.setdefault("claude_outputs", [""])
+            text = outputs.pop(0) if outputs else ""
+            fh = kwargs.get("stdout")
+            if fh is not None:
+                fh.write(text)
+            return _completed()
+        if argv[0] == "rclone":
+            return _completed(returncode=state.get("rclone_rc", 0),
+                              stderr=state.get("rclone_stderr", ""))
+        # check_notebook.py: [sys.executable, str(CHECK_NB), str(nb_abs)]
+        return _completed(returncode=state.get("notebook_rc", 0),
+                          stderr=state.get("notebook_stderr", ""))
+
+    return handler
+
+
+@pytest.fixture
+def redo_case(redo_runner_subject, tmp_path, monkeypatch):
+    """Wiring for the `main()` RUNNER tests: fakes every subprocess call behind
+    `_redo_handler`, redirects `REDO_DIR` into `tmp_path` so a maestro-subject run cannot
+    write `.ready.json` into this real project repo (unlike the legacy subject, whose real
+    repo is already firewalled session-wide — see `tests/conftest.py`), and cleans up the
+    real `/tmp` sidecar files `sidecar_paths` deliberately puts OUTSIDE any repo."""
+    subject = redo_runner_subject
+    monkeypatch.setattr(subject, "REDO_DIR", tmp_path / "redo_dir")
+    notes: list[str] = []
+    # The legacy standalone scripts/maestro_redo.py predates R4: it has its own local
+    # `notify(msg)` that shells out to NOTIFY, not the `notify_telegram` R4 gave
+    # orchestrator_run.py (and that maestro.selfheal.redo reuses directly). Patch whichever
+    # name this subject actually calls.
+    if hasattr(subject, "notify_telegram"):
+        monkeypatch.setattr(subject, "notify_telegram", lambda msg: notes.append(msg))
+    else:
+        monkeypatch.setattr(subject, "notify", lambda msg: notes.append(msg))
+    state: dict = {}
+    fake = _fake_subprocess(monkeypatch, subject, _redo_handler(state))
+    created: list[Path] = []
+
+    def write_request(**overrides):
+        redo_id = overrides.pop("redo_id", None) or f"RT-{tmp_path.name}"
+        payload = {
+            "redo_id": redo_id, "task": "P1", "uuid": "", "worktree": str(tmp_path / "wt"),
+            "dan_id": "9", "message": "it broke", "action": "run all cells", "brief": "",
+        }
+        payload.update(overrides)
+        path = tmp_path / f"{redo_id}.request.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        log_path, result_path = subject.sidecar_paths(redo_id)
+        created.extend([log_path, result_path])
+        return path, payload, log_path, result_path
+
+    def run(req_path):
+        monkeypatch.setattr(sys, "argv", ["maestro_redo.py", str(req_path)])
+        return subject.main()
+
+    box = SimpleNamespace(subject=subject, notes=notes, state=state, argv=fake.calls,
+                          write_request=write_request, run=run, ready_dir=tmp_path / "redo_dir")
+    yield box
+    for p in created:
+        try:
+            p.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _git_calls(box, sub: str) -> list[list[str]]:
+    return [list(c[0][0]) for c in box.argv if list(c[0][0])[0] == "git" and sub in c[0][0]]
+
+
+def _claude_calls(box) -> list[tuple]:
+    return [c for c in box.argv if list(c[0][0])[0] == "claude"]
+
+
+@REDO
+def test_main_resumes_the_prior_session_when_a_uuid_is_present(redo_case):
+    req_path, payload, _, _ = redo_case.write_request(uuid="sess-uuid-1", task="P7")
+    # Non-empty, non-RESUME_MISS output so the resume is treated as usable (no fallback).
+    redo_case.state["claude_outputs"] = ["worked on it, made progress"]
+    redo_case.run(req_path)
+
+    (call,) = _claude_calls(redo_case)
+    argv, kwargs = list(call[0][0]), call[1]
+    assert argv[:6] == ["claude", "-p", "--model", redo_case.subject.REDO_MODEL,
+                        "--resume", "sess-uuid-1"]
+    assert payload["action"] in argv[6]
+    assert payload["message"] in argv[6]
+    assert kwargs["cwd"] == payload["worktree"]
+    assert kwargs["stderr"] is redo_case.subject.subprocess.STDOUT
+    assert kwargs["timeout"] == 1800
+
+
+@REDO
+def test_main_seeds_a_fresh_session_when_no_uuid_is_recorded(redo_case):
+    req_path, payload, _, _ = redo_case.write_request(uuid="", task="P7")
+    redo_case.run(req_path)
+
+    (call,) = _claude_calls(redo_case)
+    argv = list(call[0][0])
+    assert argv[:4] == ["claude", "-p", "--model", redo_case.subject.REDO_MODEL]
+    assert "--resume" not in argv
+    assert payload["action"] in argv[4]
+
+
+@REDO
+def test_main_falls_back_to_a_fresh_session_when_resume_is_unusable(redo_case):
+    req_path, payload, _, _ = redo_case.write_request(uuid="sess-gone", task="P7")
+    redo_case.state["claude_outputs"] = [
+        "No conversation found with session id sess-gone",
+        "started fresh and fixed it",
+    ]
+    redo_case.run(req_path)
+
+    calls = _claude_calls(redo_case)
+    assert len(calls) == 2
+    first_argv = list(calls[0][0][0])
+    second_argv = list(calls[1][0][0])
+    assert first_argv[4:6] == ["--resume", "sess-gone"]
+    assert "--resume" not in second_argv
+    # No commit was recorded (default state), so the runner still ends in the advisory
+    # no-op path — cleanup ran, proving the fallback session's output is what was gated.
+    branch = f"redo-{payload['redo_id']}"
+    assert _git_calls(redo_case, "remove") == [
+        ["git", "worktree", "remove", "--force", payload["worktree"]]
+    ]
+    assert _git_calls(redo_case, "-D").count(["git", "branch", "-D", branch]) == 2
+
+
+@REDO
+def test_main_aborts_with_an_advisory_notify_and_cleanup_when_no_commit_landed(redo_case):
+    req_path, payload, _, _ = redo_case.write_request(task="P1")
+    # state["commits"] defaults to "" — no commit landed.
+    rc = redo_case.run(req_path)
+    assert rc == 0
+    assert len(redo_case.notes) == 1
+    assert "produced no commit" in redo_case.notes[0]
+    assert not redo_case.ready_dir.exists() or list(redo_case.ready_dir.glob("*")) == []
+    branch = f"redo-{payload['redo_id']}"
+    assert _git_calls(redo_case, "remove") == [
+        ["git", "worktree", "remove", "--force", payload["worktree"]]
+    ]
+    assert _git_calls(redo_case, "-D").count(["git", "branch", "-D", branch]) == 2
+
+
+@REDO
+def test_main_rejects_and_cleans_up_an_out_of_scope_diff(redo_case):
+    req_path, payload, _, _ = redo_case.write_request(task="P1")
+    redo_case.state["commits"] = "abc1234 redo(P1): partial fix"
+    redo_case.state["changed"] = ["notebooks/x.ipynb"]
+    rc = redo_case.run(req_path)
+    assert rc == 0
+    assert len(redo_case.notes) == 1
+    assert "REJECTED by path gate" in redo_case.notes[0]
+    assert "out-of-scope path touched: notebooks/x.ipynb" in redo_case.notes[0]
+    branch = f"redo-{payload['redo_id']}"
+    assert _git_calls(redo_case, "remove") == [
+        ["git", "worktree", "remove", "--force", payload["worktree"]]
+    ]
+    assert _git_calls(redo_case, "-D").count(["git", "branch", "-D", branch]) == 2
+    assert not redo_case.ready_dir.exists() or list(redo_case.ready_dir.glob("*")) == []
+
+
+@REDO
+def test_main_rejects_a_notebook_that_still_fails_the_syntax_gate(redo_case):
+    req_path, payload, _, _ = redo_case.write_request(task="P1")
+    redo_case.state["commits"] = "abc1234 redo(P1): fix"
+    redo_case.state["changed"] = ["colab/p1_train.ipynb"]
+    redo_case.state["notebook_rc"] = 1
+    redo_case.state["notebook_stderr"] = "SyntaxError: invalid syntax"
+    rc = redo_case.run(req_path)
+    assert rc == 0
+    assert len(redo_case.notes) == 1
+    assert "still has syntax errors" in redo_case.notes[0]
+    assert "SyntaxError" in redo_case.notes[0]
+    branch = f"redo-{payload['redo_id']}"
+    assert _git_calls(redo_case, "remove") == [
+        ["git", "worktree", "remove", "--force", payload["worktree"]]
+    ]
+    assert _git_calls(redo_case, "-D").count(["git", "branch", "-D", branch]) == 2
+    assert not redo_case.ready_dir.exists() or list(redo_case.ready_dir.glob("*")) == []
+
+
+@REDO
+def test_main_skips_the_notebook_gate_when_the_manifest_and_fallback_both_miss(redo_case):
+    """SH-26: two changed notebooks and no manifest `notebook_path` leaves `nb_rel` empty,
+    so the "authoritative" syntax gate never runs and the redo still ships."""
+    req_path, payload, _, result_path = redo_case.write_request(task="P1")
+    redo_case.state["commits"] = "abc1234 redo(P1): fix both"
+    redo_case.state["changed"] = ["colab/a.ipynb", "colab/b.ipynb"]
+    redo_case.state["notebook_rc"] = 1  # would fail the gate if it ran at all
+    rc = redo_case.run(req_path)
+    assert rc == 0
+    # The gate's own rejection text never fires — distinct from the success notify's
+    # unconditional "syntax-gated" phrasing, which says nothing about whether it ran.
+    assert not any("still has syntax errors" in n for n in redo_case.notes)
+    assert redo_case.ready_dir.exists()
+    assert (redo_case.ready_dir / f"{payload['redo_id']}.ready.json").exists()
+
+
+@REDO
+def test_main_notifies_but_still_ships_when_the_drive_reupload_fails(redo_case):
+    req_path, payload, _, result_path = redo_case.write_request(task="P1")
+    redo_case.state["commits"] = "abc1234 redo(P1): fix"
+    redo_case.state["changed"] = ["colab/p1_train.ipynb"]
+    redo_case.state["rclone_rc"] = 1
+    redo_case.state["rclone_stderr"] = "connection refused"
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(json.dumps({
+        "notebook_path": "colab/p1_train.ipynb",
+        "gdrive_dest": "gdrive:P1/p1_train.ipynb",
+        "changelog": "fixed the KeyError",
+    }), encoding="utf-8")
+
+    rc = redo_case.run(req_path)
+    assert rc == 0
+    assert any("Drive" in n and "re-upload failed" in n for n in redo_case.notes)
+    assert any("connection refused" in n for n in redo_case.notes)
+    # It still ships despite the failed re-upload.
+    assert any("reworked" in n for n in redo_case.notes)
+    assert (redo_case.ready_dir / f"{payload['redo_id']}.ready.json").exists()
+
+
+@REDO
+def test_main_writes_the_ready_file_with_the_exact_fields_on_full_success(redo_case):
+    req_path, payload, _, result_path = redo_case.write_request(
+        task="P1", dan_id="9", worktree=str(Path("/tmp") / "some-wt"))
+    redo_case.state["commits"] = "abc1234 redo(P1): fix the KeyError\ndef5678 tweak"
+    redo_case.state["changed"] = ["colab/p1_train.ipynb", "docs/notes.md"]
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(json.dumps({
+        "notebook_path": "colab/p1_train.ipynb",
+        "gdrive_dest": "",
+        "colab_link": "https://colab.research.google.com/drive/xyz",
+        "changelog": "Fixed the KeyError on cell 5.",
+    }), encoding="utf-8")
+
+    rc = redo_case.run(req_path)
+    assert rc == 0
+
+    ready = json.loads((redo_case.ready_dir / f"{payload['redo_id']}.ready.json")
+                       .read_text(encoding="utf-8"))
+    assert ready == {
+        "branch": f"redo-{payload['redo_id']}",
+        "task": "P1",
+        "dan_id": "9",
+        "worktree": str(Path("/tmp") / "some-wt"),
+        "changed": ["colab/p1_train.ipynb", "docs/notes.md"],
+        "changelog": "Fixed the KeyError on cell 5.",
+        "colab_link": "https://colab.research.google.com/drive/xyz",
+    }
+
+
+@REDO
+def test_main_notifies_on_a_successful_redo(redo_case):
+    """Unlike `apply_ready_redo` (SH-19: never notifies on a landed merge), the RUNNER
+    itself DOES notify — the asymmetry is real, not a gap in this test."""
+    req_path, payload, _, result_path = redo_case.write_request(task="P1")
+    redo_case.state["commits"] = "abc1234 redo(P1): fix"
+    redo_case.state["changed"] = ["docs/notes.md"]
+    rc = redo_case.run(req_path)
+    assert rc == 0
+    assert len(redo_case.notes) == 1
+    assert "reworked" in redo_case.notes[0]
+    assert "P1" in redo_case.notes[0]
+
+
+@REDO
+def test_main_returns_1_and_notifies_when_worktree_add_fails(redo_case):
+    req_path, payload, _, _ = redo_case.write_request(task="P1")
+    redo_case.state["worktree_add_rc"] = 1
+    redo_case.state["worktree_add_stderr"] = "fatal: already exists"
+    rc = redo_case.run(req_path)
+    assert rc == 1
+    assert len(redo_case.notes) == 1
+    assert "worktree add failed" in redo_case.notes[0]
+    assert "fatal: already exists" in redo_case.notes[0]
+    assert _claude_calls(redo_case) == []
+    # No _cleanup() call on this path — only the pre-flight branch delete ran.
+    branch = f"redo-{payload['redo_id']}"
+    assert _git_calls(redo_case, "remove") == []
+    assert _git_calls(redo_case, "-D") == [["git", "branch", "-D", branch]]
+
+
+@REDO
+def test_main_aborts_on_a_usage_limit_hint_without_a_commit_mentioned(redo_case):
+    req_path, payload, _, _ = redo_case.write_request(task="P1", dan_id="9")
+    redo_case.state["claude_outputs"] = ["Sorry, you hit your limit for this session."]
+    rc = redo_case.run(req_path)
+    assert rc == 0
+    assert len(redo_case.notes) == 1
+    assert "usage limit" in redo_case.notes[0]
+    assert "/redo 9" in redo_case.notes[0]
+    # Gates never ran: the abort happens before the commit/path gates are checked.
+    assert _git_calls(redo_case, "log") == []
+    assert _git_calls(redo_case, "diff") == []
+    branch = f"redo-{payload['redo_id']}"
+    assert _git_calls(redo_case, "remove") == [
+        ["git", "worktree", "remove", "--force", payload["worktree"]]
+    ]
+    assert _git_calls(redo_case, "-D").count(["git", "branch", "-D", branch]) == 2
+
+
+# =====================================================================================
+# RUNNER (R10): `main()` — the standalone scripts/maestro_selffix.py logic folded in
+#
+# `main()` is new surface, not gated by `maestro_module` markers the way `subject` is:
+# the reference never had it living inside `orchestrator_run.py`, only in the separate
+# `scripts/maestro_selffix.py`. Following "Established conventions" §5 pattern (a), this
+# section defines its own `selffix_runner_subject` fixture (module-import parametrisation,
+# mirroring `conftest.py`'s `_load_legacy` and the `/redo` runner section above) — the
+# maestro branch is the SAME `maestro.selfheal.selffix` module object the tests above
+# already exercise through the shared `subject` fixture, just imported directly here.
+#
+# Unlike `/redo`'s sidecar log (deliberately kept OUTSIDE the worktree), the self-fix
+# runner's log lives INSIDE the worktree it just `git worktree add`ed (`wt /
+# "selffix_impl.log"`, verbatim from the reference) — so the fake `git worktree add`
+# handler below actually creates that directory on disk, the way real git would, instead
+# of a test-only sidecar path. Every directory it creates is removed in teardown.
+# =====================================================================================
+
+
+def _load_legacy_selffix_runner():
+    if LEGACY_REPO is None:
+        pytest.skip(
+            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
+        )
+    scripts = LEGACY_REPO / "scripts"
+    if not (scripts / "maestro_selffix.py").is_file():
+        pytest.skip(f"reference repo not found at {LEGACY_REPO}")
+    env_before = dict(os.environ)
+    sys.path.insert(0, str(scripts))
+    try:
+        mod = importlib.import_module("maestro_selffix")
+    finally:
+        sys.path.remove(str(scripts))
+        os.environ.clear()
+        os.environ.update(env_before)
+    return mod
+
+
+@pytest.fixture(params=["legacy", "maestro"])
+def selffix_runner_subject(request):
+    if request.param == "legacy":
+        return _load_legacy_selffix_runner()
+    return importlib.import_module("maestro.selfheal.selffix")
+
+
+def _selffix_handler(state: dict):
+    """`subprocess.run` replacement for the self-fix runner's git/claude/py_compile
+    calls, dispatched purely on argv[0]/argv[1] — never anything real. `state` is a
+    mutable dict the test populates before `selffix_case.run(...)`:
+
+    `commits` (`git log --oneline` stdout), `changed` (list, joined for `git diff
+    --name-only` stdout — matches the reference's own `.split()`), `worktree_add_rc` /
+    `worktree_add_stderr` (a successful `worktree add` creates the target directory for
+    real, the way real git would, so the runner's own `wt / "selffix_impl.log"` can be
+    opened), `claude_outputs` (consumed one per `claude` invocation, in call order,
+    written into the real log file the reference opens for the agent's stdout),
+    `compile_rc` / `compile_stderr` for the `py_compile` gate.
+    """
+
+    def handler(*args, **kwargs):
+        argv = list(args[0])
+        if argv[0] == "git":
+            if argv[1:3] == ["worktree", "add"]:
+                rc = state.get("worktree_add_rc", 0)
+                if rc == 0:
+                    wt = Path(argv[-2])
+                    wt.mkdir(parents=True, exist_ok=True)
+                    state.setdefault("_created_dirs", []).append(wt)
+                return _completed(returncode=rc, stderr=state.get("worktree_add_stderr", ""))
+            if argv[1] == "log":
+                return _completed(stdout=state.get("commits", ""))
+            if argv[1] == "diff":
+                return _completed(stdout=" ".join(state.get("changed", [])))
+            return _completed()
+        if argv[0] == "claude":
+            outputs = state.setdefault("claude_outputs", [""])
+            text = outputs.pop(0) if outputs else ""
+            fh = kwargs.get("stdout")
+            if fh is not None:
+                fh.write(text)
+            return _completed()
+        # py_compile: [sys.executable, "-m", "py_compile", *pyfiles]
+        return _completed(returncode=state.get("compile_rc", 0),
+                          stderr=state.get("compile_stderr", ""))
+
+    return handler
+
+
+@pytest.fixture
+def selffix_case(selffix_runner_subject, tmp_path, monkeypatch):
+    """Wiring for the `main()` RUNNER tests: fakes every subprocess call behind
+    `_selffix_handler`, redirects `SELFFIX_DIR` into `tmp_path` so a maestro-subject run
+    cannot write `.ready.json` into this real project repo (unlike the legacy subject,
+    whose real repo is already firewalled session-wide — see `tests/conftest.py`), and
+    removes every real worktree directory the fake `git worktree add` handler created."""
+    subject = selffix_runner_subject
+    monkeypatch.setattr(subject, "SELFFIX_DIR", tmp_path / "selffix_dir")
+    notes: list[str] = []
+    # The legacy standalone scripts/maestro_selffix.py predates R4: it has its own local
+    # `notify(msg)` that shells out to NOTIFY, not the `notify_telegram` R4 gave
+    # orchestrator_run.py (and that maestro.selfheal.selffix reuses directly). Patch
+    # whichever name this subject actually calls.
+    if hasattr(subject, "notify_telegram"):
+        monkeypatch.setattr(subject, "notify_telegram", lambda msg: notes.append(msg))
+    else:
+        monkeypatch.setattr(subject, "notify", lambda msg: notes.append(msg))
+    state: dict = {}
+    fake = _fake_subprocess(monkeypatch, subject, _selffix_handler(state))
+
+    def write_request(**overrides):
+        fix_id = overrides.pop("fix_id", None) or f"FX-{tmp_path.name}"
+        payload = {
+            "fix_id": fix_id, "task": "T1", "reason": "boom",
+            "failure_class": "observability", "root_cause": "the root cause",
+            "suggested_fix": "the suggested fix", "target_files": ["scripts/x.py"],
+            "impl_tail": "implementer log tail",
+        }
+        payload.update(overrides)
+        path = tmp_path / f"{fix_id}.request.json"
+        path.write_text(json.dumps(payload), encoding="utf-8")
+        return path, payload
+
+    def run(req_path):
+        monkeypatch.setattr(sys, "argv", ["maestro_selffix.py", str(req_path)])
+        return subject.main()
+
+    box = SimpleNamespace(subject=subject, notes=notes, state=state, argv=fake.calls,
+                          write_request=write_request, run=run,
+                          ready_dir=tmp_path / "selffix_dir")
+    yield box
+    for d in state.get("_created_dirs", []):
+        shutil.rmtree(d, ignore_errors=True)
+
+
+@SELFFIX
+def test_main_returns_1_and_notifies_when_worktree_add_fails(selffix_case):
+    req_path, payload = selffix_case.write_request(task="P1")
+    selffix_case.state["worktree_add_rc"] = 1
+    selffix_case.state["worktree_add_stderr"] = "fatal: already exists"
+    rc = selffix_case.run(req_path)
+    assert rc == 1
+    assert len(selffix_case.notes) == 1
+    assert "worktree add failed" in selffix_case.notes[0]
+    assert "fatal: already exists" in selffix_case.notes[0]
+    assert _claude_calls(selffix_case) == []
+    assert _git_calls(selffix_case, "remove") == []
+    assert _git_calls(selffix_case, "-D") == []
+
+
+@SELFFIX
+def test_main_builds_the_exact_claude_argv_with_no_resume_support(selffix_case):
+    """The self-fix runner never resumes a session — unlike `/ask`/`/redo`, its request
+    has no `uuid` field and its `main()` has no `--resume` branch at all."""
+    req_path, payload = selffix_case.write_request(
+        task="P1", failure_class="orchestrator-logic", root_cause="the RC",
+        suggested_fix="the SF", reason="boom reason")
+    selffix_case.run(req_path)
+
+    (call,) = _claude_calls(selffix_case)
+    argv, kwargs = list(call[0][0]), call[1]
+    assert argv[:4] == ["claude", "-p", "--model", selffix_case.subject.SELF_FIX_MODEL]
+    assert "--resume" not in argv
+    brief = argv[4]
+    assert "the RC" in brief
+    assert "the SF" in brief
+    assert "boom reason" in brief
+    assert "P1" in brief
+    assert kwargs["stderr"] is selffix_case.subject.subprocess.STDOUT
+    assert kwargs["timeout"] == 1800
+
+
+@SELFFIX
+def test_main_aborts_on_a_usage_limit_hint_without_a_commit_mentioned(selffix_case):
+    req_path, payload = selffix_case.write_request(task="P1")
+    selffix_case.state["claude_outputs"] = ["Sorry, you hit your limit for this session."]
+    rc = selffix_case.run(req_path)
+    assert rc == 0
+    assert len(selffix_case.notes) == 1
+    assert "usage limit" in selffix_case.notes[0]
+    # Gates never ran: the abort happens before the commit/path/compile gates run.
+    assert _git_calls(selffix_case, "log") == []
+    assert _git_calls(selffix_case, "diff") == []
+    branch = f"selffix-{payload['fix_id']}"
+    assert _git_calls(selffix_case, "remove") == [
+        ["git", "worktree", "remove", "--force",
+         str(selffix_case.state["_created_dirs"][0])]
+    ]
+    assert _git_calls(selffix_case, "-D") == [["git", "branch", "-D", branch]]
+
+
+@SELFFIX
+def test_main_aborts_with_an_advisory_notify_and_cleanup_when_no_commit_landed(selffix_case):
+    req_path, payload = selffix_case.write_request(task="P1", suggested_fix="do the thing")
+    # state["commits"] defaults to "" — no commit landed.
+    rc = selffix_case.run(req_path)
+    assert rc == 0
+    assert len(selffix_case.notes) == 1
+    assert "produced no commit" in selffix_case.notes[0]
+    assert "do the thing" in selffix_case.notes[0]
+    assert not selffix_case.ready_dir.exists() or list(selffix_case.ready_dir.glob("*")) == []
+    branch = f"selffix-{payload['fix_id']}"
+    assert _git_calls(selffix_case, "remove") == [
+        ["git", "worktree", "remove", "--force",
+         str(selffix_case.state["_created_dirs"][0])]
+    ]
+    assert _git_calls(selffix_case, "-D") == [["git", "branch", "-D", branch]]
+
+
+@SELFFIX
+def test_main_rejects_and_cleans_up_an_out_of_scope_diff(selffix_case):
+    req_path, payload = selffix_case.write_request(task="P1", suggested_fix="the fix")
+    selffix_case.state["commits"] = "abc1234 selffix(P1): partial fix"
+    selffix_case.state["changed"] = ["main_bot.py"]
+    rc = selffix_case.run(req_path)
+    assert rc == 0
+    assert len(selffix_case.notes) == 1
+    assert "REJECTED by path gate" in selffix_case.notes[0]
+    # NOTE: this module reuses `_self_fix_path_ok` for the gate (per the batch-3 task
+    # prompt), whose denied-path wording is "denied path: {fn}" — the standalone
+    # reference runner's own inline `path_ok` instead says "denied path touched: {fn}".
+    # Assert only the wording both share.
+    assert "denied path" in selffix_case.notes[0]
+    assert "main_bot.py" in selffix_case.notes[0]
+    assert "the fix" in selffix_case.notes[0]
+    branch = f"selffix-{payload['fix_id']}"
+    assert _git_calls(selffix_case, "remove") == [
+        ["git", "worktree", "remove", "--force",
+         str(selffix_case.state["_created_dirs"][0])]
+    ]
+    assert _git_calls(selffix_case, "-D") == [["git", "branch", "-D", branch]]
+    assert not selffix_case.ready_dir.exists() or list(selffix_case.ready_dir.glob("*")) == []
+
+
+@SELFFIX
+def test_main_rejects_and_cleans_up_a_changed_py_file_that_fails_to_byte_compile(selffix_case):
+    req_path, payload = selffix_case.write_request(task="P1")
+    selffix_case.state["commits"] = "abc1234 selffix(P1): fix"
+    selffix_case.state["changed"] = ["scripts/x.py"]
+    selffix_case.state["compile_rc"] = 1
+    selffix_case.state["compile_stderr"] = "SyntaxError: invalid syntax"
+    rc = selffix_case.run(req_path)
+    assert rc == 0
+    assert len(selffix_case.notes) == 1
+    assert "failed compile gate" in selffix_case.notes[0]
+    assert "SyntaxError" in selffix_case.notes[0]
+    branch = f"selffix-{payload['fix_id']}"
+    assert _git_calls(selffix_case, "remove") == [
+        ["git", "worktree", "remove", "--force",
+         str(selffix_case.state["_created_dirs"][0])]
+    ]
+    assert _git_calls(selffix_case, "-D") == [["git", "branch", "-D", branch]]
+    assert not selffix_case.ready_dir.exists() or list(selffix_case.ready_dir.glob("*")) == []
+
+
+@SELFFIX
+def test_main_writes_the_ready_file_with_the_exact_fields_on_full_success(selffix_case):
+    req_path, payload = selffix_case.write_request(
+        task="P1", failure_class="transient-infra")
+    selffix_case.state["commits"] = "abc1234 selffix(P1): fix the flake\ndef5678 tweak"
+    selffix_case.state["changed"] = ["scripts/x.py", "docs/notes.md"]
+    rc = selffix_case.run(req_path)
+    assert rc == 0
+
+    ready = json.loads((selffix_case.ready_dir / f"{payload['fix_id']}.ready.json")
+                       .read_text(encoding="utf-8"))
+    assert ready == {
+        "branch": f"selffix-{payload['fix_id']}",
+        "task": "P1",
+        "failure_class": "transient-infra",
+        "summary": "abc1234 selffix(P1): fix the flake  | files: scripts/x.py, docs/notes.md",
+        "changed": ["scripts/x.py", "docs/notes.md"],
+    }
+
+
+@SELFFIX
+def test_main_notifies_on_a_successful_gate_pass(selffix_case):
+    req_path, payload = selffix_case.write_request(task="P1")
+    selffix_case.state["commits"] = "abc1234 selffix(P1): fix"
+    selffix_case.state["changed"] = ["scripts/x.py"]
+    rc = selffix_case.run(req_path)
+    assert rc == 0
+    assert len(selffix_case.notes) == 1
+    assert "P1" in selffix_case.notes[0]
+    assert "passed the gate" in selffix_case.notes[0]
+
+
+@SELFFIX
+def test_main_leaves_the_worktree_in_place_on_a_full_success(selffix_case):
+    """SH-29: unlike every gate-failure path (which calls `git worktree remove` + `git
+    branch -D`), a full gate PASS never cleans up the worktree or branch at all — the
+    orchestrator's merge is expected to do it later, but if merging never happens the
+    worktree lingers on disk indefinitely."""
+    req_path, payload = selffix_case.write_request(task="P1")
+    selffix_case.state["commits"] = "abc1234 selffix(P1): fix"
+    selffix_case.state["changed"] = ["scripts/x.py"]
+    rc = selffix_case.run(req_path)
+    assert rc == 0
+    assert _git_calls(selffix_case, "remove") == []
+    assert _git_calls(selffix_case, "-D") == []
+    wt = selffix_case.state["_created_dirs"][0]
+    assert wt.exists()
+    assert (wt / "selffix_impl.log").exists()
+
+
+@SELFFIX
+def test_main_byte_compile_gate_checks_the_original_repo_not_the_worktree(selffix_case):
+    """SH-27: Gate 3 runs `py_compile` with `cwd=REPO` (the main checkout the worktree
+    branched off), not `cwd=wt` (where the fix actually landed) — so it never actually
+    inspects the self-fix's own changed content. Pinned here by confirming the compile
+    subprocess call's `cwd` is the module's `REPO`, not the runner's worktree."""
+    req_path, payload = selffix_case.write_request(task="P1")
+    selffix_case.state["commits"] = "abc1234 selffix(P1): fix"
+    selffix_case.state["changed"] = ["scripts/x.py"]
+    selffix_case.run(req_path)
+
+    compile_calls = [c for c in selffix_case.argv
+                     if list(c[0][0])[0] not in ("git", "claude")]
+    assert len(compile_calls) == 1
+    args, kwargs = compile_calls[0]
+    argv = list(args[0])
+    assert argv[1:3] == ["-m", "py_compile"]
+    assert argv[3:] == ["scripts/x.py"]
+    assert kwargs["cwd"] == str(selffix_case.subject.REPO)
+    wt = selffix_case.state["_created_dirs"][0]
+    assert kwargs["cwd"] != str(wt)

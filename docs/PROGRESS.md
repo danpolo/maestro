@@ -2017,11 +2017,12 @@ as true.
 
 **State at handoff — nothing committed in AbuAliArchive, everything inspectable and reversible:**
 AbuAliArchive is on branch `maestro-cutover`, `main` untouched. `git status --porcelain` (re-checked
-immediately before stopping): 7 modified (the 4 standing-modified baseline files, unchanged content,
-plus `.gitignore`/`project.yaml`/`scripts/hooks/pre-commit`, this session's deliberate edits) + 14
-untracked (the 5 standing untracked baseline files + 9 new: `adapters/{deploy,healthcheck}.new`,
-`adapters/{eval,latency,smoke,test}`, `docs/{ROADMAP,PROJECT}.md.new`, `launch.sh`,
-`operating_preamble.md.new`, `profiles/`, `systemd/AbuAliArchive-watchdog.service`).
+immediately before stopping, 24 lines total): 7 modified (the 4 standing-modified baseline files,
+unchanged content, plus `.gitignore`/`project.yaml`/`scripts/hooks/pre-commit`, this session's
+deliberate edits) + 17 untracked (the 5 standing untracked baseline files + 12 new:
+`adapters/{deploy,healthcheck}.new`, `adapters/{eval,latency,smoke,test}` (4 files),
+`docs/{ROADMAP,PROJECT}.md.new`, `launch.sh`, `operating_preamble.md.new`, `profiles/` (one
+untracked dir, holding 3 new `.md` files), `systemd/AbuAliArchive-watchdog.service`).
 `.orchestrator/state.json` stat unchanged (`888 1786256976`), `.orchestrator/HALT` unchanged. No
 abort condition at any point this session. **The next session should `cd AbuAliArchive`, confirm
 `git symbolic-ref --short HEAD` is `maestro-cutover` and the diff above still matches, then start at

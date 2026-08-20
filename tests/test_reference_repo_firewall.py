@@ -87,7 +87,11 @@ def test_subprocess_with_cwd_in_the_repo_is_refused():
 
 
 def test_reads_from_the_repo_are_still_allowed():
-    marker = LEGACY_REPO / "scripts" / "orchestrator_run.py"
+    # Not `scripts/orchestrator_run.py`: M5 deletes it as part of the real cutover, so a
+    # marker pinned to it breaks the suite for good the moment that stage lands. `.gitignore`
+    # is a plain top-level file guaranteed to exist for the whole life of any git repo,
+    # cutover or not.
+    marker = LEGACY_REPO / ".gitignore"
     assert marker.is_file()
     with open(marker, "r", encoding="utf-8") as handle:
         assert handle.readline()

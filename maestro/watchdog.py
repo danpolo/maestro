@@ -75,6 +75,16 @@ HALT_FILE     = REPO / ".orchestrator" / "HALT"
 QUESTIONS     = REPO / ".orchestrator" / "questions"
 TMUX_WINDOW   = "orchestrator"
 
+#: Absolute path to the `maestro` console script inside this project's own venv. A bare
+#: `maestro` in the spawned tmux command depends on that project's `.venv/bin` being on
+#: PATH inside whatever environment the tmux *server* was started with — not this
+#: process's — which is not guaranteed (confirmed empirically during a live M5 cutover: a
+#: fresh tmux window in an existing server had no `.venv/bin` on PATH and `which maestro`
+#: failed). Every project installs maestro into `<repo>/.venv` (DESIGN.md
+#: §10), so the absolute path is always resolvable without depending on inherited PATH —
+#: same reasoning as `MAESTRO_REPO` being passed explicitly rather than relied on.
+VENV_MAESTRO  = REPO / ".venv" / "bin" / "maestro"
+
 #: The name that tags an operator-facing alert. `project.name` from `project.yaml`, with
 #: the repository directory name as the fallback — the same derivation `cli.py`'s `doctor`
 #: uses. The reference hardcodes its own project's name in the one alert below.
@@ -140,7 +150,7 @@ def launch_orchestrator() -> None:
     """Spawn `maestro run` in a dedicated tmux window."""
     cmd = (
         f"tmux new-window -t {TMUX_SESSION} -n {TMUX_WINDOW} "
-        f"'cd {REPO} && MAESTRO_REPO={REPO} maestro run'"
+        f"'cd {REPO} && MAESTRO_REPO={REPO} {VENV_MAESTRO} run'"
     )
     subprocess.run(cmd, shell=True)
     append_journal("orchestrator_relaunched", f"window={TMUX_WINDOW}")
@@ -155,7 +165,7 @@ def ensure_resume_job(resets_at: float) -> None:
         return
     resume_cmd = (
         f"/usr/bin/tmux new-window -t {TMUX_SESSION} -n 'cron-orch-resume' "
-        f"'cd {REPO} && MAESTRO_REPO={REPO} maestro run'"
+        f"'cd {REPO} && MAESTRO_REPO={REPO} {VENV_MAESTRO} run'"
     )
     dt_local  = datetime.fromtimestamp(resets_at)
     cron_line = f"{dt_local.minute} {dt_local.hour} {dt_local.day} {dt_local.month} * {resume_cmd}\n"

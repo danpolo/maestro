@@ -1282,7 +1282,10 @@ def test_handle_ask_writes_a_request_file_and_launches_a_dedicated_tmux_window(
 
     (args, kwargs), = launcher
     assert args[0].startswith("tmux new-window -t agents -n ask-P12C ")
-    assert "maestro_ask.py" in args[0]
+    if _is_maestro(subject):
+        assert "-m maestro.hitl.ask" in args[0]
+    else:
+        assert "maestro_ask.py" in args[0]
     assert kwargs == {"shell": True, "check": True}
 
 
@@ -1431,7 +1434,10 @@ def test_handle_redo_writes_a_request_file_and_launches_the_redo_helper(
 
     (args, kwargs), = launcher
     assert args[0].startswith("tmux new-window -t agents -n redo-P12C ")
-    assert "maestro_redo.py" in args[0]
+    if _is_maestro(subject):
+        assert "maestro.selfheal.redo" in args[0]
+    else:
+        assert "maestro_redo.py" in args[0]
     assert kwargs == {"shell": True, "check": True}
 
 

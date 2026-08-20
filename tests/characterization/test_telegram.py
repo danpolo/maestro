@@ -942,8 +942,11 @@ def test_tg_api_does_not_validate_the_method_name(subject, sandbox, monkeypatch)
 def test_danreq_builds_the_send_script_command(subject, sandbox, monkeypatch):
     run = _stub_run(monkeypatch)
     subject._danreq("Ship it?", ["yes", "no"])
-    assert run.argvs[0] == [
-        str(subject.VENV_PYTHON), str(subject.SEND_DANREQ),
+    if _is_maestro(subject):
+        prefix = [str(subject.VENV_PYTHON), "-m", "maestro.hitl.dan_request"]
+    else:
+        prefix = [str(subject.VENV_PYTHON), str(subject.SEND_DANREQ)]
+    assert run.argvs[0] == prefix + [
         "--type", "decision",
         "--question", "Ship it?",
         "--options", "yes,no",

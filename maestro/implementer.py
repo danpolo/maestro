@@ -52,7 +52,6 @@ WORKSPACES            = _PATHS.workspaces
 QUESTIONS_DIR         = REPO / ".orchestrator" / "questions"
 SYS_PROMPT            = REPO / "orchestrator" / "profiles" / "implementer_sys.md"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
-SEND_DANREQ           = REPO / "scripts" / "send_dan_request.py"
 
 # ── B12: pre-implementation question gating ──
 # A task may declare a `questions:` block in its ROADMAP yaml. Each question must
@@ -121,7 +120,7 @@ def _ask_question(task_id: str, q: dict) -> None:
     req_id = _question_req_id(task_id, q["id"])
     if (QUESTIONS_DIR / f"{req_id}.json").exists():
         return  # already asked — waiting for the answer
-    cmd = [str(VENV_PYTHON), str(SEND_DANREQ),
+    cmd = [str(VENV_PYTHON), "-m", "maestro.hitl.dan_request",
            "--type", "manual-task", "--id", req_id,
            "--question", f"[{task_id} · {q['id']}] {q['prompt']}"]
     if q.get("options"):

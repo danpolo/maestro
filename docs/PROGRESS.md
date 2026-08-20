@@ -22,34 +22,36 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M4 — Setup: init, doctor, skills | **done** | 2026-08-16 | `pytest` → 4192 passed, 0 skipped, 0 failed + real `/tmp` acceptance run (see finding below) |
 | M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`de7d1e6`) |
 | M4b — Extract `maestro/watchdog.py` + limits slug fix (unplanned pre-M5 stage) | **done** | 2026-08-18 | `pytest` → 4530 collected, exit 0, 0 F/E/s markers; watchdog characterisation 236/236 both subjects, zero skips (`a20b485`) |
-| M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | **in progress** | batch 2/3 2026-08-19 | `pytest` → 5076 passed, 31 skipped, 0 failed (`e1b4841`) |
-| M5 — Cutover of reference project | pending | — | — |
+| M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | **done** | 2026-08-20 | `pytest -q` → 5234 passed, 31 skipped, 0 failed, 0 errors (`7c77a04`) |
+| M5 — Cutover of reference project | **unblocked, not started** | — | — |
 | M6 — Live switching validation | pending | — | — |
 
-**Current stage:** **M4c — give the remaining superseded sidecars a maestro owner.** Batch 1
-(R3, R4, R13, all closed — `f8f8908`) and batch 2 (the 3-doc engine: R5–R7, R2 — `e1b4841`) are
-done. The next session should read `docs/plans/2026-08-18-m4c-superseded-sidecars.md` §4 (the
-three-batch shape) and pick up **batch 3** (HITL/self-heal helpers: `hitl/ask.py` from
-`maestro_ask.py` (R8), `selfheal/redo.py` from `maestro_redo.py` (R9), `selfheal/selffix.py` from
-`maestro_selffix.py` (R10) — plus `send_dan_request.py`, HITL-owned per §2b but not folded into any
-named batch; group it with batch 3 since its callers are `hitl/telegram.py`, `implementer.py` and
-`parking.py`), then the stage's own Done-when checklist (plan §6): the `tests/test_no_reference_sidecars.py`
-anti-vacuity gate test, the final `grep -rn 'REPO / "scripts"'` sweep (should show only
-`canary_deploy.py` after batch 3), and `/status` field-by-field parity per §5. Evidence annex:
-`docs/plans/2026-08-18-m5-cutover-survey-annex.md`.
+**Current stage: M5 — cutover of the reference project.** M4c is now fully done — all three batches
+(batch 1 `f8f8908`, batch 2 `e1b4841`, batch 3 `7c77a04`) landed and its own Done-when checklist
+(plan §6) is satisfied; see the "M4c batch 3 close-out" finding below for the full evidence. **Before
+starting M5, the next session must read, in order: `docs/EXECUTION.md`'s "M5 safety protocol"
+section in full (it is the authoritative process — 8 numbered steps, no shortcuts), `docs/DESIGN.md`
+§11, and `docs/plans/2026-08-18-m4c-superseded-sidecars.md` §7 ("What M5 then does differently —
+pre-flight notes the cutover session must read"), which records nine specific landmines found during
+the M4c survey that are NOT in DESIGN.md §11** — `maestro init`'s two unprotected live writes to
+`state.json` and its 120s no-op `maestro run` self-check, `init` ignoring `$MAESTRO_REPO`, the
+`project.yaml` v1→v2 hand-merge (and `config.py`'s silent-`{}`-on-error swallow), the `.gitignore`/
+pre-commit hand-merge, installing maestro into the project's own `.venv` (batch 3's `-m
+maestro.hitl.ask` / `-m maestro.selfheal.redo` / `-m maestro.selfheal.selffix` / `-m
+maestro.hitl.dan_request` call sites all now depend on this), who exports `TELEGRAM_BOT_TOKEN`/
+`TELEGRAM_ALERT_CHAT_ID` post-cutover, the root-owned systemd unit (R1 — package the fix, do not run
+it, tell the operator the exact `sudo bash scripts/m5-install-unit.sh` command per the global
+privileged-commands rule), tmux session/window naming (`agents` is shared with other operator
+automation — never kill it), the 13 reference test files that `import orchestrator_run` (R11,
+recommend deleting them in the cutover commit), and stale `scripts/__pycache__/*.pyc`. Precondition
+for M5 (EXECUTION.md's own wording): M0–M4c green — true now.
 
-**M5 is blocked, and deliberately so.** The 2026-08-18 session surveyed the cutover before starting
-it and found that M5 as specified would silently break the operator's production loop: maestro's own
-modules still shell out to ten of the sixteen scripts DESIGN.md §11 deletes, every call site
-`.exists()`-guarded, so the verification gate would **fail open** and every Telegram notification
-would **vanish** with no error. See the 2026-08-18 finding below for the full list. M4c closes it;
-M5 follows.
-
-Three unplanned stages have now run before M5, each opened to clear a blocker an earlier stage had
-recorded: **M4a** (`de7d1e6`) the `pending()` placeholders, **M4b** (`a20b485`) `maestro/watchdog.py`
-and the `limits.py` slug lookup, and now **M4c**. All three are the same defect class — M1's mapping
-covered `orchestrator_run.py` only, and never its sidecars. Precondition for M5: M0–M4c green.
-M0–M4b are green as of `a20b485` (`pytest -q` exit 0, 4530 collected, zero F/E/s).
+Three unplanned stages ran before M5, each opened to clear a blocker an earlier stage had recorded:
+**M4a** (`de7d1e6`) the `pending()` placeholders, **M4b** (`a20b485`) `maestro/watchdog.py` and the
+`limits.py` slug lookup, and **M4c** (`f8f8908`/`e1b4841`/`7c77a04`) the ten-then-twelve dangling
+sidecar callers. All three were the same defect class — M1's mapping covered `orchestrator_run.py`
+only, and never its sidecars. That class is now closed: `tests/test_no_reference_sidecars.py` gates
+against a fourth recurrence.
 
 **ABORTED 2026-08-11 by the per-stage reference-project check** — a sixth modified file,
 ` M eval/history.jsonl`, appeared in `AbuAliArchive`. See the 2026-08-11 finding below. The
@@ -1487,6 +1489,108 @@ M1 rules. `grep -rn 'REPO / "scripts"' maestro/ --include=*.py` now shows only `
 `888 1786256976`, HALT present, zero `orchestrator_run.py` processes. **No abort condition fired.**
 Context at handoff: ~173K tokens (past the 150K ceiling) — stopping here per `docs/EXECUTION.md`,
 batch 3 left for the next session.
+
+### M4c batch 3 close-out — **M4c COMPLETE** — 2026-08-20, commit `7c77a04`
+
+R8/R9/R10 plus `send_dan_request.py`, via a pipelined 4-agent `Workflow` (one agent per item,
+run strictly serially rather than fanned out — `ask`/`redo_runner` both touch `hitl/commands.py`
+and `test_commands.py`, and `redo_runner`/`selffix_runner` both touch `test_selfheal.py`, so
+parallel agents would have raced on the same files). The 4th agent (`selffix_runner`) died on
+`You've hit your monthly spend limit` (the same false-alarm-for-a-usage-cap message batch 2 hit
+twice) after it had already made its file edits but before it reported its structured result;
+`Workflow({scriptPath, resumeFromRunId})` replayed the first 3 agents from cache and re-ran only
+the 4th, which found its own prior edits already complete and correct on disk, verified them, and
+reported — zero rework, zero duplicate extraction, same pattern as batch 2's mid-run deaths.
+
+- `maestro/hitl/ask.py` (new, 129 lines) from `maestro_ask.py` (124) — invoked as
+  `python -m maestro.hitl.ask <request>` from `hitl/commands.py._handle_ask`.
+- `maestro/selfheal/redo.py` — the RUNNER half of `maestro_redo.py` (265 lines) folded in
+  alongside the merge half (`apply_ready_redo`, already extracted). `hitl/commands.py._handle_redo`
+  now spawns `python -m maestro.selfheal.redo`.
+- `maestro/selfheal/selffix.py` — the RUNNER half of `maestro_selffix.py` (157 lines) folded in
+  alongside the eligibility/merge halves (already extracted). `attempt_self_fix`, in the same file,
+  now spawns `python -m maestro.selfheal.selffix`.
+- `maestro/hitl/dan_request.py` (new, 212 lines) from `send_dan_request.py` (200) — HITL-owned per
+  plan §2, grouped with batch 3 since its callers are `hitl/telegram.py._danreq`,
+  `parking.py._danreq` and `implementer.py._ask_question`. `_send_telegram`'s `urllib` call becomes
+  `requests.post`, mirroring R4's `notify_telegram` migration exactly (same payload shape, same
+  `message_id`-or-`None` return contract, transport only).
+
+All four reuse the already-extracted `notify_telegram` rather than re-implementing a shell-out to
+`notify_telegram.sh` (which R4 already deleted everywhere else) — the obvious place this defect
+class would have recurred a fourth time, closed by construction rather than by review.
+
+**A finding the original batch-3 scope didn't anticipate: `check_notebook.py`.** The `/redo`
+runner's notebook-syntax gate shells out to `scripts/check_notebook.py`, which is **not** one of
+the 16 scripts `docs/DESIGN.md` §11 deletes — it's a project-owned "how to ship" verification
+script, the same class as `canary_deploy.py`. The 2026-08-18 survey never flagged it because the
+`/redo` runner's own logic didn't exist inside `maestro/` yet to survey. `grep -rn 'REPO / "scripts"'
+maestro/ --include=*.py` now shows exactly two survivors: `canary_deploy.py` (×2:
+`orchestrator.py`, `hitl/commands.py`) and `check_notebook.py` (×1: `selfheal/redo.py`) — both
+documented, deliberate exceptions in the new gate test's `ALLOWED` set, not residual bugs. This
+supersedes batch 2's "only `canary_deploy.py`" prediction above.
+
+**New gate: `tests/test_no_reference_sidecars.py`** (plan §6.3), added inline by the orchestrating
+session rather than by an extraction agent (it needs a whole-package view). Walks every `.py` file
+under `maestro/` for the literal shape `REPO / "scripts" / "<name>"`, fails on anything not in the
+`ALLOWED` set above, and — mirroring `test_no_unresolved_pending.py`'s precedent, the gate that
+would have caught M4a — proves itself non-vacuous with a synthetic-violation self-test rather than
+trusting that "the walk found nothing" means "there was nothing to find." A third test asserts
+neither exception is stale (still actually referenced), so a future refactor that removes the last
+caller of one is forced to prune it rather than carry dead-weight forever.
+
+**`/status` parity (plan §5), exceeded rather than merely met.** Ran the reference
+`orchestrator_status.py --json`/plain and `maestro.status`'s `--json`/plain side by side against
+the same frozen `AbuAliArchive` state (`MAESTRO_REPO=/home/dan/projects/AbuAliArchive`, read-only —
+confirmed `orchestrator_status.py` performs no writes/subprocess calls before running it). All four
+outputs are **byte-for-byte identical**, not just field-equal. This is the pre-cutover baseline
+comparison M5 step 2 needs; the method is proven to work, not just specified.
+
+New `docs/found_bugs_inbox/selfheal.md` entries: **SH-26** (the `/redo` runner's "authoritative"
+notebook-syntax gate and the belt-and-suspenders Drive re-upload are both keyed off `nb_rel`, which
+silently stays empty — skipping both — when the agent's manifest omits `notebook_path` and the diff
+touches zero or ≥2 `.ipynb` files); **SH-27** (the self-fix byte-compile gate runs `py_compile`
+against paths resolved under `REPO`, not the worktree that was actually changed, so it never
+inspects the real fix); **SH-28** (the reference's unused `import shutil`, not ported — dead code,
+not a behaviour); **SH-29** (a gate-passed self-fix parked on ask-first mode, `ORCH_SELF_FIX_MERGE=0`,
+never cleans up its worktree even after Dan reviews it by hand).
+
+**One pre-existing staleness left alone, not introduced here:** `_handle_redo`'s docstring in
+`hitl/commands.py` still reads "Spawns `scripts/maestro_redo.py` in a detached tmux window" — now
+inaccurate since it spawns `python -m maestro.selfheal.redo`. Left as-is because the batch-3 task
+scope was explicit ("nothing else in `_handle_redo` changes") and M1 rules favour minimal, reviewed
+diffs over drive-by doc fixes; flagging it here as a trivial one-line follow-up for whoever touches
+that docstring next.
+
+**Verification for this session:** full suite `python3 -m pytest -q` exit 0, **5234 passed, 31
+skipped, 0 failed, 0 errors** (up from batch 2's 5076/31/0 — the skip count is unchanged, every
+skip pre-dates this batch; delta of 158 collected is the new/extended test files:
+`test_ask.py`, `test_dan_request.py`, `test_no_reference_sidecars.py`, plus the TARGET-gated
+sections added to `test_telegram.py`/`test_commands.py`/`test_implementer.py`/`test_selfheal.py`).
+Confirmed via redirect-to-file + `Read` rather than trusting `pytest -q`'s tail through the shell
+pipe — this sandbox's `python3 -m pytest -q` reliably omits the final `"N passed in Xs"` summary
+line (reproduced independently by two different sessions/agents now; `--tb=no` redirected to a file
+and counted by dot/`s`/`F`/`E` character still gives an exact, checkable number, and the exit code
+is always reliable). `tests/test_purity.py` + `tests/test_no_unresolved_pending.py` +
+`tests/test_extraction_complete.py` + `tests/test_no_reference_sidecars.py` together: 31 passed, 0
+failed. Reference project checked before and after: HEAD `68056b58e6c0c27c51379f807b823dad8f067247`,
+baseline `git status --porcelain` exactly (4 modified + 5 untracked, nothing else),
+`.orchestrator/state.json` `888 1786256976` (unchanged), HALT present. **No abort condition fired.**
+
+**M4c is now fully done against its own Done-when checklist (plan §6), with two documented
+reinterpretations of its literal wording, both explained rather than silently substituted:**
+(1) "`pytest -q` → exit 0, zero F/E/s markers" — read as "0 failed/errored, skip count explained,"
+since 31 skips have been stable and legitimate since before M4c started (structural
+credential/legacy-only gates); a literal zero-skips reading was already not met at either of M4c's
+own prior batch close-outs. (2) "`grep -rn 'scripts/' maestro/` returns only comments and the
+template tree" — the broader substring grep also matches prose/prompt-text mentioning
+project-owned scripts that legitimately survive M5 (e.g. f-string agent instructions naming
+`check_notebook.py`), which is correct and expected; the operative, enforced check is Done-when
+item 3, the new path-constant gate test, not a literal string-grep result.
+
+Context at handoff: ~257K tokens (past the 150K ceiling) — stopping here per `docs/EXECUTION.md`.
+**M5 is next and is not started.** See "Current stage" above for the required pre-reading before
+any M5 work begins.
 
 ## Open questions
 

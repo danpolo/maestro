@@ -26,6 +26,15 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M5 — Cutover of reference project | **in progress** — safety-protocol steps 1–6 done (HALT sentinel removed, `launch.sh` run for real, watchdog + orchestrator both live under the new maestro implementation, `/status` verified byte-identical to the pre-cutover capture); the "one supervised task runs end to end" sub-criterion of step 6 is **open, not failed** — the live production queue is genuinely `idle_gated` (TUNE2, LAT1), identical to its pre-cutover state, blocked on a human-scoped dependency (`EVAL2`, timed out 2026-06-26, never resolved) that this build must not touch. Step 7 (rollback) not triggered — no verification failure occurred. Step 8 (never end halted) satisfied: both processes confirmed live by PID. | — | — |
 | M6 — Live switching validation | pending — blocked on M5's open sub-criterion above | — | — |
 
+**Operator decision, 2026-08-20 (recorded by Dan, not by an automated session): option (c).**
+Authorising a one-off synthetic/scratch task on `AbuAliArchive`, analogous to M2's forced-switch
+acceptance test, to exercise M5's "one supervised task runs end to end" Done-when without touching
+the `EVAL2` dependency itself. Options (a) and (b) from the Open Questions section below were not
+chosen. **This does not design or execute the task** — the next build-chain session should design
+a minimal, reversible scratch task appropriate for the live `AbuAliArchive` project (following
+`docs/EXECUTION.md`'s safety protocol throughout, same rigor as every M5 step so far), run it,
+verify it completes end to end, and record the result here before M5 can move to `done`.
+
 **Update, 2026-08-20 (eleventh session): M5 live cutover executed — the loop is running on the new
 maestro implementation for the first time.** HALT sentinel removed, `bash launch.sh` run for real,
 watchdog (PID confirmed) launched the orchestrator (PID confirmed) in the shared `agents` tmux
@@ -2506,14 +2515,13 @@ Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the a
   `project.yaml`'s `thresholds:`. Note `docs/FOUND_BUGS.md` #165: "last line changed" means a loop
   that repeats an identical event looks frozen.
 - **M4** — Should `upcoming.py` explanation generation be backend-agnostic or pinned to one role?
-- **M5 — operator decision needed, not resolvable by the build:** the live cutover is running
-  correctly (see the 2026-08-20 eleventh-session finding — `/status` and journal both byte-identical
-  to pre-cutover) but `TUNE2`/`LAT1`, the only two launchable production tasks, are both blocked on
-  `EVAL2`, which timed out on 2026-06-26 and was never resolved. So M5's "one supervised task runs end
-  to end" Done-when cannot be exercised on real production work without either (a) the operator
-  resolving/removing the `EVAL2` dependency through the project's own normal process, (b) the operator
-  explicitly deciding the demonstrated correctness (status + journal match) satisfies the spirit of
-  the Done-when even without a task actually completing, given the queue's genuinely-idle state was
-  called out in `docs/DESIGN.md` §11 as expected at cutover time, or (c) the operator authorising a
-  one-off synthetic/scratch task on AbuAliArchive analogous to M2's forced-switch acceptance test. The
-  build will not pick one of these unilaterally — flagged per EXECUTION.md's judgement-call rule.
+- ~~**M5 — operator decision needed, not resolvable by the build:**~~ **DECIDED 2026-08-20 by Dan:
+  option (c).** The live cutover is running correctly (see the 2026-08-20 eleventh-session finding —
+  `/status` and journal both byte-identical to pre-cutover) but `TUNE2`/`LAT1`, the only two
+  launchable production tasks, are both blocked on `EVAL2`, which timed out on 2026-06-26 and was
+  never resolved. Rather than (a) resolving/removing the `EVAL2` dependency, or (b) declaring the
+  demonstrated correctness sufficient without a task completing, the operator authorised (c): a
+  one-off synthetic/scratch task on AbuAliArchive analogous to M2's forced-switch acceptance test.
+  **Not yet executed** — see the "Operator decision, 2026-08-20" note near the top of this file. The
+  next build-chain session should design and run that scratch task, following `docs/EXECUTION.md`'s
+  safety protocol, before M5 can be marked done.

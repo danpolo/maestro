@@ -2332,6 +2332,50 @@ present, journal shows continuous `idle_gated` polling every ~10 minutes with no
 `04:52:34Z`, `maestro status` unchanged, `git status --porcelain` and HEAD unchanged. The loop
 survived the reset untouched. Nothing to recover.
 
+### Session 2026-08-20 (twelfth session) — re-verified, nothing changed, chain should stop spinning on this blocker
+
+Read the eleventh session's handoff fresh, per the standing discipline, then re-verified everything
+independently rather than trusting the prior numbers:
+
+- AbuAliArchive: branch `maestro-cutover` at `9e5c7ef` (unchanged), `git status --porcelain` still
+  exactly the 9 baseline entries (4 standing-modified + 5 untracked), nothing new. `.orchestrator/
+  state.json` `953 1787190129` — size/mtime advancing as expected from the live loop's own writes,
+  not damage (per the eleventh session's note that this is now the correct baseline behaviour).
+  `.orchestrator/HALT` correctly absent. `maestro status`: `Phase: LAT1 (in_progress)`, `In-flight: 0`,
+  `Halted: False`, `Paused: False`, `Parked: TUNE2, LAT1` — byte-identical to the eleventh session's
+  reading. Watchdog PID `3452298` and orchestrator PID `3452305` — the **same** PIDs as the eleventh
+  session recorded, both still alive via `ps -p`, `.venv/bin/maestro` absolute-path form confirmed.
+  `AbuAliArchive-watchdog` tmux session present (1 window), `agents` tmux session still has its
+  `orchestrator` window (2 windows total), not disturbed further. Journal: continuous `idle_gated`
+  polling every ~10 min with no gap through `05:02:35Z`, same message text, same gating reason
+  (`TUNE2,LAT1`). `docs/ROADMAP.md`'s TUNE2/LAT1 entries unchanged. No abort condition.
+- **No operator decision has been recorded anywhere** on the three options `PROGRESS.md`'s Open
+  Questions section already lists (resolve/remove `EVAL2`'s dependency, declare the demonstrated
+  correctness sufficient, or authorise a scratch task). Checked for any new handoff file, note, or
+  edit since the eleventh session's commit — none found.
+- **maestro repo itself: clean, HEAD unchanged, nothing to commit on the build side either.**
+
+**Judgement call for this session, flagged for review:** M5's remaining sub-criterion cannot be
+progressed by another automated session — it was already correctly identified as requiring operator
+authority, and re-confirming an unchanged, healthy, already-verified state adds no new information.
+Writing a fresh near-duplicate Finding every relaunch would keep the driver (`scripts/run_overnight.sh`
+/ `maestro-watchdog.timer`) spinning up sessions indefinitely at real cost with zero chance of
+progress until the operator acts out of band — exactly the kind of unbounded loop
+`docs/EXECUTION.md`'s context-discipline and conservative-judgement rules exist to prevent elsewhere.
+**Instruction to the next automated session in this chain:** re-verify independently as always (never
+skip that), but if the result is materially identical to this entry — same PIDs or a clean successor
+with the same shape, same `idle_gated` pattern, still no operator decision recorded — do **not** add
+another "still waiting" Finding. Leave `docs/PROGRESS.md` byte-for-byte unchanged instead, so the
+driver's own documented safeguard ("stops on its own if two consecutive sessions leave `PROGRESS.md`
+unchanged") can do its job. Only write a new Finding here once something actually changes: an
+operator decision recorded, a state drift, an abort condition, or genuine new information.
+`PROGRAMME-STATUS` stays `IN-PROGRESS` — M5 is not complete and no abort condition has fired, so
+neither `COMPLETE` nor `ABORTED` would be accurate — but the operator should read this note as: **the
+chain will keep relaunching every ~20 minutes (via `maestro-watchdog.timer`) with nothing to show for
+it until you decide (a), (b), or (c) above.** If you'd rather it stop trying, pause
+`maestro-build.service`/`maestro-watchdog.timer` yourself; this build will not do that unilaterally
+either, since silencing its own monitoring is a bigger decision than the one it's actually blocked on.
+
 ## Open questions
 
 Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the answer here.

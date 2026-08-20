@@ -33,8 +33,14 @@ tmux kill-session -t "$SESSION" 2>/dev/null || true
 # reach the watchdog and the `maestro run` it launches — the reference implementation's
 # `orchestrator_run.py` did this at import time via `load_dotenv(REPO/".env", override=True)`;
 # nothing in maestro replaces that automatically, so this launcher must.
+#
+# Bare `maestro` deliberately not used: a new tmux session/window's PATH comes from
+# whatever environment the tmux *server* was started with, not this script's — not
+# guaranteed to include this project's `.venv/bin` (confirmed empirically during a
+# live M5 cutover). The absolute path to this project's own venv entrypoint is
+# always resolvable, so `maestro/watchdog.py`'s own tmux spawns use the same fix.
 tmux new-session -d -s "$SESSION" -n main -c "$REPO_PATH" \
-    "set -a; [ -f '$REPO_PATH/.env' ] && source '$REPO_PATH/.env'; set +a; MAESTRO_REPO='$REPO_PATH' maestro watchdog"
+    "set -a; [ -f '$REPO_PATH/.env' ] && source '$REPO_PATH/.env'; set +a; MAESTRO_REPO='$REPO_PATH' '$REPO_PATH/.venv/bin/maestro' watchdog"
 
 # Block here; systemd tracks this shell as the "service process". When `maestro
 # watchdog` exits (clean stop or crash) the session disappears and this loop ends.

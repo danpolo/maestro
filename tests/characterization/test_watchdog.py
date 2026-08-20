@@ -651,6 +651,13 @@ def test_launch_orchestrator_runs_the_launcher_from_the_repo(wd, box, runs, caps
     if not _is_maestro(wd):
         assert str(wd.VENV_PYTHON) in command
         assert str(wd.LAUNCHER) in command
+    else:
+        # A bare `maestro` depends on the tmux *server*'s PATH, not this process's — not
+        # guaranteed to include this project's `.venv/bin` (found during a live M5
+        # cutover). The spawned command must use the absolute venv path instead.
+        assert str(wd.VENV_MAESTRO) in command
+        assert str(wd.REPO / ".venv" / "bin" / "maestro") in command
+        assert "'maestro run'" not in command
 
 
 def test_launch_orchestrator_journals_and_prints(wd, box, runs, capsys):
@@ -740,6 +747,8 @@ def test_ensure_resume_job_command_relaunches_the_loop_in_tmux(wd, runs, capsys)
     assert "cron-orch-resume" in written
     assert f"-t {wd.TMUX_SESSION}" in written
     assert f"cd {wd.REPO} &&" in written
+    if _is_maestro(wd):
+        assert str(wd.VENV_MAESTRO) in written
 
 
 def test_ensure_resume_job_keeps_existing_crontab_entries(wd, runs, capsys):

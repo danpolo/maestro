@@ -114,9 +114,14 @@ def test_launch_sh_tmpl_runs_the_watchdog_not_the_orchestrator_loop():
     command_lines = [ln for ln in text.splitlines() if not ln.lstrip().startswith("#")]
     body = "\n".join(command_lines)
 
-    assert "maestro watchdog" in body
+    assert "watchdog" in body
     assert "maestro run" not in body
-    assert "MAESTRO_REPO='$REPO_PATH' maestro watchdog" in body
+    # Absolute path to this project's own venv entrypoint, not a bare `maestro` — a new
+    # tmux session's PATH comes from the tmux *server*'s environment, not this script's,
+    # and is not guaranteed to include `.venv/bin` (found during a live M5 cutover:
+    # `which maestro` failed inside a freshly spawned window of an existing tmux
+    # server). See the matching fix in `maestro/watchdog.py`'s own tmux spawns.
+    assert "MAESTRO_REPO='$REPO_PATH' '$REPO_PATH/.venv/bin/maestro' watchdog" in body
 
 
 def test_launch_sh_tmpl_still_wraps_tmux_and_blocks_for_type_simple():

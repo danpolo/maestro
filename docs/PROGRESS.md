@@ -2376,6 +2376,113 @@ it until you decide (a), (b), or (c) above.** If you'd rather it stop trying, pa
 `maestro-build.service`/`maestro-watchdog.timer` yourself; this build will not do that unilaterally
 either, since silencing its own monitoring is a bigger decision than the one it's actually blocked on.
 
+### Session 2026-08-20 (thirteenth session) — live incident: self-update killed the running loop, root-caused and fixed
+
+Started with the routine re-verification the twelfth session asked for, but this time the result was
+**not** identical: the reference project's live orchestrator was actively crash-looping, not
+idle-polling. This is the first genuine state change since the eleventh session's cutover, so — per
+the twelfth session's own instruction — a new Finding, not a silent no-op.
+
+**What was found, in the order discovered:**
+
+1. `git status --porcelain` in `AbuAliArchive`: still exactly the 9 baseline entries, no drift.
+   `.orchestrator/state.json`: `953 1787190129` — **byte-identical to the twelfth session's own
+   reading**, meaning no runtime progress had happened since. `.orchestrator/HALT` correctly absent.
+   `maestro status`: `Phase: LAT1 (in_progress)`, `Halted: False`, `Paused: False` — matched too.
+   On paper, indistinguishable from "still fine."
+2. But watchdog PID `3452298` was alive while the *orchestrator* PID the twelfth session recorded
+   (`3452305`) was gone, and `tmux list-sessions` had no `agents` session at all (the shared session
+   `orchestrator.main()` hard-requires — `maestro/orchestrator.py:923-926`, `maestro/worktree.py:21`).
+   The journal's tail showed `idle_gated` polling stop cleanly at `05:02:35Z` and, starting
+   `05:04:59Z`, `orchestrator_relaunched` events from `B3-watchdog` every exactly 30s with nothing
+   else between them — a crash loop, not a stall (the 20-minute/3-strike stall-HALT never applied;
+   each relaunch attempt failed and died in under 30s).
+3. Foreground reproduction (`maestro run` in `AbuAliArchive`, safe — same command the watchdog already
+   runs) gave the answer directly: `[ERROR] tmux session 'agents' not found.`, exit 1, before the
+   event loop even starts. `maestro/cli.py`'s `_ensure_agents_tmux_session()` self-heals this — but
+   it is wired only into `init`'s one-off acceptance check, never into `run`/`orchestrator.main()`
+   (confirmed by reading both call sites). So once `agents` is gone, the watchdog can relaunch forever
+   and never recover on its own.
+4. **Root cause.** `~/.maestro/versions/` gained a new worktree, `6ae436d...` (this repo's own
+   `docs(M5): live cutover executed…` commit), materialized at `05:02:35Z` — the same instant the
+   `idle_gated` polling stopped. `maestro/selfupdate.py`'s `maybe_self_update()` — called from
+   `orchestrator.py`'s idle branch on every throttled idle tick — treats any new `HEAD` in this repo
+   as a self-update candidate and runs `self_test()`: the **full `pytest` suite**, synchronously, in
+   the *same process* as the live orchestrator loop, with **no isolation from this machine's real
+   tmux server**. `tests/test_cli.py`'s `test_run_requires_the_shared_agents_tmux_session` used bare
+   `tmux kill-session -t agents` to prove `main()`'s precondition — against the literal, shared,
+   default-socket "agents" session, the same one the live orchestrator process was itself running
+   inside of. `tmux kill-session` SIGHUPs every pane in the session, including the one running
+   `self_test()`'s `pytest` subprocess (a child of the live orchestrator) — killing it, and the
+   process tree above it, **before the test's own `finally:` restore could execute**. No
+   `self_update_adopted`/`self_update_held` journal entry was ever written for `6ae436d`, consistent
+   with the process dying mid-test rather than reaching a verdict. This is a bug in maestro's own test
+   suite, not the reference implementation — in scope to fix now, unlike the through-M1 "record, don't
+   fix" rule for reference-code surprises.
+5. **This is not a one-off.** `maybe_self_update()` re-evaluates `HEAD` vs. the recorded
+   `maestro_version` (still `4d5afc0` — adoption never completed) on every idle tick, and a fresh
+   orchestrator process re-attempts it almost immediately after each restart. Every relaunch was
+   another chance to re-kill `agents` the moment it re-existed, which is exactly what was observed:
+   recreating the session (`tmux new-session -d -s agents -n main`, an empty, code/data-free
+   infrastructure action — nothing in `AbuAliArchive`'s repo or `.orchestrator/` state touched) let the
+   watchdog relaunch cleanly and the loop resumed normal `idle_gated` polling each time, but it died
+   again 2-3 idle ticks later as self-update kept retrying the same still-broken candidate (observed
+   materializing a further worktree for `c125112`, this repo's HEAD at session start, at `05:11Z`,
+   with the same fatal effect). Recreating the session alone could not be the fix — it would have
+   repeated indefinitely, once per idle cycle, all night.
+6. **Fix, verified before committing:** `tests/test_cli.py`'s test now runs entirely on a private tmux
+   server (`tmux -L <per-test-socket>`), never the default one. `TMUX_TMPDIR` was tried first and
+   **does not** isolate the server on this machine's tmux build — verified empirically (a session
+   created under a distinct `TMUX_TMPDIR` was still visible, and killable, via a plain unqualified
+   `tmux` call); `-L` was verified to actually isolate before relying on it. `orchestrator.main()`'s
+   own `tmux has-session` call takes no `-L` of its own, so the subprocess under test gets a
+   `PATH`-shadowing `tmux` wrapper that always inserts the test's `-L` socket — the wrapper execs the
+   *real* tmux by absolute path (`shutil.which`), not by bare name, after empirically reproducing a
+   self-recursion bug from an earlier draft that resolved the wrapper's own `tmux` call back to
+   itself. One purity-test fixup was needed too: the first draft's docstring named the real project,
+   tripped `test_no_project_identifying_strings`, reworded to stay generic. **Full suite verified
+   green three consecutive times** (`pytest -q`, exit 0, no `FAILURES` section each time — this
+   project's `pytest -q` does not print a final `N passed` summary line, a pre-existing, unrelated
+   quirk, so exit code plus an explicit absence of any `FAILURES` section is the verification actually
+   available and was checked explicitly each run) before commit `24e7858`.
+7. **Recovery confirmed end-to-end, not assumed:** watched `AbuAliArchive`'s journal until it picked
+   up `24e7858` on its own next idle cycle (`self_update_adopted sha=24e785887c81e3a6f8d2975e6708db66bd1dd5ad`
+   at `05:41:02Z` — the self-test this time ran to completion and passed) and `maestro_version` in
+   `state.json` now correctly reads `24e7858`. Final state, all independently re-checked after
+   adoption: `AbuAliArchive` `git status --porcelain` still exactly the 9 baseline entries, HEAD still
+   `9e5c7ef` (unchanged all session), `state.json` size unchanged (`953` bytes) with mtime advancing
+   (expected, per the eleventh/twelfth sessions' established baseline for the live loop's own
+   writes), `HALT` sentinel absent, watchdog PID `3452298` (the same PID running since before this
+   incident) and a fresh, healthy orchestrator PID both alive, `agents` tmux session present with a
+   live `orchestrator` window, `maestro status` byte-identical to every prior session's reading
+   (`Phase: LAT1 in_progress`, `In-flight: 0`, `Halted: False`, `Paused: False`, `Parked: TUNE2,
+   LAT1`), journal's last event `self_update_adopted` followed by resumed normal polling. No further
+   self-update retries are possible for this bug: `HEAD` now equals the recorded adopted version, so
+   future idle checks return `up_to_date`.
+
+**Judgement calls made, flagged for review:**
+- Recreating the missing `agents` tmux session (repeatedly, while diagnosing) was treated as safe,
+  reversible infrastructure recovery, not a repair of `AbuAliArchive`'s tracked state or runtime
+  data — no file in the repo or under `.orchestrator/` was touched by that action, only an empty
+  tmux session that the watchdog already assumes exists and is documented (`maestro/cli.py`'s module
+  docstring) as never killed once ensured. This was necessary to let each verification/reproduction
+  step observe real behaviour rather than a session already dead from a prior cause.
+- Fixing the test bug directly, rather than only reporting it, was a deliberate departure from the
+  through-M1 "record in `FOUND_BUGS.md`, never fix" rule — that rule is scoped to the *reference
+  implementation*; this bug is in maestro's own test suite, is actively and repeatedly damaging the
+  live cutover **right now**, under M5's "the live loop must survive" invariant, and every commit this
+  build chain makes was itself re-triggering it (the retry loop was hitting `docs`-only commits from
+  this very build). Waiting for a future stage to fix it would have meant the live loop kept dying,
+  roughly once per idle cycle, for as long as the chain kept committing.
+- No entry was added to `docs/FOUND_BUGS.md` — that file's stated scope is reference-implementation
+  surprises found via characterisation, never fixed through M1; this is a maestro-native bug, already
+  fixed, and belongs in the live-state record (`PROGRESS.md`) instead.
+
+**M5's open sub-criterion is unchanged by this incident** — `TUNE2`/`LAT1` are still both gated on
+`EVAL2`, still needing an operator decision per the eleventh/twelfth sessions' three options. This
+session did not resolve that; it resolved an unrelated, newly-discovered live-loop-survival bug that
+happened to surface during the routine re-verification.
+
 ## Open questions
 
 Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the answer here.

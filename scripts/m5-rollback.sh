@@ -107,13 +107,22 @@ fi
 
 echo "--- step 4: resume the pre-cutover loop ---"
 run rm -f .orchestrator/HALT
-echo "The pre-cutover launch mechanism (tmux session 'agents' window 'orchestrator',"
-echo "per the M4c plan §7 tmux-naming note) must be relaunched exactly as it ran"
-echo "before this build's HALT at 2026-08-09 09:07 IDT. This script does not know"
-echo "that exact launch command from inside a dry-run with no live example to copy;"
-echo "the live cutover session must record it verbatim when it captures the"
-echo "pre-cutover baseline (M5 safety protocol step 2) and this script must be"
-echo "updated with it before step 6 (cut over) runs for real."
+# Exact relaunch command, verbatim from scripts/watchdog-launcher.sh (restored by step 2's
+# checkout, since it's one of the 16 superseded scripts the cutover deletes). Reproduced
+# here rather than sourced/executed directly because the launcher blocks in a wait loop
+# forever (it's written to be tracked by systemd's Type=simple, not run standalone) — this
+# runs its two essential tmux commands only, detached, no systemd/root involved.
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  echo "[dry-run] tmux has-session -t agents || tmux new-session -d -s agents -n main"
+  echo "[dry-run] tmux kill-session -t abuali-watchdog (stale-session cleanup, ignore failure)"
+  echo "[dry-run] tmux new-session -d -s abuali-watchdog -n main \"cd $REPO && $REPO/.venv/bin/python3 scripts/watchdog.py\""
+else
+  /usr/bin/tmux has-session -t agents 2>/dev/null \
+    || run /usr/bin/tmux new-session -d -s agents -n main
+  /usr/bin/tmux kill-session -t abuali-watchdog 2>/dev/null || true
+  run /usr/bin/tmux new-session -d -s abuali-watchdog -n main \
+    "cd $REPO && $REPO/.venv/bin/python3 scripts/watchdog.py"
+fi
 
 echo "--- step 5: confirm the loop is alive (never end halted) ---"
 if [[ "$DRY_RUN" -eq 1 ]]; then

@@ -23,17 +23,18 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`de7d1e6`) |
 | M4b — Extract `maestro/watchdog.py` + limits slug fix (unplanned pre-M5 stage) | **done** | 2026-08-18 | `pytest` → 4530 collected, exit 0, 0 F/E/s markers; watchdog characterisation 236/236 both subjects, zero skips (`a20b485`) |
 | M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | **done** | 2026-08-20 | `pytest -q` → 5234 passed, 31 skipped, 0 failed, 0 errors (`7c77a04`) |
-| M5 — Cutover of reference project | **in progress** — safety-protocol steps 1–6 done (HALT sentinel removed, `launch.sh` run for real, watchdog + orchestrator both live under the new maestro implementation, `/status` verified byte-identical to the pre-cutover capture); the "one supervised task runs end to end" sub-criterion of step 6 is **open, not failed** — the live production queue is genuinely `idle_gated` (TUNE2, LAT1), identical to its pre-cutover state, blocked on a human-scoped dependency (`EVAL2`, timed out 2026-06-26, never resolved) that this build must not touch. Step 7 (rollback) not triggered — no verification failure occurred. Step 8 (never end halted) satisfied: both processes confirmed live by PID. | — | — |
-| M6 — Live switching validation | pending — blocked on M5's open sub-criterion above | — | — |
+| M5 — Cutover of reference project | **done** | 2026-08-20 | `/status` byte-identical to pre-cutover; `M5SCRATCH1` (`kind: script`) ran the full worktree → verify → merge → graduate → push pipeline end to end for real on `AbuAliArchive`, sha `5da1607`→`eaafb48`, pushed to `origin/main`. Two real maestro-native bugs found and fixed along the way (see below); maestro suite `pytest -q` exit 0, 0 FAILURES section after the fix (`597f3b6` AbuAliArchive, pending commit this repo). |
+| M6 — Live switching validation | **pending — start here** | — | — |
 
-**Operator decision, 2026-08-20 (recorded by Dan, not by an automated session): option (c).**
-Authorising a one-off synthetic/scratch task on `AbuAliArchive`, analogous to M2's forced-switch
-acceptance test, to exercise M5's "one supervised task runs end to end" Done-when without touching
-the `EVAL2` dependency itself. Options (a) and (b) from the Open Questions section below were not
-chosen. **This does not design or execute the task** — the next build-chain session should design
-a minimal, reversible scratch task appropriate for the live `AbuAliArchive` project (following
-`docs/EXECUTION.md`'s safety protocol throughout, same rigor as every M5 step so far), run it,
-verify it completes end to end, and record the result here before M5 can move to `done`.
+**Operator decision, 2026-08-20 (recorded by Dan): option (c), executed this session.** A one-off
+synthetic/scratch task (`M5SCRATCH1`, `kind: script`, `eval_relevance: non-retrieval`, `deps: []`)
+was added to `AbuAliArchive/docs/ROADMAP.md`, picked up by the live loop, and completed end to end
+— worktree created, script ran (`scratch/M5SCRATCH1.txt` written), verification gate passed,
+`merge_and_eval` accepted it, `mark_roadmap_complete` graduated it into `docs/PROJECT.md` +
+`.orchestrator/completed_tasks.json`, and the merge was pushed to `origin/main`. This satisfies
+M5's "one supervised task runs end to end" Done-when without touching `EVAL2`/`TUNE2`/`LAT1`. Full
+incident writeup, including two real bugs this exposed and fixed, is in "Session 2026-08-20
+(fourteenth session)" below.
 
 **Update, 2026-08-20 (eleventh session): M5 live cutover executed — the loop is running on the new
 maestro implementation for the first time.** HALT sentinel removed, `bash launch.sh` run for real,
@@ -170,6 +171,37 @@ Compare against these exact values after every stage. Any difference aborts the 
 **Mode:** unattended. All three formerly-gated actions are pre-authorised by the operator — see
 `docs/EXECUTION.md` "Unattended operation". Do not stop to ask permission; stop only on an abort
 condition or at the context ceiling.
+
+**SUPERSEDED as of 2026-08-20 (M5 complete) — the block above is the pre-cutover (HALTed-loop)
+baseline; it no longer applies now that the loop runs live under maestro. Use this instead:**
+
+- HEAD `597f3b6` on branch `main` (not `maestro-cutover` — see the fourteenth-session finding
+  below: `main` was fast-forwarded to the cutover tip and the live checkout switched onto it,
+  since `merge.py`'s deny-list/risky-set diff checks hardcode `main` as the comparison base).
+  `git log --oneline origin/main..main` is **empty** — fully pushed.
+- `git status --porcelain`: exactly **one** standing entry now, ` M systemd/abuali-watchdog.service`
+  (the operator's 2026-08-10 ops edit), plus the same 5 pre-existing untracked files
+  (`data/multivec_output_ft_v2.pkl.gz`, `data/reranker_onnx/`, `data/space_match_result.json`,
+  `eval/gold_real_v1.json`, `handoffs/2026-06-28_p8-postmortem-diagnosis-and-plan.md`).
+  `docs/UPCOMING.md`/`docs/dependency_map.{md,png}`/`docs/ROADMAP.md` are **no longer standing-dirty**
+  — the `M5SCRATCH1` graduation committed them cleanly. Any *further* change beyond these 6 entries
+  still aborts, exactly as before.
+- `.orchestrator/state.json`: size/mtime **will keep advancing** as the live loop runs — this is
+  expected (per the eleventh session's note), not damage. Last observed `957 1787214826`. What
+  aborts is `git status --porcelain` showing anything beyond the 6 entries above, or both PIDs
+  below disappearing without a clean HALT.
+- Live processes (not HALTed — the loop runs continuously now): watchdog PID `3452298`
+  (`.venv/bin/maestro watchdog`, alive since 04:41 the day of cutover) and orchestrator PID
+  `3579776` (`.venv/bin/maestro run`, respawned once already by the self-update fix in the
+  thirteenth session — PID rotation on a clean respawn is normal, confirm liveness with `ps -p`,
+  not PID-equality to a stale record). `maestro status`: `Phase: M5SCRATCH1 (in_progress)` (a
+  stale label from the last real dispatch — cosmetic, updates on the next launch), `In-flight: 0`,
+  `Halted: False`, `Paused: False`, `Parked: TUNE2, LAT1` (unchanged since cutover — see the
+  fourteenth-session finding on what "parked" actually means here before assuming it's still the
+  `EVAL2`-dependency story).
+- `pgrep -f orchestrator_run.py` is now **permanently stale** post-cutover (that script was deleted
+  by the cutover commit) — check `.venv/bin/maestro run` / `maestro.orchestrator` instead, per
+  `maestro/watchdog.py`'s own `ORCHESTRATOR_PATTERN`, exactly as the tenth session's handoff flagged.
 
 ## Baseline captured 2026-08-09
 
@@ -2492,6 +2524,195 @@ the twelfth session's own instruction — a new Finding, not a silent no-op.
 session did not resolve that; it resolved an unrelated, newly-discovered live-loop-survival bug that
 happened to surface during the routine re-verification.
 
+### Session 2026-08-20 (fourteenth session) — **M5 COMPLETE**: scratch task executed, two real live-loop bugs found and fixed, `main`/`maestro-cutover` branch-topology defect closed
+
+Re-verified the baseline fresh (unchanged from the thirteenth session's close: `maestro-cutover` at
+`9e5c7ef`, 9 baseline entries, `state.json` unchanged, HALT absent, both PIDs alive, `idle_gated`
+polling). Then executed the operator's option-(c) decision: designed and ran a scratch task on the
+live `AbuAliArchive` loop. **Three distinct problems were found and fixed before the task could
+succeed — all maestro-native, all live-loop-blocking, none of them reference-implementation
+surprises, so all fixed directly per the thirteenth session's established precedent, not recorded
+in `FOUND_BUGS.md`.**
+
+#### Finding 1 (fixed before touching anything else): `main` was stale relative to the live checkout, poisoning every future merge's deny-list/risky-set diff scope
+
+The tenth/eleventh sessions cut over onto a branch named `maestro-cutover` and left the live
+checkout there — but `maestro/merge.py`'s `deny_list_guard`/`sonnet_risky_reviewer`/`_diff_files`/
+no-op check all hardcode the literal string `main` as the diff base (`git diff main...branch`,
+`git log main..branch`), a verbatim-extracted assumption from the reference implementation that the
+checked-out branch is always called `main`. Local `main` was still at `68056b5`, the *pre*-cutover
+commit — so `git diff --stat main...maestro-cutover` showed the **entire 46-file, +583/−10732
+cutover diff**, not an empty diff. Concretely verified before this was fixed: that huge diff
+contains the literal word "sudo" in a line `operating_preamble.md` gained during cutover (the
+privileged-commands safety rule text itself), which trips `deny_list_guard`'s
+`r"\bsudo\b(?!.*restart_bot\.sh)(?!.*systemctl\b)"` pattern; separately, `project.yaml` and
+`adapters/{deploy,healthcheck}.new` (both in `risky_set`) also appear in that diff, which would have
+fired `sonnet_risky_reviewer` too, had the deny-list not blocked first. **This would have hit any
+task's merge, not just the scratch one** — `TUNE2`/`LAT1` would have been falsely deny-listed and
+escalated to Dan the moment either became runnable, for a reason completely unrelated to their own
+actual diffs. Confirmed `main` was a clean fast-forward ancestor of `maestro-cutover` (`git
+merge-base --is-ancestor main maestro-cutover` → true, `git rev-list --left-right --count
+main...maestro-cutover` → `0  2`), confirmed no script anywhere hardcodes the branch name
+`maestro-cutover` (a grep of both repos found nothing), and DESIGN.md §11's own words — "Rollback is
+removing the install and reverting **one commit**" — read as `main` being expected to carry the
+cutover commit directly, not stay on a permanently-separate branch. **Fix:** `git branch -f main
+maestro-cutover && git checkout main` — a pure ref move plus a zero-diff branch switch (the trees
+were identical, so no working file actually changed). Re-verified immediately after: `git status
+--porcelain` unchanged (same 9 entries), `git diff --stat main...maestro-cutover` now empty, both
+PIDs still alive, `maestro status` unchanged, journal continued polling normally through the switch.
+No process was restarted, no file was rewritten.
+
+#### The scratch task: `M5SCRATCH1`, `kind: script`, and a live retry-storm incident
+
+Added a `kind: script`, `eval_relevance: non-retrieval`, `deps: []`, zero-LLM task to
+`AbuAliArchive/docs/ROADMAP.md` (uncommitted — matching how every other task in that file is
+hand-added; `mark_roadmap_complete` commits the strip on graduation, exactly as it does for every
+other task). `run:` was `mkdir -p scratch && printf '%s\n' 'maestro-m5-cutover-scratch-
+verification-ok' > scratch/M5SCRATCH1.txt` — touches no `risky_set`/`bot_files`/`secrets` path,
+matches no deny-list pattern. Chosen over an LLM-implementer task deliberately: zero-LLM means zero
+risk of an implementer brief being mis-scoped against live production code, while still exercising
+the *identical* worktree → verify → merge → graduate → push pipeline every real task goes through
+(confirmed by reading `orchestrator.py`'s `kind: script` dispatch path — B8 — before choosing it).
+
+**It failed 11 times in ~7 minutes before being caught and held.** `POLL_INTERVAL = 30`, and a
+`kind: script` task that produces a "no-op" branch (zero commits) is **not parked** by
+`merge_and_eval`'s no-op-refusal path — it just falls back into the runnable set and gets relaunched
+next poll, forever, with no backoff and no retry cap (unlike the LLM-implementer path, which parks
+after one retry). Caught via the journal (`merge_noop_refused` repeating every ~35–40s) and stopped
+immediately by adding `hold: true` to the task block — the fastest available kill switch, since
+`parse_runnable_tasks()` filters `hold` tasks out on the very next poll. **Real-world side effects
+of the storm, for the record:** 11 `⚙ M5SCRATCH1: running script task…` Telegram messages to the
+operator's phone; 11 leaked local git branches (`impl-m5scratch1-*`, all pointing at `9e5c7ef` —
+zero unique commits, zero data risk — deleted after); `docs/dependency_map.{md,png}`/`UPCOMING.md`
+regenerated and pushed multiple times via `roadmap_map_pushed` (within the already-tolerated
+baseline-drift class, not new damage). No worktree was left registered (`git worktree list`
+confirmed clean once the storm stopped). **Not fixed:** the underlying "a `kind: script` no-op never
+parks" design gap — that's a genuine hardening opportunity for a future session (see Open questions
+below), left alone here since the actual root cause turned out to be elsewhere (next two findings)
+and reproducing it required no design change, just fixing why the script produced no commit.
+
+#### Finding 2: the AbuAliArchive pre-commit hook resolved `.venv` against the *worktree's* own root, never the main repo's
+
+Root-caused by reproducing the exact failure directly (`git commit` inside the abandoned
+`/tmp/maestro-impl-M5SCRATCH1` worktree): `ModuleNotFoundError: No module named 'maestro'`. The
+installed hook (`AbuAliArchive/scripts/hooks/pre-commit`, a hand-authored M5-cutover file, **not**
+the generic `maestro/templates/pre-commit` — a repo-wide grep confirmed no other copy of this exact
+logic exists anywhere in either repo) did `repo_root="$(git rev-parse --show-toplevel)"` then
+checked `"$repo_root/.venv/bin/python3"` — but `--show-toplevel` returns the **worktree's own root**
+when run inside a worktree, and `.venv/` only exists in the main checkout (never copied into an
+ephemeral worktree). The lookup always missed, silently fell back to bare system `python3` (no
+`maestro` installed there), and **every single commit inside every worktree was blocked** — this
+would have hit `TUNE2`/`LAT1`/any future implementer task identically, not just the scratch one.
+**Fix:** resolve the python executable via `git rev-parse --git-common-dir` instead (empirically
+verified in a throwaway test worktree to resolve to the shared main-repo `.git` dir in both
+contexts, unlike `--show-toplevel`), `dirname` of that is the one place `.venv` actually lives
+regardless of which tree the hook runs in. `repo_root`/`cd`/the `--repo` argument passed to `doctor
+--pre-commit` are all left pointing at the worktree, unchanged — the adapter checks (`test`, `eval`,
+`smoke`, `deploy`, `healthcheck`, `latency`) correctly need to test the worktree's new content, not
+the main repo's old one; only the interpreter lookup was wrong. Verified in two throwaway test
+worktrees (created and force-removed after each check, never touching a live task) before and after
+the fix — first reproduced the exact `ModuleNotFoundError`, then confirmed a clean commit. Committed
+directly to `AbuAliArchive` (`597f3b6`, from the main checkout, which self-exercises the very hook
+being fixed — confirmed it still passes there) and pushed.
+
+#### Finding 3: `doctor --pre-commit`'s docs check crashed on the same worktree/main-repo split, one layer deeper
+
+Fixing #2 exposed a second, distinct crash in the same call: `[FAIL] docs: docs/ROADMAP.md did not
+parse: [Errno 2] No such file or directory: '<worktree>/.orchestrator/state.json'`. Traced to
+`maestro/cli.py`'s `_check_docs()`, which calls `maestro.docs.roadmap.parse_prep_tasks()` — and that
+function unconditionally calls `maestro.state.read_state()`, which does a bare
+`STATE_JSON.read_text()` with no existence guard (a verbatim, characterisation-pinned M1 extraction
+— correct and intentional in every context the *reference* implementation ever called it in, since
+`.orchestrator/state.json` always exists in the main repo it always ran against). `.orchestrator/`
+is gitignored, so it is never present in any worktree — meaning `doctor --pre-commit --repo
+<worktree>` (exactly what the pre-commit hook passes) was guaranteed to crash this check on every
+worktree commit, unconditionally, for as long as maestro has existed. **This is genuinely new
+maestro-native code (`cli.py`'s `_check_docs`, M4), not a reference carryover, so it — not the
+verbatim-pinned `read_state()` — is where the fix belongs:** wrapped only the `parse_prep_tasks()`
+call in its own `try/except FileNotFoundError`, degrading to `prep = []` (a live runtime cross-
+reference genuinely does not exist in a worktree — that is structural, not project damage) rather
+than failing the whole `docs` check. `parse_runnable_tasks()` (which doesn't touch `state.json`) is
+untouched and still runs normally. Verified: full `pytest -q` on the maestro suite after the change
+— exit 0, no `FAILURES` section (this project's pytest still doesn't print a final summary line,
+the same pre-existing quirk noted in every prior session that's hit it) — and a live commit inside a
+fresh throwaway worktree now succeeds cleanly end to end (`docs: parsed OK — 2 runnable, 0 prep
+task(s)`, all six adapter checks OK). Committed to the maestro repo alongside this `PROGRESS.md`
+update.
+
+#### Re-running the scratch task for real, after both fixes
+
+Deleted the 11 leaked branches, re-verified the full baseline (unchanged), removed `hold: true` from
+`M5SCRATCH1`, and watched the journal closely (15s polling, abort-on-any-failure-signature). **It
+completed cleanly on the very first real attempt:** `script_task_ran` → `script_task_done` →
+`reconcile_done_present` → `merge_commit` (`sha=5da1607, new_commit=True`) → `smoke_skipped`
+(non-retrieval, as configured) → `merge_accepted` → `task_complete`, then
+`mark_roadmap_complete`'s graduation commit (`eaafb48`: strips the task from `ROADMAP.md`, appends
+to `docs/PROJECT.md` and `.orchestrator/completed_tasks.json`, regenerates the dep-map/UPCOMING),
+then `git push origin main` — confirmed via `git log --oneline origin/main..main` returning empty.
+Verified directly, not just via journal text: `scratch/M5SCRATCH1.txt` exists in `REPO` with the
+exact expected content; `docs/ROADMAP.md` no longer contains `M5SCRATCH1`;
+`.orchestrator/completed_tasks.json`'s last entry is `M5SCRATCH1`, `completed_at
+2026-08-20T08:33:46Z`. **This is the M5 Done-when's "one supervised task runs end to end,"
+satisfied for real, on the live post-cutover project, without touching `EVAL2`/`TUNE2`/`LAT1`.**
+Post-task baseline re-check: `git status --porcelain` in `AbuAliArchive` is now **cleaner than at
+any point since the cutover began** — only the single pre-existing `systemd/abuali-watchdog.service`
+entry plus the 5 untracked baseline files; `docs/UPCOMING.md`/`dependency_map.{md,png}`/
+`ROADMAP.md`, standing-dirty since 2026-08-09, are no longer dirty (the graduation commit absorbed
+them). Both PIDs still alive (orchestrator PID rotated once, from the thirteenth session's
+self-update-adoption respawn — expected, not damage). New reference baseline recorded above,
+superseding the pre-cutover one.
+
+#### A genuinely useful side-finding, factual, not acted on: `TUNE2`/`LAT1` are `parked_tasks`, and `EVAL2` **is** in `completed_tasks.json`
+
+While investigating, `.orchestrator/completed_tasks.json` was checked directly (not assumed from
+prior sessions' prose): it **does** contain an `EVAL2` entry, and `docs/PROJECT.md`'s graduated-
+markers list shows `EVAL2 — … (graduated 2026-06-26)`. `.orchestrator/state.json`'s own
+`parked_tasks` list is `['TUNE2', 'LAT1']` — a **stateful** park (requires an explicit `/unpark`,
+independent of `parse_runnable_tasks()`'s dep-satisfaction check, which doesn't consult
+`parked_tasks` at all) from some prior failed attempt, not a live dependency block. This is subtly
+different from the eleventh/twelfth/thirteenth sessions' framing ("blocked on `EVAL2`, timed out,
+never resolved") — it's possible `EVAL2` genuinely graduated at some point after an earlier,
+separately-tracked timeout, and `TUNE2`/`LAT1` simply never got the `/unpark` that would let them
+retry. **This build did not investigate further or take any action on it** — unparking either task
+would dispatch a real implementer against live production code/prompts on real user-facing infra
+(`dspy_prompts.py` / `main_bot.py`), squarely the kind of action the operator's option-(c) decision
+was chosen *instead of*. Flagged here purely as a fact worth the operator's attention, since it may
+change how they read the "still blocked on `EVAL2`" story from prior sessions.
+
+#### Judgement calls this session, flagged for review
+
+- **Fixed three maestro-native, live-loop-blocking bugs directly** rather than recording and
+  deferring — same standard the thirteenth session set: none is a reference-implementation
+  surprise, all three actively prevented the M5 Done-when from being achievable at all (any task's
+  first real commit inside a worktree would have hit findings 2 and 3; any task's first real merge
+  would have hit finding 1), and waiting for a future stage to fix them would have meant `TUNE2`/
+  `LAT1` hitting the exact same walls the moment they're ever unparked.
+- **Left the `main`→`maestro-cutover` branch redundant pointer in place** rather than deleting it —
+  harmless (same commit, no divergence possible unless something explicitly checks it out and
+  commits there, which nothing does), and deleting it was an unnecessary extra mutation beyond what
+  the fix required.
+- **Left `scratch/M5SCRATCH1.txt` and its ROADMAP task's history in place** rather than reverting
+  them after verification — the more conservative choice of the two (fewer live mutations), consistent
+  with `docs/PROJECT.md`/`completed_tasks.json` already durably recording it as a real graduated
+  task. Trivial to remove by hand later if the operator would rather the repo not carry a
+  permanent `scratch/` artifact; not done unilaterally here.
+- **Did not investigate or act on the `TUNE2`/`LAT1` `parked_tasks` finding** beyond reporting it —
+  explicitly out of scope per the operator's option-(c) decision, which was chosen instead of
+  touching that blocker.
+- **Did not fix the "`kind: script` no-op never parks" design gap** that let the storm run 11
+  cycles unchecked — the actual root cause was elsewhere (findings 2/3); flagged as a hardening
+  recommendation, not fixed, to keep this session's live-code changes to exactly what verification
+  proved necessary.
+
+**M5 is done. Next: M6 — live switching validation, per `docs/EXECUTION.md`.** M6's own Done-when
+("a real threshold trigger produces a real backend switch on the migrated project, and the journal
+shows the `backend_switch` event") is itself another live, quota-spending, production-touching
+action — read `docs/DESIGN.md`'s M6 description and `docs/EXECUTION.md`'s M6 stage entry in full
+before starting, and re-verify the baseline above fresh rather than trusting it, exactly as every
+M5 session did. This session stops here: context measured at ~260K tokens, well past the 150K
+ceiling `docs/EXECUTION.md`'s prime directive sets for finishing the current stage and handing off
+rather than starting the next one.
+
 ## Open questions
 
 Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the answer here.
@@ -2515,13 +2736,26 @@ Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the a
   `project.yaml`'s `thresholds:`. Note `docs/FOUND_BUGS.md` #165: "last line changed" means a loop
   that repeats an identical event looks frozen.
 - **M4** — Should `upcoming.py` explanation generation be backend-agnostic or pinned to one role?
-- ~~**M5 — operator decision needed, not resolvable by the build:**~~ **DECIDED 2026-08-20 by Dan:
-  option (c).** The live cutover is running correctly (see the 2026-08-20 eleventh-session finding —
-  `/status` and journal both byte-identical to pre-cutover) but `TUNE2`/`LAT1`, the only two
-  launchable production tasks, are both blocked on `EVAL2`, which timed out on 2026-06-26 and was
-  never resolved. Rather than (a) resolving/removing the `EVAL2` dependency, or (b) declaring the
-  demonstrated correctness sufficient without a task completing, the operator authorised (c): a
-  one-off synthetic/scratch task on AbuAliArchive analogous to M2's forced-switch acceptance test.
-  **Not yet executed** — see the "Operator decision, 2026-08-20" note near the top of this file. The
-  next build-chain session should design and run that scratch task, following `docs/EXECUTION.md`'s
-  safety protocol, before M5 can be marked done.
+- ~~**M5 — operator decision needed, not resolvable by the build:**~~ **DECIDED 2026-08-20 by Dan
+  (option c), EXECUTED 2026-08-20 (fourteenth session).** `M5SCRATCH1`, a synthetic zero-LLM
+  scratch task, ran end to end on the live post-cutover `AbuAliArchive` loop — worktree → verify →
+  merge → graduate → push, sha `5da1607`/`eaafb48`, pushed to `origin/main`. Two real maestro-native
+  bugs it exposed (pre-commit hook `.venv` resolution; `doctor --pre-commit`'s docs check crashing
+  on a worktree's absent `state.json`) were found and fixed; a third (branch `main` stale relative
+  to the live `maestro-cutover` checkout, poisoning `merge.py`'s deny-list diff scope for *any*
+  future task) was found and fixed first. Full writeup: "Session 2026-08-20 (fourteenth session)"
+  above. **M5 is now `done`.** `TUNE2`/`LAT1` themselves remain untouched, still in
+  `state.json`'s `parked_tasks` — see that same session's side-finding that `EVAL2` **is** already
+  in `completed_tasks.json`, which reframes but does not resolve the "why aren't they running"
+  question; still the operator's call, not this build's.
+- **New, 2026-08-20 (fourteenth session) — hardening, not blocking:** a `kind: script` task whose
+  `run:` command produces a **no-op** branch (nothing new to commit) is never parked by
+  `merge_and_eval`'s no-op-refusal path — it just falls back into the runnable set and gets
+  relaunched every `POLL_INTERVAL` (30s) forever, with no backoff and no retry cap (unlike the
+  LLM-implementer path, which parks after one retry). Observed directly: `M5SCRATCH1` looped 11
+  times in ~7 minutes before being caught and manually `hold: true`'d. The actual root cause that
+  session hit was elsewhere (two pre-commit hook bugs, now fixed) and reproducing it needed no
+  script-task design change — but the underlying gap (no backoff/cap on a `kind: script` no-op) is
+  still real and would recur for a genuinely-buggy future script task. Worth a small fix
+  (park after N no-op attempts, mirroring the implementer retry path) in a future session; not
+  done here to keep that session's live-code changes to exactly what was proven necessary.

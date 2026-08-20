@@ -496,7 +496,18 @@ def _check_docs(repo_root: Path) -> Check:
     try:
         from maestro.docs.roadmap import parse_prep_tasks, parse_runnable_tasks
         runnable = parse_runnable_tasks()
-        prep = parse_prep_tasks()
+        try:
+            prep = parse_prep_tasks()
+        except FileNotFoundError:
+            # `.orchestrator/state.json` is gitignored runtime state that exists only in
+            # the main checkout, never in a `git worktree` — and every implementer/script
+            # task commits from one, with `doctor --pre-commit` (this hook's fast subset)
+            # run against that same worktree. `parse_prep_tasks()` needs state.json to
+            # cross-reference waiting_on_dan/parked ids; its absence there is structural,
+            # not project damage, so degrade to "prep count unknown" instead of failing
+            # the whole docs check (M5SCRATCH1 incident, 2026-08-20 — see PROGRESS.md:
+            # this crash blocked every worktree commit, i.e. every task, unconditionally).
+            prep = []
     except Exception as exc:  # noqa: BLE001 — doctor must never crash on a broken project
         return Check("docs", False, f"docs/ROADMAP.md did not parse: {exc}", required=True)
     return Check("docs", True, f"parsed OK — {len(runnable)} runnable, {len(prep)} prep task(s)",

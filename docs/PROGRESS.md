@@ -23,8 +23,44 @@ PROGRAMME-STATUS: IN-PROGRESS
 | M4a — Resolve the `pending()` placeholders (unplanned pre-M5 stage) | **done** | 2026-08-16 | `pytest` → 4270 collected, exit 0, 0 F/E/s markers; 15/15 late bindings resolve; 0 `pending()` call sites left (`de7d1e6`) |
 | M4b — Extract `maestro/watchdog.py` + limits slug fix (unplanned pre-M5 stage) | **done** | 2026-08-18 | `pytest` → 4530 collected, exit 0, 0 F/E/s markers; watchdog characterisation 236/236 both subjects, zero skips (`a20b485`) |
 | M4c — Give the remaining superseded sidecars a maestro owner (unplanned pre-M5 stage) | **done** | 2026-08-20 | `pytest -q` → 5234 passed, 31 skipped, 0 failed, 0 errors (`7c77a04`) |
-| M5 — Cutover of reference project | **in progress** — safety-protocol steps 1–5 done; step 6's task list items 1–12 done (branch, scaffold, project.yaml merge, .gitignore, pre-commit, launch.sh.tmpl fix, venv install, adapters/test verified, superseded-script deletion, baseline re-capture, **cutover commit landed**: `fd720ab` + `9e5c7ef`), items 13–15 (live halt/resume/verify, rollback-on-failure, report install-unit) not started | — | — |
-| M6 — Live switching validation | pending | — | — |
+| M5 — Cutover of reference project | **in progress** — safety-protocol steps 1–6 done (HALT sentinel removed, `launch.sh` run for real, watchdog + orchestrator both live under the new maestro implementation, `/status` verified byte-identical to the pre-cutover capture); the "one supervised task runs end to end" sub-criterion of step 6 is **open, not failed** — the live production queue is genuinely `idle_gated` (TUNE2, LAT1), identical to its pre-cutover state, blocked on a human-scoped dependency (`EVAL2`, timed out 2026-06-26, never resolved) that this build must not touch. Step 7 (rollback) not triggered — no verification failure occurred. Step 8 (never end halted) satisfied: both processes confirmed live by PID. | — | — |
+| M6 — Live switching validation | pending — blocked on M5's open sub-criterion above | — | — |
+
+**Update, 2026-08-20 (eleventh session): M5 live cutover executed — the loop is running on the new
+maestro implementation for the first time.** HALT sentinel removed, `bash launch.sh` run for real,
+watchdog (PID confirmed) launched the orchestrator (PID confirmed) in the shared `agents` tmux
+session. `maestro status` output matches the pre-cutover capture exactly (`phase: LAT1 in_progress`,
+`in_flight: 0`, `parked: TUNE2, LAT1`), and the journal's `idle_gated` event fired with the byte-
+identical message the pre-cutover-implementation loop was already logging before the 2026-08-09
+pause — strong evidence of behaviour-identical extraction. **The M5 Done-when's "one supervised task
+runs end to end" could not be exercised: both launchable tasks are genuinely gated** — `TUNE2` and
+`LAT1` both `deps: [EVAL2, ...]` per `docs/ROADMAP.md`, and `EVAL2` timed out on 2026-06-26
+(`timeout_no_progress_parked` → `failed_escalated` in the journal) and was never resolved or removed
+from the dependency list; both tasks are also flagged "prod edit ... parks for Dan's merge" — a
+human-review gate by design, not a bug. This is a pre-existing condition unrelated to and unmovable
+by this build (`docs/DESIGN.md` §11 itself calls the idle/gated state "a good window" for cutover,
+confirming this was expected going in). **Judgement call, flagged for morning review rather than
+resolved unilaterally: no task was forced or unparked.** Forcing `TUNE2`/`LAT1` past their real
+dependency/human-merge gates to manufacture a passing verification would mean overriding the
+project's own accuracy/human-review gates on live production data for the sole purpose of ticking an
+automated checkbox — exactly the kind of thing EXECUTION.md's "never fabricate a verification result"
+and "pick the more conservative option" rules exist to prevent. The loop is left running (protocol
+step 8) either way. See "Session 2026-08-20 (eleventh session)" below for full detail, including the
+independent re-verification of the HALT-removal landmine and the rollback script's real relaunch
+branch before touching anything live.
+
+**`scripts/m5-install-unit.sh` is deliberately NOT being reported to the operator as a next action
+yet** — that step's task-list item 6 ties it to M5 succeeding outright, and the "one supervised task"
+half of Done-when is still open. The tmux-supervised loop via `launch.sh` is fully live and stable in
+the meantime; swapping to the root-owned systemd unit is independent of that open question and can
+happen whenever the operator chooses, but recommending it now would overstate M5's completion.
+
+**Next action:** this is now genuinely an operator decision, not a next build step to execute
+autonomously — see "Open questions" below. Until the operator decides how (or whether) to unblock
+`EVAL2`/`TUNE2`/`LAT1`, or decides the cutover itself is sufficient evidence and the Done-when wording
+should be read as satisfied by the loop's demonstrated correctness, M5 stays `in progress` and M6
+cannot start. Re-verify the AbuAliArchive baseline (git status, HEAD, live PIDs) at the top of the
+next session before doing anything else, exactly as every prior M5 session has.
 
 **Update, 2026-08-20 (tenth session): M5 step 6 items 8–12 done — the cutover commit is landed
 on the `maestro-cutover` branch (2 commits: `fd720ab` the cutover itself, `9e5c7ef` a PATH-bug
@@ -2200,6 +2236,102 @@ first point at which anything live actually happens.**
    `ORCHESTRATOR_PATTERN`, not the deleted script's name; EXECUTION.md's own M5 Done-when wording
    needs re-reading with this in mind, not applied literally**) does M6 begin.
 
+### Session 2026-08-20 (eleventh session) — M5 live halt/resume executed, `/status` verified, "one
+supervised task" open on a genuine pre-existing production block — the loop is running, left running
+
+Read the tenth session's handoff fresh. Re-verified the working tree matched exactly before touching
+anything: branch `maestro-cutover` at `9e5c7ef`, only the 4 standing modified + 5 standing untracked
+baseline files, `state.json` `888 1786256976` unchanged, HALT present, `in_flight: []`, no
+orchestrator/watchdog process, `agents` tmux session 1 window only. All matched.
+
+**Two explicit pre-flight checks the tenth session's handoff asked for, done before running anything
+live:**
+
+1. **HALT-removal landmine, read from source rather than assumed:** `maestro/watchdog.py:248` and
+   `maestro/orchestrator.py:979` both check `HALT_FILE.exists()` and exit immediately (watchdog
+   returns 0, logs `watchdog_halt_respected`) if present. `launch.sh` itself never removes the
+   sentinel — it only starts the watchdog. Running `bash launch.sh` with `.orchestrator/HALT` still
+   present would have started the watchdog, had it immediately see HALT and exit, and the tmux
+   session would have closed within seconds — a "looks launched, does nothing" failure identical in
+   shape to the PATH bug the tenth session found. **Confirmed the sentinel must be removed by hand
+   first; did so** (`rm .orchestrator/HALT`) — this is the sanctioned action itself (protocol step 5
+   says halt via the sentinel only; step 6/8 require resuming past it), not a new decision.
+2. **`scripts/m5-rollback.sh`'s real relaunch branch, re-verified against the actual post-cutover
+   tree, not just the earlier no-op-branch dry-run:** because current HEAD (`9e5c7ef`) differs from
+   the pre-cutover sha (`68056b5`), running `bash scripts/m5-rollback.sh --pre-cutover-sha 68056b5
+   --dry-run` now falls through the "already at target" no-op check and prints the real steps 1–5
+   (halt, checkout, pip uninstall, relaunch tmux commands, pgrep confirmation) — the branch that
+   matters was actually exercised this time, closing the gap the eighth/tenth sessions flagged.
+   Independently confirmed its three hard dependencies still resolve post-cutover-deletion: `git show
+   68056b5:scripts/watchdog.py` returns the file (git history is untouched by the cutover commit
+   deleting the tip's working copy), `.venv/bin/python3` → `/usr/bin/python3` 3.11.2 present and
+   executable, `/usr/bin/tmux` present. Rollback path is real, not theoretical.
+
+**Live action: `bash launch.sh`.** This blocks forever by design (systemd `Type=simple` wrapper, wait
+loop on the tmux session), so it was intentionally left running as a background shell rather than
+awaited to "completion" — a completion would mean the loop died. Verified success by inspecting the
+spawned tmux state directly instead:
+
+- `AbuAliArchive-watchdog` tmux session created; its pane: `[watchdog] Starting — poll=30s
+  stall=20min max_restarts=3` then `[watchdog] Launched orchestrator in agents:orchestrator`.
+- `agents` tmux session gained a second window (`orchestrator`, was 1 window, now 2) — the shared
+  session other operator automation also uses was not disturbed, only added to.
+- `ps -p` on both PIDs (watchdog `3452298`, orchestrator `3452305`) confirmed real, non-zombie
+  processes, `maestro watchdog` / `maestro run` respectively, both via the `.venv/bin/maestro`
+  absolute path (the tenth session's PATH fix in effect).
+- `maestro status`: `Phase: LAT1 (in_progress)`, `In-flight: 0 (none)`, `Halted: False`, `Paused:
+  False`, `Parked: TUNE2, LAT1` — **matches `/tmp/m5-precutover-status-final.json` exactly** on every
+  field that can be compared (phase id/status, in_flight, parked set).
+- `.orchestrator/journal.ndjson` new line: `{"event": "idle_gated", "detail": "no launchable task
+  (all gated: TUNE2,LAT1); polling"}` — **byte-identical message text** to every `idle_gated` line the
+  pre-cutover-implementation loop logged before the 2026-08-09 pause (last one at `06:04:25Z` that
+  day). This is strong behavioural-identity evidence beyond what `/status` alone shows.
+- Post-launch abort-condition recheck: `git status --porcelain` in AbuAliArchive still shows only the
+  9 baseline entries, nothing new; `state.json` size/mtime **did** change (`888`→`953` bytes,
+  mtime advanced) — expected and correct now that the loop is legitimately live and writing its own
+  state, not damage. `HEAD` unchanged at `9e5c7ef`. No abort condition.
+
+**Why "one supervised task runs end to end" was not exercised, and why that was not treated as a
+failure requiring rollback:** `docs/ROADMAP.md`'s own task defs show `TUNE2: deps: [EVAL2, TUNE1]` and
+`LAT1: deps: [EVAL2]`; both also carry "prod edit ... parks for Dan's merge" — a deliberate human
+checkpoint, not an autonomous-completion path. `EVAL2` timed out on 2026-06-26
+(`timeout_no_progress_parked` → `failed_escalated` in the journal) and was never resolved or removed
+from either dependency list; it no longer even has its own `docs/ROADMAP.md` entry. This is a
+pre-existing, human-scoped block that predates this entire build by weeks and is orthogonal to the
+cutover — `docs/DESIGN.md` §11 itself names the idle/gated state "a good window" for cutover, i.e.
+this was the expected state going in, not a surprise. **Forcing `TUNE2` or `LAT1` past this gate
+(unparking, editing `deps`, or otherwise) to manufacture a passing verification was rejected as an
+option** — it would mean this build overriding a live production project's own accuracy/human-review
+gates for the sole purpose of satisfying an automated checkbox, on real data, with real Claude/Codex
+quota spend, on dependencies this build has no domain basis to judge resolved. That is exactly what
+EXECUTION.md's "never fabricate a verification result" and "pick the more conservative option, flag
+it" rules exist to prevent. **This was treated as an open Done-when sub-criterion, not a verification
+failure** — `/status` matched and the loop is demonstrably healthy, so protocol step 7's rollback
+trigger ("on any verification failure") was judged not to apply; rolling back a byte-identical,
+correctly-functioning cutover because the *production task queue* happens to have nothing runnable
+would discard real, verified work for a reason unrelated to any defect in the cutover itself.
+
+**State at handoff:** AbuAliArchive on `maestro-cutover` at `9e5c7ef`, watchdog + orchestrator both
+live (PIDs `3452298`/`3452305` at time of writing), HALT sentinel correctly absent, `git status
+--porcelain` unchanged from baseline shape, no abort condition. **This is the first point in the
+entire build where AbuAliArchive's live runtime state has legitimately changed** — future sessions'
+abort-condition check must account for this: `state.json` size/mtime will keep advancing as the loop
+runs, which is now expected, not damage; what still aborts is `git status --porcelain` showing
+anything beyond the 9 baseline entries, or the loop's PIDs disappearing without a clean HALT.
+`sudo bash scripts/m5-install-unit.sh` was deliberately **not** reported to the operator as a next
+step — see the Status-table update above for why.
+
+**Post-write verification, same session, after a usage-limit reset relaunched this process:** the
+harness reported the backgrounded `bash launch.sh` shell as "stopped" with no completion record. This
+is expected and not damage — `launch.sh`'s wait loop is a foreground wrapper of the *launching* shell
+only; the tmux sessions it starts (`AbuAliArchive-watchdog`, and `agents`'s `orchestrator` window) are
+detached and outlive it by design (that is the entire point of the systemd `Type=simple` wrapper
+pattern this script exists to support). Re-checked directly rather than assumed: both PIDs
+(`3452298` watchdog, `3452305` orchestrator) still alive, `AbuAliArchive-watchdog` tmux session still
+present, journal shows continuous `idle_gated` polling every ~10 minutes with no gap through
+`04:52:34Z`, `maestro status` unchanged, `git status --porcelain` and HEAD unchanged. The loop
+survived the reset untouched. Nothing to recover.
+
 ## Open questions
 
 Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the answer here.
@@ -2223,3 +2355,14 @@ Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the a
   `project.yaml`'s `thresholds:`. Note `docs/FOUND_BUGS.md` #165: "last line changed" means a loop
   that repeats an identical event looks frozen.
 - **M4** — Should `upcoming.py` explanation generation be backend-agnostic or pinned to one role?
+- **M5 — operator decision needed, not resolvable by the build:** the live cutover is running
+  correctly (see the 2026-08-20 eleventh-session finding — `/status` and journal both byte-identical
+  to pre-cutover) but `TUNE2`/`LAT1`, the only two launchable production tasks, are both blocked on
+  `EVAL2`, which timed out on 2026-06-26 and was never resolved. So M5's "one supervised task runs end
+  to end" Done-when cannot be exercised on real production work without either (a) the operator
+  resolving/removing the `EVAL2` dependency through the project's own normal process, (b) the operator
+  explicitly deciding the demonstrated correctness (status + journal match) satisfies the spirit of
+  the Done-when even without a task actually completing, given the queue's genuinely-idle state was
+  called out in `docs/DESIGN.md` §11 as expected at cutover time, or (c) the operator authorising a
+  one-off synthetic/scratch task on AbuAliArchive analogous to M2's forced-switch acceptance test. The
+  build will not pick one of these unilaterally — flagged per EXECUTION.md's judgement-call rule.

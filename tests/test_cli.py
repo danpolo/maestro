@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -413,17 +414,56 @@ def test_run_requires_the_shared_agents_tmux_session(tmp_path):
     and returns 1 immediately if it is absent, before the event loop even starts. This test
     proves that precondition is real (not an assumption this build's mechanism write-up
     invented) by killing the session, running `maestro run` against an otherwise-valid empty
-    project, and observing the immediate failure — then restores the session so it does not
-    affect any other test in this module or a real orchestrator loop that may depend on it."""
-    subprocess.run(["tmux", "has-session", "-t", "agents"], capture_output=True)  # no-op probe
+    project, and observing the immediate failure.
+
+    **Isolated on a private tmux server (`-L <socket>`), never the machine's default one.**
+    Earlier this test used the bare `tmux` command, which targets the default server socket —
+    the exact one that hosts any real, live "agents" session on this machine (e.g. a cutover
+    project's production orchestrator loop, per `docs/DESIGN.md` §11). `self_test()`
+    (`maestro/selfupdate.py`) runs this suite via plain `pytest` with no such isolation, so a
+    live self-update's candidate test run executed this test directly against the real
+    session — `tmux kill-session` SIGHUPs every pane in it, including whatever real
+    orchestrator process was running inside, and does so *before* this test's own `finally:`
+    restore could run (the pane running pytest itself is one of the ones hung up). Confirmed
+    as the root cause of a live cutover-project crash loop on 2026-08-20 — see
+    `docs/PROGRESS.md`.
+
+    `TMUX_TMPDIR` was tried first and does **not** isolate the server on this machine's tmux
+    build — verified empirically: a session created under a distinct `TMUX_TMPDIR` was still
+    visible (and killable) via a plain, unqualified `tmux` call. `-L <socket>` is the
+    documented, unambiguous way to select an alternate server and was verified to actually
+    isolate (a `-L`-created session is invisible to the default-socket `tmux list-sessions`).
+    Every `tmux` call below, and the `maestro run` subprocess's own internal check, must use
+    the same `-L` socket so nothing here can touch, let alone kill, a real shared session —
+    `main()`'s own `tmux has-session` check (`maestro/orchestrator.py`) takes no `-L` flag of
+    its own, so the subprocess env cannot inject one; instead `PATH` is pointed at a tiny
+    wrapper script that always inserts `-L <socket>` ahead of whatever tmux subcommand main()
+    invokes."""
+    socket = f"test-{os.getpid()}-{id(tmp_path)}"
+    tmux = ["tmux", "-L", socket]
     had_session = subprocess.run(
-        ["tmux", "has-session", "-t", "agents"], capture_output=True
+        [*tmux, "has-session", "-t", "agents"], capture_output=True
     ).returncode == 0
-    subprocess.run(["tmux", "kill-session", "-t", "agents"], capture_output=True)
+    subprocess.run([*tmux, "kill-session", "-t", "agents"], capture_output=True)
     try:
         root = _git_repo(tmp_path / "proj")
+        # `main()` shells out to a bare `tmux` with no `-L` of its own — give it one via a
+        # PATH-shadowing wrapper rather than editing orchestrator.py for a test's sake. The
+        # wrapper must `exec` the *absolute* path to the real binary: it runs under a PATH
+        # that has the wrapper's own directory prepended (so `main()`'s bare `tmux` finds
+        # it), and an unqualified `tmux` inside the wrapper would resolve back to itself
+        # under that same PATH — infinite self-exec, reproduced empirically while writing
+        # this fix.
+        real_tmux = shutil.which("tmux")
+        assert real_tmux, "tmux not on PATH — required for this test"
+        fake_bin = tmp_path / "fakebin"
+        fake_bin.mkdir()
+        wrapper = fake_bin / "tmux"
+        wrapper.write_text(f'#!/bin/sh\nexec {real_tmux} -L {socket} "$@"\n')
+        wrapper.chmod(0o755)
         env = dict(os.environ)
         env["MAESTRO_REPO"] = str(root)
+        env["PATH"] = f"{fake_bin}:{env.get('PATH', '')}"
         proc = subprocess.run(
             [sys.executable, "-m", "maestro.cli", "run", "--repo", str(root)],
             cwd=str(root), env={**env, "PYTHONPATH": str(REPO_ROOT)},
@@ -433,7 +473,8 @@ def test_run_requires_the_shared_agents_tmux_session(tmp_path):
         assert "agents" in (proc.stdout + proc.stderr)
     finally:
         if had_session:
-            subprocess.run(["tmux", "new-session", "-d", "-s", "agents"], capture_output=True)
+            subprocess.run([*tmux, "new-session", "-d", "-s", "agents"], capture_output=True)
+        subprocess.run([*tmux, "kill-server"], capture_output=True)
 
 
 # ── install-skills (in-process: no Paths.from_env() dependency) ──

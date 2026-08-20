@@ -46,6 +46,11 @@ BUILD_SCAFFOLD = {
     "scripts/run_overnight.sh",
     "scripts/maestro-build-launcher.sh",
     "scripts/resume_eval_when_done.sh",
+    # M5 cutover-and-rollback tooling. Hardcodes the reference project's path and
+    # name deliberately — it operates on exactly one project, by design, and is
+    # never installed into a consuming project by `maestro init`. Same category
+    # as the two scripts above: it drives *this build*, not the maestro product.
+    "scripts/m5-rollback.sh",
     # The design spec for those two scripts. Same category as the scripts themselves:
     # it describes the machinery that *builds* maestro — including how that machinery
     # must leave the frozen reference project alone — and ships with none of it.

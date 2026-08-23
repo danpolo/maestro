@@ -290,3 +290,71 @@ def test_project_md_skeleton_is_nonempty_and_points_at_the_roadmap():
     text = (TEMPLATES_DIR / "docs" / "PROJECT.md").read_text(encoding="utf-8")
     assert text.strip()
     assert "docs/ROADMAP.md" in text
+
+
+# ── no knob the template offers may be one nothing reads ──
+
+
+def _config_keys(node, path=()):
+    """Every leaf-ish key path in a parsed YAML mapping."""
+    if isinstance(node, dict):
+        for key, value in node.items():
+            yield path + (str(key),)
+            yield from _config_keys(value, path + (str(key),))
+
+
+def test_project_yaml_declares_no_key_that_nothing_reads():
+    """A knob an adopting project can set must actually change behaviour.
+
+    `switch.on_usage_threshold` shipped for months with zero readers — anyone who tuned it
+    got silence, while the hardcoded `SWITCH_THRESHOLD_PCT` stayed in charge. This pins the
+    general rule so the next dead knob is caught at the template, not in production.
+
+    Known-dead keys are listed explicitly rather than exempted silently: each one is a
+    real gap between the documented surface and the enforced behaviour, and the list is
+    meant to shrink. `maestro/` is searched for the bare key name, which is how every
+    live reader spells it (`_THRESHOLDS.get("stall_window_min")`, `.get("name")`).
+    """
+    template = (TEMPLATES_DIR / "project.yaml.tmpl").read_text(encoding="utf-8")
+    parsed = yaml.safe_load(template)
+
+    # Documented-but-unwired, each already recorded in docs/PROGRESS.md's open questions.
+    # Removing an entry here is the acceptance test for wiring that knob up.
+    known_dead = {
+        ("switch", "on_quota_exhausted"),
+        ("switch", "manual"),
+        ("thresholds", "five_h_pause_pct"),   # twin of quota.PAUSE_92_PCT
+        ("thresholds", "concurrency_cap"),    # twin of quota.CONCURRENCY_CAP
+        ("prod_stores",),
+        # D8's eval-gate scoring inputs. `gate.chain` is read (cli.py:619); these three
+        # describe how to *score* a run and nothing consumes them — the gate currently
+        # only runs the chain and journals `unevaluated`.
+        ("gate", "primary_metric"),
+        ("gate", "baseline_source"),
+        ("gate", "bands"),
+    }
+
+    sources = "\n".join(
+        p.read_text(encoding="utf-8", errors="replace")
+        for p in (REPO_ROOT / "maestro").rglob("*.py")
+        if "templates" not in p.parts
+    )
+
+    unread = {
+        keypath for keypath in _config_keys(parsed)
+        if keypath not in known_dead and keypath[-1] not in sources
+    }
+    assert not unread, (
+        "project.yaml offers keys no code reads: "
+        + ", ".join(".".join(k) for k in sorted(unread))
+        + " — wire them up, or drop them from the template rather than shipping a knob "
+          "that silently does nothing"
+    )
+
+
+def test_project_yaml_does_not_redeclare_the_removed_usage_threshold_block():
+    """Guards the specific regression: a per-window `on_usage_threshold` contradicts the
+    window-agnostic check `switch.threshold_crossed()` actually performs (finding G5)."""
+    template = (TEMPLATES_DIR / "project.yaml.tmpl").read_text(encoding="utf-8")
+    parsed = yaml.safe_load(template) or {}
+    assert "on_usage_threshold" not in (parsed.get("switch") or {})

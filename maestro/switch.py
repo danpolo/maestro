@@ -134,6 +134,14 @@ GRACE_POLL_SEC = 5.0
 #: would start starving the queue, and deliberately a separate constant: the quota
 #: constants govern concurrency, not backend choice, and repurposing one would couple two
 #: unrelated policies. Calibration waits until switching has run in anger.
+#:
+#: This is the *only* usage threshold anything enforces, and it is not configurable.
+#: `project.yaml` used to declare a `switch.on_usage_threshold: {five_hour_pct, weekly_pct}`
+#: block that no code ever read; it was removed on 2026-08-21 rather than wired, because
+#: its per-window shape contradicts how the check actually works — `threshold_crossed()`
+#: compares one limit against `Usage.max_used_pct()`, the most-consumed window, precisely
+#: so an account whose only window is the unnamed one still trips it (finding G5). Making
+#: this configurable means adding a single window-agnostic knob, not restoring that block.
 SWITCH_THRESHOLD_PCT = 70.0
 
 #: Reasons, journalled verbatim as `reason=<...>`.

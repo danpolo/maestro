@@ -171,7 +171,6 @@ fallback_chain: [claude, codex]
 
 switch:
   on_quota_exhausted: true
-  on_usage_threshold: {five_hour_pct: 85, weekly_pct: 90}
   manual: true
 
 model_limits:                   # D4 — defaults shown

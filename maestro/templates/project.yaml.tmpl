@@ -24,8 +24,14 @@ fallback_chain: [claude, codex]
 
 switch:
   on_quota_exhausted: true
-  on_usage_threshold: {five_hour_pct: 85, weekly_pct: 90}
   manual: true
+  # `on_usage_threshold: {five_hour_pct, weekly_pct}` used to be declared here and was
+  # never read by anything — an adopting project could set it and silently change nothing.
+  # It also modelled the wrong shape: per-window limits cannot fire on an account whose
+  # only window is the one you did not name (finding G5), which is why the enforced check
+  # is window-agnostic — `SWITCH_THRESHOLD_PCT` (maestro/switch.py) against the
+  # most-consumed window, whichever that is. Wire that constant to config before
+  # re-declaring anything here.
 
 model_limits:                   # D4 — defaults shown
   claude: ~/.claude/model_context_limits.md

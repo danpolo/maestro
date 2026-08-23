@@ -41,13 +41,6 @@ import pytest
 pytestmark = pytest.mark.maestro_module("parking")
 
 
-def _is_maestro(subject) -> bool:
-    """R5–R7: maestro's `run_dep_map` calls the in-process doc engine instead of
-    shelling out; the legacy reference keeps subprocessing forever. Mirrors
-    `test_roadmap.py`'s `_is_maestro`."""
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
-
-
 # The reference's operator-facing strings are emoji-prefixed. Spelled out by name so the
 # test source stays legible while still pinning the exact bytes Dan sees.
 CHECK = "\N{WHITE HEAVY CHECK MARK}"           # approvals / graduation
@@ -1278,13 +1271,12 @@ def test_handle_prep_done_refreshes_the_dep_map_and_status(subject, sandbox, pre
     argv behind for the refresh, so it is pinned by stubbing the two functions
     `handle_prep_done` calls and asserting on that instead. The legacy subject still
     shells out for both, so its assertion is untouched."""
-    if _is_maestro(subject):
-        calls: list[str] = []
-        monkeypatch.setattr(subject, "run_dep_map", lambda: calls.append("dep_map"))
-        monkeypatch.setattr(subject, "run_status", lambda: calls.append("status"))
-        subject.handle_prep_done("T1", {}, _entry(), {"dan_action": "a"})
-        assert calls == ["dep_map", "status"]
-        return
+    calls: list[str] = []
+    monkeypatch.setattr(subject, "run_dep_map", lambda: calls.append("dep_map"))
+    monkeypatch.setattr(subject, "run_status", lambda: calls.append("status"))
+    subject.handle_prep_done("T1", {}, _entry(), {"dan_action": "a"})
+    assert calls == ["dep_map", "status"]
+    return
     subject.handle_prep_done("T1", {}, _entry(), {"dan_action": "a"})
     assert len(prep_done.runner.calls) >= 2
 

@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import importlib
 import json
-import os
 import re
 import shutil
 import subprocess
@@ -38,7 +37,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.reference_repo import LEGACY_REPO
 
 DIAGNOSE = pytest.mark.maestro_module("selfheal.diagnose")
 SELFFIX = pytest.mark.maestro_module("selfheal.selffix")
@@ -109,11 +107,6 @@ def _events(sandbox) -> list[str]:
 
 def _detail(sandbox, event: str) -> str:
     return [r["detail"] for r in _journal(sandbox) if r["event"] == event][0]
-
-
-def _is_maestro(subject) -> bool:
-    """True for the extracted package, false for the legacy reference module."""
-    return subject.__name__.startswith("maestro.")
 
 
 # =====================================================================================
@@ -883,10 +876,7 @@ def test_attempt_self_fix_spawns_a_detached_tmux_window_through_a_shell(
     assert kwargs == {"shell": True, "check": True}
     assert cmd.startswith(f"tmux new-window -t {subject.TMUX_SESSION} -n selffix-T1 ")
     assert f"cd {subject.REPO} && {subject.VENV_PYTHON} " in cmd
-    if _is_maestro(subject):
-        assert " -m maestro.selfheal.selffix " in cmd
-    else:
-        assert str(subject.REPO / "scripts" / "maestro_selffix.py") in cmd
+    assert " -m maestro.selfheal.selffix " in cmd
     assert cmd.endswith(f"{req}'")
 
 
@@ -1376,29 +1366,8 @@ def test_apply_redo_has_no_kill_switch_and_no_ask_first_mode(subject, sandbox, r
 # =====================================================================================
 
 
-def _load_legacy_redo_runner():
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    scripts = LEGACY_REPO / "scripts"
-    if not (scripts / "maestro_redo.py").is_file():
-        pytest.skip(f"reference repo not found at {LEGACY_REPO}")
-    env_before = dict(os.environ)
-    sys.path.insert(0, str(scripts))
-    try:
-        mod = importlib.import_module("maestro_redo")
-    finally:
-        sys.path.remove(str(scripts))
-        os.environ.clear()
-        os.environ.update(env_before)
-    return mod
-
-
-@pytest.fixture(params=["legacy", "maestro"])
-def redo_runner_subject(request):
-    if request.param == "legacy":
-        return _load_legacy_redo_runner()
+@pytest.fixture
+def redo_runner_subject():
     return importlib.import_module("maestro.selfheal.redo")
 
 
@@ -1746,29 +1715,8 @@ def test_main_aborts_on_a_usage_limit_hint_without_a_commit_mentioned(redo_case)
 # =====================================================================================
 
 
-def _load_legacy_selffix_runner():
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    scripts = LEGACY_REPO / "scripts"
-    if not (scripts / "maestro_selffix.py").is_file():
-        pytest.skip(f"reference repo not found at {LEGACY_REPO}")
-    env_before = dict(os.environ)
-    sys.path.insert(0, str(scripts))
-    try:
-        mod = importlib.import_module("maestro_selffix")
-    finally:
-        sys.path.remove(str(scripts))
-        os.environ.clear()
-        os.environ.update(env_before)
-    return mod
-
-
-@pytest.fixture(params=["legacy", "maestro"])
-def selffix_runner_subject(request):
-    if request.param == "legacy":
-        return _load_legacy_selffix_runner()
+@pytest.fixture
+def selffix_runner_subject():
     return importlib.import_module("maestro.selfheal.selffix")
 
 

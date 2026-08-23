@@ -1,59 +1,30 @@
-"""Pinned field values of the reference `/status` report (M4c batch 1, R13).
-
-`orchestrator_status.py` is a standalone script, not a module `orchestrator_run.py`
-functions live in — it computes its own `REPO_ROOT` from `Path(__file__).resolve()
-.parent.parent` and is meant to be *run*, not imported. So unlike the rest of
-`tests/characterization`, the reference side here is exercised as a read-only
-subprocess: a copy of the script (never the live one) is placed at
-`<fixture>/scripts/orchestrator_status.py` so its self-located `REPO_ROOT` resolves to
-the fixture tree, then invoked with `--json`.
+"""Pinned field values of the `/status` report (M4c batch 1, R13).
 
 This is *not* a byte-for-byte text-layout test — `docs/plans/2026-08-18-m4c-superseded-
 sidecars.md` section 5 requires semantic field parity: phase id/title, `in_flight` task
 ids, `parked_tasks`, `waiting_on_dan` ids, and the usage/quota numbers. Those are exactly
-the fields pinned below. `maestro/status.py` landed in M4c batch 1 (R13); the maestro side
-of `status_source` now drives it for real (see `_maestro_report`).
+the fields pinned below, driven through `maestro/status.py` (see `_maestro_report`).
+
+The retired legacy subject ran the reference `orchestrator_status.py` as a read-only
+subprocess out of a fixture tree, since it was a standalone self-locating script rather
+than an importable module.
 """
 from __future__ import annotations
 
 import json
-import shutil
-import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from tests.reference_repo import LEGACY_REPO
-
-REFERENCE_SCRIPT = "orchestrator_status.py"
-
-
-def _reference_script_path() -> Path | None:
-    if LEGACY_REPO is None:
-        return None
-    path = LEGACY_REPO / "scripts" / REFERENCE_SCRIPT
-    return path if path.is_file() else None
-
-
 @pytest.fixture
 def status_repo(tmp_path):
-    """A fixture repo laid out exactly as the reference script expects: its own
-    `scripts/orchestrator_status.py` (a copy, never the live file — the reference repo
-    is read-only) plus empty `.orchestrator/` and `docs/` directories for the tests to
-    seed. `REPO_ROOT` inside the copied script resolves to this tree, not the real one.
+    """A fixture repo with empty `.orchestrator/` and `docs/` directories for the tests
+    to seed. Previously it also held a copy of the reference `orchestrator_status.py`,
+    for the retired legacy subject to run as a subprocess.
     """
-    script = _reference_script_path()
-    if script is None:
-        pytest.skip(
-            "reference repo unknown or orchestrator_status.py missing: set "
-            "$MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
     repo = tmp_path / "repo"
-    (repo / "scripts").mkdir(parents=True)
-    (repo / ".orchestrator").mkdir()
+    (repo / ".orchestrator").mkdir(parents=True)
     (repo / "docs").mkdir()
-    shutil.copy2(script, repo / "scripts" / REFERENCE_SCRIPT)
     return repo
 
 
@@ -147,28 +118,6 @@ def _seed(repo: Path, **state_overrides) -> dict:
     return state
 
 
-# --- invoking the reference as a subprocess -------------------------------------------
-
-def _run_reference(repo: Path, *, args: list[str]) -> subprocess.CompletedProcess:
-    result = subprocess.run(
-        [sys.executable, str(repo / "scripts" / REFERENCE_SCRIPT), *args],
-        capture_output=True, text=True, cwd=str(repo), timeout=30,
-    )
-    assert result.returncode == 0, (
-        f"orchestrator_status.py exited {result.returncode}\n"
-        f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
-    )
-    return result
-
-
-def _run_reference_json(repo: Path) -> dict:
-    return json.loads(_run_reference(repo, args=["--json"]).stdout)
-
-
-def _run_reference_text(repo: Path) -> str:
-    return _run_reference(repo, args=[]).stdout
-
-
 def _maestro_report(repo: Path, monkeypatch, as_json: bool = True):
     """The `maestro.status` equivalent (R13). `maestro.status` binds its path globals
     once, at import time, off `$MAESTRO_REPO` — the same "one project per process"
@@ -192,17 +141,10 @@ def _maestro_report(repo: Path, monkeypatch, as_json: bool = True):
     return output
 
 
-@pytest.fixture(params=["legacy", "maestro"])
-def status_source(request, status_repo, monkeypatch):
-    """Callable `report(as_json=True) -> dict` for either the reference script (a real
-    subprocess, read-only) or the real `maestro.status` module (R13)."""
-    if request.param == "maestro":
-        return lambda as_json=True: _maestro_report(status_repo, monkeypatch, as_json=as_json)
-
-    def _report(as_json: bool = True):
-        return _run_reference_json(status_repo) if as_json else _run_reference_text(status_repo)
-
-    return _report
+@pytest.fixture
+def status_source(status_repo, monkeypatch):
+    """Callable `report(as_json=True) -> dict` driving the real `maestro.status` module (R13)."""
+    return lambda as_json=True: _maestro_report(status_repo, monkeypatch, as_json=as_json)
 
 
 # --- phase id / title -----------------------------------------------------------------

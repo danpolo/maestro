@@ -59,7 +59,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.reference_repo import LEGACY_REPO
 
 pytestmark = pytest.mark.maestro_module("docs.complete")
 
@@ -71,42 +70,10 @@ REFERENCE_SCRIPT = "mark_task_complete.py"
 _LEGACY_CACHE: dict[str, object] = {}
 
 
-def _load_legacy_complete():
-    """Import the reference's graduation script by path. Skips when the repo is absent.
-
-    No import-time side effects worth guarding — no `sys.path` insertion, no
-    `load_dotenv` — so no credential can enter the process here. Loading it under the
-    name `_legacy_mark_task_complete` also keeps its `__name__ == "__main__"` guard from
-    running `main()`.
-    """
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    path = LEGACY_REPO / "scripts" / REFERENCE_SCRIPT
-    if not path.is_file():
-        pytest.skip(f"reference script not found at {path}")
-    cached = _LEGACY_CACHE.get("module")
-    if cached is not None:
-        return cached
-    spec = importlib.util.spec_from_file_location("_legacy_mark_task_complete", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    _LEGACY_CACHE["module"] = module
-    return module
-
-
-def _is_maestro(subject) -> bool:
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
-
-
 @pytest.fixture
 def mtc(subject):
     """The module that owns the graduation functions, whichever subject is under test."""
-    if _is_maestro(subject):
-        return subject
-    return _load_legacy_complete()
+    return subject
 
 
 # --- the sandbox --------------------------------------------------------------------------
@@ -311,10 +278,9 @@ def check_engines(mtc, monkeypatch) -> _CheckEngines:
     explicitly. A no-op for the legacy subject, which reaches these three tools only via
     its own `subprocess` reference — the `runs` fixture's job."""
     engines = _CheckEngines()
-    if _is_maestro(mtc):
-        monkeypatch.setattr(mtc.verifications, "run_cli", engines._verify)
-        monkeypatch.setattr(mtc.doc_depmap, "run_cli", engines._depmap)
-        monkeypatch.setattr(mtc.doc_consistency, "run_cli", engines._guard)
+    monkeypatch.setattr(mtc.verifications, "run_cli", engines._verify)
+    monkeypatch.setattr(mtc.doc_depmap, "run_cli", engines._depmap)
+    monkeypatch.setattr(mtc.doc_consistency, "run_cli", engines._guard)
     return engines
 
 
@@ -775,10 +741,7 @@ def test_main_no_verify_skips_the_gate_subprocess(mtc, monkeypatch, box, runs, c
     rc = mtc.main()
 
     assert rc == 0
-    if _is_maestro(mtc):
-        assert check_engines.verify == []
-    else:
-        assert runs.of(str(box.check_verifs)) == []
+    assert check_engines.verify == []
 
 
 def test_main_gate_failure_refuses_to_graduate_and_leaves_roadmap_untouched(
@@ -786,10 +749,7 @@ def test_main_gate_failure_refuses_to_graduate_and_leaves_roadmap_untouched(
 ):
     original = _write_roadmap(box, "# ROADMAP\n\n### T1\n\n```yaml\nid: T1\ntitle: T1\n```\n").read_text()
     monkeypatch.setattr(sys, "argv", ["mark_task_complete.py", "T1"])
-    if _is_maestro(mtc):
-        check_engines.verify_returns(1, "gate failed\n")
-    else:
-        runs.when(str(box.check_verifs), returncode=1, stderr="gate failed\n")
+    check_engines.verify_returns(1, "gate failed\n")
 
     rc = mtc.main()
 
@@ -805,15 +765,9 @@ def test_main_gate_call_arguments(mtc, monkeypatch, box, runs, check_engines):
 
     mtc.main()
 
-    if _is_maestro(mtc):
-        # R3: in-process call to `maestro.verifications.run_cli` — no interpreter/script
-        # path/cwd left to assert on, just the argv `main()` used to build for it.
-        assert check_engines.verify == [["T1", str(box.repo), "--auto-only"]]
-        return
+    assert check_engines.verify == [["T1", str(box.repo), "--auto-only"]]
+    return
 
-    call = runs.one(str(box.check_verifs))
-    assert call.argv == [mtc._python(), str(box.check_verifs), "T1", str(box.repo), "--auto-only"]
-    assert call.kwargs["cwd"] == str(box.repo)
 
 
 # ===========================================================================================
@@ -864,18 +818,12 @@ def test_main_task_not_found_still_registers_completion_with_task_id_as_title(mt
 def test_main_dep_map_regen_failure_stops_before_the_consistency_guard(mtc, monkeypatch, box, runs, check_engines):
     _write_roadmap(box, "# ROADMAP\n\n### T1\n\n```yaml\nid: T1\ntitle: T1\n```\n")
     monkeypatch.setattr(sys, "argv", ["mark_task_complete.py", "T1", "--no-verify"])
-    if _is_maestro(mtc):
-        check_engines.depmap_returns(1, "boom")
-    else:
-        runs.when(str(box.gen_dep_map), returncode=1, stdout="boom")
+    check_engines.depmap_returns(1, "boom")
 
     rc = mtc.main()
 
     assert rc == 1
-    if _is_maestro(mtc):
-        assert check_engines.guard == []
-    else:
-        assert runs.of(str(box.guard)) == []
+    assert check_engines.guard == []
     # the registry write and marker still happened before the regen step ran
     assert _read_completed(box)[0]["id"] == "T1"
 
@@ -883,10 +831,7 @@ def test_main_dep_map_regen_failure_stops_before_the_consistency_guard(mtc, monk
 def test_main_consistency_guard_failure_propagates_its_own_returncode(mtc, monkeypatch, box, runs, check_engines):
     _write_roadmap(box, "# ROADMAP\n\n### T1\n\n```yaml\nid: T1\ntitle: T1\n```\n")
     monkeypatch.setattr(sys, "argv", ["mark_task_complete.py", "T1", "--no-verify"])
-    if _is_maestro(mtc):
-        check_engines.guard_returns(3, "inconsistent")
-    else:
-        runs.when(str(box.guard), returncode=3, stdout="inconsistent")
+    check_engines.guard_returns(3, "inconsistent")
 
     rc = mtc.main()
 

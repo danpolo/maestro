@@ -23,14 +23,11 @@ from __future__ import annotations
 
 import importlib
 import json
-import os
 import subprocess
 import sys
 from types import SimpleNamespace
 
 import pytest
-
-from tests.reference_repo import LEGACY_REPO
 
 pytestmark = pytest.mark.maestro_module("hitl.ask")
 
@@ -40,35 +37,10 @@ pytestmark = pytest.mark.maestro_module("hitl.ask")
 # =====================================================================================
 
 
-def _load_legacy_ask():
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    scripts = LEGACY_REPO / "scripts"
-    if not (scripts / "maestro_ask.py").is_file():
-        pytest.skip(f"reference repo not found at {LEGACY_REPO}")
-    env_before = dict(os.environ)
-    sys.path.insert(0, str(scripts))
-    try:
-        mod = importlib.import_module("maestro_ask")
-    finally:
-        sys.path.remove(str(scripts))
-        os.environ.clear()
-        os.environ.update(env_before)
-    return mod
-
-
-@pytest.fixture(params=["legacy", "maestro"])
-def subject(request):
+@pytest.fixture
+def subject():
     """The implementation under test — overrides `conftest.py`'s `subject` for this file."""
-    if request.param == "legacy":
-        return _load_legacy_ask()
     return importlib.import_module("maestro.hitl.ask")
-
-
-def _is_maestro(subject) -> bool:
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
 
 
 # =====================================================================================
@@ -111,10 +83,7 @@ def _fake_subprocess(monkeypatch, subject, handler=None):
 
 def _stub_notify(subject, monkeypatch) -> list:
     calls: list = []
-    if _is_maestro(subject):
-        monkeypatch.setattr(subject, "notify_telegram", lambda msg: calls.append(msg))
-    else:
-        monkeypatch.setattr(subject, "notify", lambda msg: calls.append(msg))
+    monkeypatch.setattr(subject, "notify_telegram", lambda msg: calls.append(msg))
     return calls
 
 

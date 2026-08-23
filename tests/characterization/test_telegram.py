@@ -45,28 +45,6 @@ HOURGLASS = "\N{HOURGLASS WITH FLOWING SAND}"  # veto window
 NEXT = "\N{BLACK RIGHT-POINTING TRIANGLE}"    # "Next:" line
 
 
-def _is_maestro(subject) -> bool:
-    """True for the extracted `maestro.hitl.telegram` subject, false for the legacy
-    reference. Mirrors `test_watchdog.py`'s `_is_maestro`: used only to gate tests whose
-    *target* behaviour deliberately diverges from the read-only reference (M4c/R4 — the
-    reference keeps shelling out to `notify_telegram.sh` forever; maestro's `notify_telegram`
-    is migrating to a native `requests.post` call), never to branch on it inside a shared
-    assertion.
-    """
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
-
-
-def _skip_shell_mechanism_unless_legacy(subject) -> None:
-    """R4 landed: maestro's `notify_telegram` no longer shells out to `notify_telegram.sh`
-    at all, so the pre-R4 mechanism pins below (bash argv, capture_output/timeout kwargs,
-    subprocess error propagation) describe a code path maestro doesn't have anymore. They
-    stay pinned against the legacy reference, which keeps the script forever; the
-    `notify_telegram — TARGET (M4c/R4)` section below pins maestro's replacement.
-    """
-    if _is_maestro(subject):
-        pytest.skip("R4: maestro's notify_telegram no longer shells out to notify_telegram.sh")
-
-
 # --- locating the subject's paths -----------------------------------------------------
 
 
@@ -258,40 +236,6 @@ def test_notify_telegram_does_nothing_when_the_notifier_script_is_absent(
     assert run.calls == []
 
 
-def test_notify_telegram_invokes_the_notifier_script_with_bash(subject, sandbox, monkeypatch):
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.parent.mkdir(parents=True, exist_ok=True)
-    sh.write_text("#!/bin/bash\n", encoding="utf-8")
-    run = _stub_run(monkeypatch)
-    subject.notify_telegram("hello")
-    assert run.argvs == [["bash", str(sh), "hello"]]
-
-
-def test_notify_telegram_captures_output_and_bounds_the_call_at_fifteen_seconds(
-    subject, sandbox, monkeypatch
-):
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.parent.mkdir(parents=True, exist_ok=True)
-    sh.write_text("#!/bin/bash\n", encoding="utf-8")
-    run = _stub_run(monkeypatch)
-    subject.notify_telegram("hello")
-    kwargs = run.calls[0].kwargs
-    assert kwargs == {"capture_output": True, "timeout": 15}
-
-
-def test_notify_telegram_does_not_set_a_working_directory(subject, sandbox, monkeypatch):
-    """The notifier inherits the orchestrator's cwd; unlike _danreq it is not run in REPO."""
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.parent.mkdir(parents=True, exist_ok=True)
-    sh.write_text("#!/bin/bash\n", encoding="utf-8")
-    run = _stub_run(monkeypatch)
-    subject.notify_telegram("hello")
-    assert "cwd" not in run.calls[0].kwargs
-
-
 def test_notify_telegram_returns_none(subject, sandbox, monkeypatch):
     sh = _notify_sh(subject, sandbox)
     sh.parent.mkdir(parents=True, exist_ok=True)
@@ -307,113 +251,6 @@ def test_notify_telegram_ignores_a_failing_notifier(subject, sandbox, monkeypatc
     sh.write_text("#!/bin/bash\nexit 1\n", encoding="utf-8")
     _stub_run(monkeypatch, results=[_result(returncode=1)])
     assert subject.notify_telegram("hello") is None
-
-
-def test_notify_telegram_propagates_a_timeout(subject, sandbox, monkeypatch):
-    """No try/except: a notifier that hangs past 15 s takes the caller down with it."""
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.parent.mkdir(parents=True, exist_ok=True)
-    sh.write_text("#!/bin/bash\n", encoding="utf-8")
-    _stub_run(monkeypatch, raises=subprocess.TimeoutExpired(cmd="bash", timeout=15))
-    with pytest.raises(subprocess.TimeoutExpired):
-        subject.notify_telegram("hello")
-
-
-def test_notify_telegram_propagates_a_missing_interpreter(subject, sandbox, monkeypatch):
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.parent.mkdir(parents=True, exist_ok=True)
-    sh.write_text("#!/bin/bash\n", encoding="utf-8")
-    _stub_run(monkeypatch, raises=FileNotFoundError("bash"))
-    with pytest.raises(FileNotFoundError):
-        subject.notify_telegram("hello")
-
-
-def test_notify_telegram_sends_an_empty_message_as_an_empty_argument(
-    subject, sandbox, monkeypatch
-):
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.parent.mkdir(parents=True, exist_ok=True)
-    sh.write_text("#!/bin/bash\n", encoding="utf-8")
-    run = _stub_run(monkeypatch)
-    subject.notify_telegram("")
-    assert run.argvs == [["bash", str(sh), ""]]
-
-
-def test_notify_telegram_passes_a_multiline_message_as_one_argument(
-    subject, sandbox, monkeypatch
-):
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.parent.mkdir(parents=True, exist_ok=True)
-    sh.write_text("#!/bin/bash\n", encoding="utf-8")
-    run = _stub_run(monkeypatch)
-    subject.notify_telegram("line one\nline two")
-    assert run.argvs[0][2] == "line one\nline two"
-
-
-def test_notify_telegram_does_not_shell_out_through_a_string(subject, sandbox, monkeypatch):
-    """argv form, so a message containing shell metacharacters cannot be interpreted."""
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.parent.mkdir(parents=True, exist_ok=True)
-    sh.write_text("#!/bin/bash\n", encoding="utf-8")
-    run = _stub_run(monkeypatch)
-    subject.notify_telegram("; rm -rf / #")
-    assert run.argvs == [["bash", str(sh), "; rm -rf / #"]]
-    assert run.calls[0].kwargs.get("shell") in (None, False)
-
-
-def test_notify_telegram_passes_a_leading_dash_message_positionally(
-    subject, sandbox, monkeypatch
-):
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.parent.mkdir(parents=True, exist_ok=True)
-    sh.write_text("#!/bin/bash\n", encoding="utf-8")
-    run = _stub_run(monkeypatch)
-    subject.notify_telegram("--help")
-    assert run.argvs[0][2] == "--help"
-
-
-def test_notify_telegram_hands_a_non_string_message_straight_to_subprocess(
-    subject, sandbox, monkeypatch
-):
-    """FOUND_BUGS: no coercion — a non-string payload only fails at exec time."""
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.parent.mkdir(parents=True, exist_ok=True)
-    sh.write_text("#!/bin/bash\n", encoding="utf-8")
-    run = _stub_run(monkeypatch)
-    subject.notify_telegram(42)
-    assert run.argvs[0][2] == 42
-
-
-def test_notify_telegram_treats_a_directory_at_the_script_path_as_present(
-    subject, sandbox, monkeypatch
-):
-    """`.exists()` not `.is_file()`: a directory there is still handed to bash."""
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.mkdir(parents=True, exist_ok=True)
-    run = _stub_run(monkeypatch)
-    subject.notify_telegram("hello")
-    assert run.argvs == [["bash", str(sh), "hello"]]
-
-
-def test_notify_telegram_really_executes_the_script_with_the_message_as_argv1(
-    subject, sandbox
-):
-    """End-to-end against a real `bash`, entirely inside the sandbox — no network."""
-    _skip_shell_mechanism_unless_legacy(subject)
-    sh = _notify_sh(subject, sandbox)
-    sh.parent.mkdir(parents=True, exist_ok=True)
-    out = sandbox.repo / "sent.txt"
-    sh.write_text(f'#!/bin/bash\nprintf "%s" "$1" > "{out}"\n', encoding="utf-8")
-    subject.notify_telegram("delivered")
-    assert out.read_text(encoding="utf-8") == "delivered"
 
 
 # =====================================================================================
@@ -456,11 +293,6 @@ def _stub_post(monkeypatch, raises=None) -> _Post:
     return post
 
 
-def _skip_unless_maestro(subject) -> None:
-    if not _is_maestro(subject):
-        pytest.skip("R4 target: native requests.post send is maestro-only, not the reference")
-
-
 def _post_payload(call) -> dict:
     payload = call.kwargs.get("data")
     if payload is None:
@@ -478,7 +310,6 @@ def _post_url(call) -> str:
 def test_notify_telegram_target_does_nothing_without_a_bot_token(
     subject, sandbox, monkeypatch
 ):
-    _skip_unless_maestro(subject)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
     post = _stub_post(monkeypatch)
@@ -489,7 +320,6 @@ def test_notify_telegram_target_does_nothing_without_a_bot_token(
 def test_notify_telegram_target_treats_an_empty_bot_token_as_absent(
     subject, sandbox, monkeypatch
 ):
-    _skip_unless_maestro(subject)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
     post = _stub_post(monkeypatch)
@@ -500,7 +330,6 @@ def test_notify_telegram_target_treats_an_empty_bot_token_as_absent(
 def test_notify_telegram_target_does_nothing_without_a_chat_id(
     subject, sandbox, monkeypatch
 ):
-    _skip_unless_maestro(subject)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "unit-test-token")
     monkeypatch.delenv("TELEGRAM_ALERT_CHAT_ID", raising=False)
     post = _stub_post(monkeypatch)
@@ -511,7 +340,6 @@ def test_notify_telegram_target_does_nothing_without_a_chat_id(
 def test_notify_telegram_target_treats_an_empty_chat_id_as_absent(
     subject, sandbox, monkeypatch
 ):
-    _skip_unless_maestro(subject)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "unit-test-token")
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "")
     post = _stub_post(monkeypatch)
@@ -522,7 +350,6 @@ def test_notify_telegram_target_treats_an_empty_chat_id_as_absent(
 def test_notify_telegram_target_posts_to_the_send_message_endpoint(
     subject, sandbox, monkeypatch
 ):
-    _skip_unless_maestro(subject)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "unit-test-token")
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
     post = _stub_post(monkeypatch)
@@ -536,7 +363,6 @@ def test_notify_telegram_target_posts_to_the_send_message_endpoint(
 def test_notify_telegram_target_sends_chat_id_and_text_in_the_payload(
     subject, sandbox, monkeypatch
 ):
-    _skip_unless_maestro(subject)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "unit-test-token")
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
     post = _stub_post(monkeypatch)
@@ -549,7 +375,6 @@ def test_notify_telegram_target_sends_chat_id_and_text_in_the_payload(
 def test_notify_telegram_target_passes_a_multiline_message_through(
     subject, sandbox, monkeypatch
 ):
-    _skip_unless_maestro(subject)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "unit-test-token")
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
     post = _stub_post(monkeypatch)
@@ -560,7 +385,6 @@ def test_notify_telegram_target_passes_a_multiline_message_through(
 def test_notify_telegram_target_bounds_the_call_with_a_short_timeout(
     subject, sandbox, monkeypatch
 ):
-    _skip_unless_maestro(subject)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "unit-test-token")
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
     post = _stub_post(monkeypatch)
@@ -573,7 +397,6 @@ def test_notify_telegram_target_bounds_the_call_with_a_short_timeout(
 def test_notify_telegram_target_swallows_a_request_exception(
     subject, sandbox, monkeypatch
 ):
-    _skip_unless_maestro(subject)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "unit-test-token")
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
     _stub_post(monkeypatch, raises=requests.exceptions.RequestException("boom"))
@@ -581,7 +404,6 @@ def test_notify_telegram_target_swallows_a_request_exception(
 
 
 def test_notify_telegram_target_swallows_a_timeout(subject, sandbox, monkeypatch):
-    _skip_unless_maestro(subject)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "unit-test-token")
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
     _stub_post(monkeypatch, raises=requests.exceptions.Timeout("timed out"))
@@ -589,7 +411,6 @@ def test_notify_telegram_target_swallows_a_timeout(subject, sandbox, monkeypatch
 
 
 def test_notify_telegram_target_returns_none_on_success(subject, sandbox, monkeypatch):
-    _skip_unless_maestro(subject)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "unit-test-token")
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
     _stub_post(monkeypatch)
@@ -600,7 +421,6 @@ def test_notify_telegram_target_does_not_shell_out(subject, sandbox, monkeypatch
     """The shell-out and its `.exists()` guard go away per R4 — no `subprocess.run` call,
     even though `NOTIFY_SH`/`notify_telegram.sh` is present on disk (today's `.exists()`
     guard would otherwise take that branch)."""
-    _skip_unless_maestro(subject)
     sh = _notify_sh(subject, sandbox)
     sh.parent.mkdir(parents=True, exist_ok=True)
     sh.write_text("#!/bin/bash\n", encoding="utf-8")
@@ -942,10 +762,7 @@ def test_tg_api_does_not_validate_the_method_name(subject, sandbox, monkeypatch)
 def test_danreq_builds_the_send_script_command(subject, sandbox, monkeypatch):
     run = _stub_run(monkeypatch)
     subject._danreq("Ship it?", ["yes", "no"])
-    if _is_maestro(subject):
-        prefix = [str(subject.VENV_PYTHON), "-m", "maestro.hitl.dan_request"]
-    else:
-        prefix = [str(subject.VENV_PYTHON), str(subject.SEND_DANREQ)]
+    prefix = [str(subject.VENV_PYTHON), "-m", "maestro.hitl.dan_request"]
     assert run.argvs[0] == prefix + [
         "--type", "decision",
         "--question", "Ship it?",

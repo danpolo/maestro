@@ -46,7 +46,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.reference_repo import LEGACY_REPO
 
 pytestmark = pytest.mark.maestro_module("docs.depmap")
 
@@ -56,40 +55,10 @@ pytestmark = pytest.mark.maestro_module("docs.depmap")
 _LEGACY_CACHE: dict[str, object] = {}
 
 
-def _load_legacy_depmap():
-    """Import the reference's dependency-map generator by path.
-
-    Loaded under a private module name so its `if __name__ == "__main__": raise
-    SystemExit(main())` guard never fires on import.
-    """
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    path = LEGACY_REPO / "scripts" / "gen_dependency_map.py"
-    if not path.is_file():
-        pytest.skip(f"reference gen_dependency_map.py not found at {path}")
-    cached = _LEGACY_CACHE.get("module")
-    if cached is not None:
-        return cached
-    spec = importlib.util.spec_from_file_location("_legacy_gen_dependency_map", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    _LEGACY_CACHE["module"] = module
-    return module
-
-
-def _is_maestro(subject) -> bool:
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
-
-
 @pytest.fixture
 def dm(subject):
     """The module that owns the dependency-map functions, whichever subject is under test."""
-    if _is_maestro(subject):
-        return subject
-    return _load_legacy_depmap()
+    return subject
 
 
 # --- the sandbox ----------------------------------------------------------------------------
@@ -541,160 +510,3 @@ def test_main_empty_roadmap_raises_system_exit(dm, box, monkeypatch):
     monkeypatch.setattr(sys, "argv", ["gen_dependency_map.py"])
     with pytest.raises(SystemExit, match="no task blocks found"):
         dm.main()
-
-
-# =========================================================================================
-# render_dependency_map.sh — the render step. Not importable: copied into a fixture repo
-# and run as a real subprocess, exactly like test_verifications.py's reference half.
-# =========================================================================================
-
-RENDER_SCRIPT_REL = Path("scripts") / "render_dependency_map.sh"
-
-
-def _reference_render_source() -> str:
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    path = LEGACY_REPO / RENDER_SCRIPT_REL
-    if not path.is_file():
-        pytest.skip(f"reference render_dependency_map.sh not found at {path}")
-    return path.read_text()
-
-
-@pytest.fixture
-def render_repo(tmp_path):
-    """A fixture repo laid out exactly as `render_dependency_map.sh` expects: a copy of
-    the script under `scripts/`, and `.mermaid/node_modules/.bin/mmdc` replaced by a stub
-    that records its argv (and a copy of the `-i` mermaid file, since the real script deletes
-    its temp file via an `EXIT` trap before a test could otherwise inspect it) instead of
-    launching headless Chromium. `REPO_ROOT` inside the copied script resolves to this tree
-    via `$(dirname "${BASH_SOURCE[0]}")/..`, never the live read-only reference repo.
-    """
-    source = _reference_render_source()
-    repo = tmp_path / "repo"
-    scripts = repo / "scripts"
-    scripts.mkdir(parents=True)
-    (scripts / "render_dependency_map.sh").write_text(source)
-
-    mmdc_dir = repo / ".mermaid" / "node_modules" / ".bin"
-    mmdc_dir.mkdir(parents=True)
-    calls_log = repo / "mmdc_calls.json"
-    input_copy = repo / "mmdc_input_copy.mmd"
-    stub = mmdc_dir / "mmdc"
-    stub.write_text(
-        "#!/usr/bin/env bash\n"
-        'printf \'%s\\n\' "$@" > "${MMDC_CALLS_LOG}"\n'
-        'cp "$2" "${MMDC_INPUT_COPY}"\n'
-    )
-    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
-    (repo / ".mermaid" / "puppeteer-config.json").write_text("{}")
-    (repo / "docs").mkdir()
-
-    return SimpleNamespace(repo=repo, calls_log=calls_log, input_copy=input_copy)
-
-
-def _run_render(render_repo, *, args=(), stdin=None):
-    env = dict(os.environ)
-    env["MMDC_CALLS_LOG"] = str(render_repo.calls_log)
-    env["MMDC_INPUT_COPY"] = str(render_repo.input_copy)
-    return subprocess.run(
-        ["bash", str(render_repo.repo / "scripts" / "render_dependency_map.sh"), *args],
-        input=stdin, capture_output=True, text=True,
-        cwd=str(render_repo.repo), timeout=30, env=env,
-    )
-
-
-def _write_dep_map(render_repo, mermaid_body: str = 'flowchart TD\n    T1["T1"]') -> None:
-    (render_repo.repo / "docs" / "dependency_map.md").write_text(
-        f"# Roadmap Dependency Map\n\n```mermaid\n{mermaid_body}\n```\n"
-    )
-
-
-def test_render_invokes_mmdc_with_expected_argv_and_extracted_mermaid_body(render_repo):
-    _write_dep_map(render_repo)
-
-    result = _run_render(render_repo)
-
-    assert result.returncode == 0, result.stderr
-    argv = render_repo.calls_log.read_text().splitlines()
-    output_png = render_repo.repo / "docs" / "dependency_map.png"
-    puppeteer_cfg = render_repo.repo / ".mermaid" / "puppeteer-config.json"
-    assert argv[0] == "-i"
-    assert argv[2:] == [
-        "-o", str(output_png),
-        "-p", str(puppeteer_cfg),
-        "-s", "3", "-w", "2400", "--quiet",
-    ]
-    assert render_repo.input_copy.read_text().strip() == 'flowchart TD\n    T1["T1"]'
-    assert f"wrote {output_png}" in result.stdout
-
-
-def test_render_missing_mermaid_block_errors_and_never_invokes_mmdc(render_repo):
-    (render_repo.repo / "docs" / "dependency_map.md").write_text("# Roadmap Dependency Map\n\nno graph here\n")
-
-    result = _run_render(render_repo)
-
-    assert result.returncode == 1
-    assert "no mermaid block found" in result.stderr
-    assert not render_repo.calls_log.exists()
-
-
-def test_render_only_extracts_the_first_mermaid_block(render_repo):
-    (render_repo.repo / "docs" / "dependency_map.md").write_text(
-        "```mermaid\nflowchart TD\n    T1[\"first\"]\n```\n\n"
-        "some text between blocks\n\n"
-        "```mermaid\nflowchart TD\n    T2[\"second\"]\n```\n"
-    )
-
-    result = _run_render(render_repo)
-
-    assert result.returncode == 0, result.stderr
-    body = render_repo.input_copy.read_text()
-    assert "T1" in body
-    assert "T2" not in body
-
-
-def test_render_hook_mode_skips_when_file_path_is_unrelated(render_repo):
-    _write_dep_map(render_repo)
-
-    result = _run_render(
-        render_repo, args=["--hook"],
-        stdin=json.dumps({"tool_input": {"file_path": "docs/UPCOMING.md"}}),
-    )
-
-    assert result.returncode == 0
-    assert not render_repo.calls_log.exists()
-
-
-def test_render_hook_mode_runs_when_file_path_matches(render_repo):
-    _write_dep_map(render_repo)
-
-    result = _run_render(
-        render_repo, args=["--hook"],
-        stdin=json.dumps({"tool_input": {"file_path": "docs/dependency_map.md"}}),
-    )
-
-    assert result.returncode == 0
-    assert render_repo.calls_log.exists()
-
-
-def test_render_hook_mode_runs_when_command_mentions_dependency_map(render_repo):
-    _write_dep_map(render_repo)
-
-    result = _run_render(
-        render_repo, args=["--hook"],
-        stdin=json.dumps({"tool_input": {"command": "cat docs/dependency_map.md"}}),
-    )
-
-    assert result.returncode == 0
-    assert render_repo.calls_log.exists()
-
-
-def test_render_hook_mode_malformed_stdin_json_is_treated_as_irrelevant(render_repo):
-    _write_dep_map(render_repo)
-
-    result = _run_render(render_repo, args=["--hook"], stdin="not valid json{{{")
-
-    assert result.returncode == 0
-    assert not render_repo.calls_log.exists()

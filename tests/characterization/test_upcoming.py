@@ -52,7 +52,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.reference_repo import LEGACY_REPO
 
 pytestmark = pytest.mark.maestro_module("docs.upcoming")
 
@@ -64,38 +63,10 @@ REFERENCE_SCRIPT = "gen_upcoming.py"
 _LEGACY_CACHE: dict[str, object] = {}
 
 
-def _load_legacy_upcoming():
-    """Import the reference script by path, once per session. No import-time side effects
-    worth guarding (no `sys.path` insertion beyond its own `scripts/` dir, no dotenv), and
-    loading it under an aliased name keeps its `__name__ == "__main__"` guard inert."""
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    path = LEGACY_REPO / "scripts" / REFERENCE_SCRIPT
-    if not path.is_file():
-        pytest.skip(f"reference script not found at {path}")
-    cached = _LEGACY_CACHE.get("module")
-    if cached is not None:
-        return cached
-    spec = importlib.util.spec_from_file_location("_legacy_gen_upcoming", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    _LEGACY_CACHE["module"] = module
-    return module
-
-
-def _is_maestro(subject) -> bool:
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
-
-
 @pytest.fixture
 def up(subject):
     """The module that owns the upcoming-guide functions, whichever subject is under test."""
-    if _is_maestro(subject):
-        return subject
-    return _load_legacy_upcoming()
+    return subject
 
 
 # --- the sandbox ---------------------------------------------------------------------------
@@ -116,20 +87,21 @@ def _under(path: Path, root: Path) -> bool:
 def _module_root(module) -> Path:
     """The real-repo root this module's own `Path` globals are computed relative to.
 
-    Both `up` and `up.gdm` are self-anchored: the legacy scripts compute their own
-    `REPO_ROOT = Path(__file__).resolve().parent.parent`, and `maestro.docs.upcoming` /
-    `maestro.docs.depmap` expose the same-named global (derived from `Paths.from_env()`
-    instead) precisely so callers never have to hand-wire which repo they mean — so using
-    each module's *own* `REPO_ROOT` attribute, rather than a single hardcoded constant,
-    rebases either subject correctly. The one module with no `REPO_ROOT` of its own is the
-    legacy `prepared_actions` sibling script (self-located via a bare `Path(__file__)
-    .resolve().parents[1]`, no anchor global) — it only ever loads as the legacy sibling,
-    so it falls back to `LEGACY_REPO`.
+    Both `up` and `up.gdm` are self-anchored: `maestro.docs.upcoming` / `maestro.docs.depmap`
+    expose a `REPO_ROOT` global (derived from `Paths.from_env()`) precisely so callers never
+    have to hand-wire which repo they mean. The only module that ever lacked one was the
+    legacy `prepared_actions` sibling script, which fell back to the reference repo's root;
+    with the legacy subject retired that module can no longer load, so a missing `REPO_ROOT`
+    now means a module this rebase cannot make safe — raise rather than guess, since guessing
+    wrong leaves path globals pointed at a live repo.
     """
     root = getattr(module, "REPO_ROOT", None)
     if isinstance(root, Path):
         return root.resolve()
-    return LEGACY_REPO.resolve()
+    raise AssertionError(
+        f"{getattr(module, '__name__', module)} exposes no REPO_ROOT; its path globals "
+        "cannot be rebased into the sandbox and would still resolve to a live repo"
+    )
 
 
 @pytest.fixture(autouse=True)

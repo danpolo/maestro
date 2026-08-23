@@ -72,11 +72,6 @@ def _fake_subprocess(monkeypatch, subject, handler):
     return fake
 
 
-def _is_maestro(subject) -> bool:
-    """True for the extracted package, false for the legacy reference module."""
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
-
-
 def _fake_verifications(monkeypatch, subject, rc=0, output="", raises=None):
     """Swap `gates.verifications` (`maestro.verifications`, imported by name into
     `maestro/gates.py`) for a stub that records the argv `run_verification_gate` builds
@@ -118,12 +113,11 @@ def test_gate_passes_when_the_checker_script_is_absent(subject, sandbox, monkeyp
     a broken gate. R3 close: maestro has no such branch to trigger — there is no on-disk
     script that can be absent, and the gate's verdict is always whatever the checking
     engine actually returns, even when that verdict is a failure."""
-    if _is_maestro(subject):
-        assert not hasattr(subject, "CHECK_VERIFICATIONS")
-        fake = _fake_verifications(monkeypatch, subject, rc=1, output="nope")
-        ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
-        assert (ok, msg) == (False, "nope")
-        return
+    assert not hasattr(subject, "CHECK_VERIFICATIONS")
+    fake = _fake_verifications(monkeypatch, subject, rc=1, output="nope")
+    ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
+    assert (ok, msg) == (False, "nope")
+    return
     assert not subject.CHECK_VERIFICATIONS.exists()
     ok, msg = subject.run_verification_gate("T1", sandbox.repo / "ws")
     assert ok is True
@@ -131,11 +125,10 @@ def test_gate_passes_when_the_checker_script_is_absent(subject, sandbox, monkeyp
 
 
 def test_gate_returns_true_and_output_on_exit_zero(subject, sandbox, monkeypatch, tmp_path):
-    if _is_maestro(subject):
-        _fake_verifications(monkeypatch, subject, rc=0, output="all good")
-        ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
-        assert (ok, msg) == (True, "all good")
-        return
+    _fake_verifications(monkeypatch, subject, rc=0, output="all good")
+    ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
+    assert (ok, msg) == (True, "all good")
+    return
     _script(subject.CHECK_VERIFICATIONS, 'echo "all good"\n')
     monkeypatch.setattr(subject, "VENV_PYTHON", SH)
     ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
@@ -143,11 +136,10 @@ def test_gate_returns_true_and_output_on_exit_zero(subject, sandbox, monkeypatch
 
 
 def test_gate_returns_false_and_output_on_nonzero_exit(subject, sandbox, monkeypatch, tmp_path):
-    if _is_maestro(subject):
-        _fake_verifications(monkeypatch, subject, rc=1, output="V2 failed")
-        ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
-        assert (ok, msg) == (False, "V2 failed")
-        return
+    _fake_verifications(monkeypatch, subject, rc=1, output="V2 failed")
+    ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
+    assert (ok, msg) == (False, "V2 failed")
+    return
     _script(subject.CHECK_VERIFICATIONS, 'echo "V2 failed"; exit 1\n')
     monkeypatch.setattr(subject, "VENV_PYTHON", SH)
     ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
@@ -157,11 +149,10 @@ def test_gate_returns_false_and_output_on_nonzero_exit(subject, sandbox, monkeyp
 def test_gate_passes_task_id_and_workspace_as_the_first_two_arguments(
     subject, sandbox, monkeypatch, tmp_path
 ):
-    if _is_maestro(subject):
-        fake = _fake_verifications(monkeypatch, subject)
-        subject.run_verification_gate("T1", tmp_path / "ws")
-        assert fake.calls == [["T1", str(tmp_path / "ws")]]
-        return
+    fake = _fake_verifications(monkeypatch, subject)
+    subject.run_verification_gate("T1", tmp_path / "ws")
+    assert fake.calls == [["T1", str(tmp_path / "ws")]]
+    return
     _script(subject.CHECK_VERIFICATIONS, 'echo "argv=[$*]"\n')
     monkeypatch.setattr(subject, "VENV_PYTHON", SH)
     ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
@@ -169,13 +160,12 @@ def test_gate_passes_task_id_and_workspace_as_the_first_two_arguments(
 
 
 def test_gate_appends_worktree_then_auto_only(subject, sandbox, monkeypatch, tmp_path):
-    if _is_maestro(subject):
-        fake = _fake_verifications(monkeypatch, subject)
-        subject.run_verification_gate(
-            "T1", tmp_path / "ws", worktree=tmp_path / "wt", auto_only=True
-        )
-        assert fake.calls == [["T1", str(tmp_path / "ws"), str(tmp_path / "wt"), "--auto-only"]]
-        return
+    fake = _fake_verifications(monkeypatch, subject)
+    subject.run_verification_gate(
+        "T1", tmp_path / "ws", worktree=tmp_path / "wt", auto_only=True
+    )
+    assert fake.calls == [["T1", str(tmp_path / "ws"), str(tmp_path / "wt"), "--auto-only"]]
+    return
     _script(subject.CHECK_VERIFICATIONS, 'echo "argv=[$*]"\n')
     monkeypatch.setattr(subject, "VENV_PYTHON", SH)
     _, msg = subject.run_verification_gate(
@@ -190,11 +180,10 @@ def test_gate_omits_the_worktree_slot_entirely_when_it_is_none(
     """FOUND_BUGS #18: --auto-only slides into the positional worktree slot when
     worktree is None. Preserved exactly at the new call site — relocating the checking
     engine in-process did not touch how `run_verification_gate` itself builds argv."""
-    if _is_maestro(subject):
-        fake = _fake_verifications(monkeypatch, subject)
-        subject.run_verification_gate("T1", tmp_path / "ws", auto_only=True)
-        assert fake.calls == [["T1", str(tmp_path / "ws"), "--auto-only"]]
-        return
+    fake = _fake_verifications(monkeypatch, subject)
+    subject.run_verification_gate("T1", tmp_path / "ws", auto_only=True)
+    assert fake.calls == [["T1", str(tmp_path / "ws"), "--auto-only"]]
+    return
     _script(subject.CHECK_VERIFICATIONS, 'echo "argv=[$*]"\n')
     monkeypatch.setattr(subject, "VENV_PYTHON", SH)
     _, msg = subject.run_verification_gate("T1", tmp_path / "ws", auto_only=True)
@@ -208,11 +197,10 @@ def test_gate_concatenates_stdout_and_stderr_with_no_separator(
     There is no separate stderr stream once the checking engine runs in-process — the
     gate's message is just whatever the engine returned, stripped of surrounding
     whitespace."""
-    if _is_maestro(subject):
-        _fake_verifications(monkeypatch, subject, rc=0, output="  out\n")
-        _, msg = subject.run_verification_gate("T1", tmp_path / "ws")
-        assert msg == "out"
-        return
+    _fake_verifications(monkeypatch, subject, rc=0, output="  out\n")
+    _, msg = subject.run_verification_gate("T1", tmp_path / "ws")
+    assert msg == "out"
+    return
     _script(subject.CHECK_VERIFICATIONS, 'printf out; printf err >&2\n')
     monkeypatch.setattr(subject, "VENV_PYTHON", SH)
     _, msg = subject.run_verification_gate("T1", tmp_path / "ws")
@@ -224,11 +212,10 @@ def test_gate_runs_the_checker_in_the_repo(subject, sandbox, monkeypatch, tmp_pa
     `maestro.verifications` module (no `_fake_verifications` stub), driven through the
     real `run_verification_gate` — proving the in-process wiring itself works, not just
     the stub's contract."""
-    if _is_maestro(subject):
-        _write_roadmap_auto_check(sandbox, "T1", "pwd", "")
-        _, msg = subject.run_verification_gate("T1", tmp_path / "ws")
-        assert str(sandbox.repo.resolve()) in msg
-        return
+    _write_roadmap_auto_check(sandbox, "T1", "pwd", "")
+    _, msg = subject.run_verification_gate("T1", tmp_path / "ws")
+    assert str(sandbox.repo.resolve()) in msg
+    return
     _script(subject.CHECK_VERIFICATIONS, 'pwd\n')
     monkeypatch.setattr(subject, "VENV_PYTHON", SH)
     _, msg = subject.run_verification_gate("T1", tmp_path / "ws")
@@ -241,14 +228,13 @@ def test_gate_reports_a_timeout_as_a_failure(subject, sandbox, monkeypatch, tmp_
     more — but an exception surfacing from the checking engine (of which a stray
     TimeoutExpired would be one instance) is still caught generically, not left to
     crash the gate."""
-    if _is_maestro(subject):
-        _fake_verifications(
-            monkeypatch, subject, raises=subprocess.TimeoutExpired(cmd="check", timeout=120)
-        )
-        ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
-        assert ok is False
-        assert msg.startswith("verification gate error:")
-        return
+    _fake_verifications(
+        monkeypatch, subject, raises=subprocess.TimeoutExpired(cmd="check", timeout=120)
+    )
+    ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
+    assert ok is False
+    assert msg.startswith("verification gate error:")
+    return
     _script(subject.CHECK_VERIFICATIONS, "true\n")
 
     def boom(*args, **kwargs):
@@ -261,12 +247,11 @@ def test_gate_reports_a_timeout_as_a_failure(subject, sandbox, monkeypatch, tmp_
 
 
 def test_gate_reports_any_other_exception_as_a_failure(subject, sandbox, monkeypatch, tmp_path):
-    if _is_maestro(subject):
-        _fake_verifications(monkeypatch, subject, raises=OSError("no exec"))
-        ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
-        assert ok is False
-        assert msg == "verification gate error: no exec"
-        return
+    _fake_verifications(monkeypatch, subject, raises=OSError("no exec"))
+    ok, msg = subject.run_verification_gate("T1", tmp_path / "ws")
+    assert ok is False
+    assert msg == "verification gate error: no exec"
+    return
 
     def boom(*args, **kwargs):
         raise OSError("no exec")

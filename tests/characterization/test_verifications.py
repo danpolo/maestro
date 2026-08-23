@@ -3,66 +3,23 @@
 Characterisation, not specification: where the reference implementation does something
 surprising, the test pins the surprise. Nothing here asserts what the code *should* do.
 
-Unlike the other characterised modules, the reference is not a library of importable
-functions — it is a standalone CLI script (`sys.argv`-driven `main()`, printing to stdout,
-returning a process exit code) that `maestro/gates.py` used to invoke as a subprocess. So the
-"subject" here is not "a module whose functions we call" but "a process we run": the reference
-side copies the real script's source verbatim into a fixture repo (its own `docs/ROADMAP.md`,
-sitting next to a copied `scripts/check_verifications.py` so the script's own
-`REPO = Path(__file__).resolve().parent.parent` resolves inside the fixture, never the live
-read-only reference repo) and shells out to it for real with `subprocess.run`. The maestro side
-is `maestro.verifications`, extracted in-process (no subprocess, no script on disk) — its own
-fixture drives `run_cli` directly and wraps the result back into a `subprocess.CompletedProcess`
-so every test in this file exercises both subjects through the identical `subject.run(*argv)`
-call.
+The reference was not a library of importable functions — it was a standalone CLI script
+(`sys.argv`-driven `main()`, printing to stdout, returning a process exit code) that
+`maestro/gates.py` invoked as a subprocess. So the "subject" here is not "a module whose
+functions we call" but "a process we run". `maestro.verifications` is extracted in-process
+(no subprocess, no script on disk), and `MaestroCLI` wraps `run_cli`'s result back into a
+`subprocess.CompletedProcess` so every test drives it through the same `subject.run(*argv)`
+shape the retired reference subject used.
 """
 from __future__ import annotations
 
 import importlib
 import subprocess
-import sys
 from pathlib import Path
 
 import pytest
 
-from tests.reference_repo import LEGACY_REPO
-
 pytestmark = pytest.mark.maestro_module("verifications")
-
-REFERENCE_SCRIPT_REL = Path("scripts") / "check_verifications.py"
-
-
-def _reference_source() -> str:
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    path = LEGACY_REPO / REFERENCE_SCRIPT_REL
-    if not path.is_file():
-        pytest.skip(f"reference check_verifications.py not found at {path}")
-    return path.read_text(encoding="utf-8")
-
-
-class ReferenceCLI:
-    """The real check_verifications.py, copied verbatim, run for real against a fixture repo."""
-
-    def __init__(self, tmp_path: Path):
-        self.repo = tmp_path / "repo"
-        (self.repo / "scripts").mkdir(parents=True)
-        (self.repo / "docs").mkdir(parents=True)
-        self.script = self.repo / "scripts" / "check_verifications.py"
-        self.script.write_text(_reference_source(), encoding="utf-8")
-        self.roadmap = self.repo / "docs" / "ROADMAP.md"
-        self.roadmap.write_text("", encoding="utf-8")
-
-    def write_roadmap(self, text: str) -> None:
-        self.roadmap.write_text(text, encoding="utf-8")
-
-    def run(self, *argv: str, timeout: float = 30) -> subprocess.CompletedProcess:
-        return subprocess.run(
-            [sys.executable, str(self.script), *argv],
-            capture_output=True, text=True, timeout=timeout,
-        )
 
 
 class MaestroCLI:
@@ -99,14 +56,8 @@ class MaestroCLI:
                                            stdout=output, stderr="")
 
 
-@pytest.fixture(params=["reference", "maestro"])
-def subject(request, tmp_path, monkeypatch):
-    if request.param == "reference":
-        return ReferenceCLI(tmp_path)
-    try:
-        importlib.import_module("maestro.verifications")
-    except ModuleNotFoundError:
-        pytest.skip("maestro.verifications not extracted yet")
+@pytest.fixture
+def subject(tmp_path, monkeypatch):
     return MaestroCLI(tmp_path, monkeypatch)
 
 

@@ -112,17 +112,6 @@ def _subjects(repo: Path) -> list[str]:
     return _git(repo, "log", "--pretty=%s").stdout.splitlines()
 
 
-def _is_maestro(subject) -> bool:
-    """True for the extracted package, false for the legacy reference module.
-
-    M2 moved the risky reviewer's judge onto `claude-sonnet-5` while the reference stays
-    on `claude-sonnet-4-6`, so the prompt-contract test pins *two* answers rather than one
-    loosened answer that would accept either — a regression in the extracted code cannot
-    hide behind "well, the legacy value is allowed too".
-    """
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
-
-
 def _merge_in_progress(repo: Path) -> bool:
     return (repo / ".git" / "MERGE_HEAD").exists()
 
@@ -491,10 +480,7 @@ def test_risky_reviewer_prompt_contract(subject, repo, monkeypatch):
     assert len(judge.calls) == 1
     call = judge.calls[0]
     assert set(call) == {"system", "user", "model"}
-    if _is_maestro(subject):
-        assert call["model"] == "claude-sonnet-5"
-    else:
-        assert call["model"] == "claude-sonnet-4-6"
+    assert call["model"] == "claude-sonnet-5"
     assert "JSON" in call["system"]
     assert '"pass"' in call["system"]
     assert "T77" in call["user"]

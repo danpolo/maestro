@@ -4,17 +4,8 @@ Characterisation, not specification: where the reference implementation does som
 surprising, the test pins the surprise and `docs/FOUND_BUGS.md` records it. Nothing here
 asserts what the code *should* do.
 
-Three conventions are specific to this module:
+Two conventions are specific to this module:
 
-* the watchdog is a **separate top-level script** in the reference
-  (`scripts/watchdog.py`), and — unlike the prepared-action sidecar — the monolithic
-  orchestrator module does not import it at all: it only mentions it in comments. So the
-  dual `subject` fixture's legacy half hands back a namespace that does not own any of
-  these functions. The `wd` fixture normalises that to "the module that owns
-  `journal_last_line`" by loading the reference script by file path (via
-  `importlib.util.spec_from_file_location`, with the repo located through
-  `tests.reference_repo`, never hardcoded), and by handing back the subject itself once
-  `maestro.watchdog` exists;
 * the shared `sandbox` fixture cannot help here. It rebases the path globals of
   *`subject`* — the orchestrator module — and the watchdog module it never looks at would
   keep every one of its own globals (`STATE_JSON`, `JOURNAL`, `HALT_FILE`, `QUESTIONS`,
@@ -44,7 +35,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.reference_repo import LEGACY_REPO
 
 pytestmark = pytest.mark.maestro_module("watchdog")
 
@@ -54,42 +44,10 @@ pytestmark = pytest.mark.maestro_module("watchdog")
 _LEGACY_CACHE: dict[str, object] = {}
 
 
-def _load_legacy_watchdog():
-    """Import the reference's watchdog script by path. Skips when the repo is absent.
-
-    Unlike the orchestrator module this one has no import-time side effects worth
-    guarding — no `sys.path` insertion and no `load_dotenv`, so no credential can enter
-    the process here. Loading it under the name `_legacy_watchdog` also keeps its
-    `__name__ == "__main__"` guard from running `main()`.
-    """
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    path = LEGACY_REPO / "scripts" / "watchdog.py"
-    if not path.is_file():
-        pytest.skip(f"reference watchdog not found at {path}")
-    cached = _LEGACY_CACHE.get("module")
-    if cached is not None:
-        return cached
-    spec = importlib.util.spec_from_file_location("_legacy_watchdog", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    _LEGACY_CACHE["module"] = module
-    return module
-
-
-def _is_maestro(subject) -> bool:
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
-
-
 @pytest.fixture
 def wd(subject):
     """The module that owns the watchdog functions, whichever subject is under test."""
-    if _is_maestro(subject):
-        return subject
-    return _load_legacy_watchdog()
+    return subject
 
 
 def _notifies_via_script(wd) -> bool:
@@ -339,12 +297,8 @@ def test_the_stall_window_is_forty_poll_intervals(wd):
 
 def test_tmux_session_and_window_names(wd):
     """The reference hardcodes both; plan §5 derives them from the project name."""
-    if _is_maestro(wd):
-        assert isinstance(wd.TMUX_SESSION, str) and wd.TMUX_SESSION
-        assert isinstance(wd.TMUX_WINDOW, str) and wd.TMUX_WINDOW
-    else:
-        assert wd.TMUX_SESSION == "agents"
-        assert wd.TMUX_WINDOW == "orchestrator"
+    assert isinstance(wd.TMUX_SESSION, str) and wd.TMUX_SESSION
+    assert isinstance(wd.TMUX_WINDOW, str) and wd.TMUX_WINDOW
 
 
 def test_every_path_global_started_out_under_repo(wd, box):
@@ -563,10 +517,7 @@ def test_orchestrator_alive_greps_the_process_table(wd, runs):
 def test_orchestrator_alive_pattern_matches_the_loop_entrypoints(wd, runs):
     wd.orchestrator_alive()
     pattern = runs.one("pgrep").argv[2]
-    if _is_maestro(wd):
-        assert isinstance(pattern, str) and pattern
-    else:
-        assert pattern == r"launch_orchestrator\.py|orchestrator_run\.py"
+    assert isinstance(pattern, str) and pattern
 
 
 def test_orchestrator_alive_true_on_a_match(wd, runs):
@@ -648,16 +599,9 @@ def test_launch_orchestrator_runs_the_launcher_from_the_repo(wd, box, runs, caps
     capsys.readouterr()
     command = runs.calls[0].argv
     assert f"cd {wd.REPO} &&" in command
-    if not _is_maestro(wd):
-        assert str(wd.VENV_PYTHON) in command
-        assert str(wd.LAUNCHER) in command
-    else:
-        # A bare `maestro` depends on the tmux *server*'s PATH, not this process's — not
-        # guaranteed to include this project's `.venv/bin` (found during a live M5
-        # cutover). The spawned command must use the absolute venv path instead.
-        assert str(wd.VENV_MAESTRO) in command
-        assert str(wd.REPO / ".venv" / "bin" / "maestro") in command
-        assert "'maestro run'" not in command
+    assert str(wd.VENV_MAESTRO) in command
+    assert str(wd.REPO / ".venv" / "bin" / "maestro") in command
+    assert "'maestro run'" not in command
 
 
 def test_launch_orchestrator_journals_and_prints(wd, box, runs, capsys):
@@ -747,8 +691,7 @@ def test_ensure_resume_job_command_relaunches_the_loop_in_tmux(wd, runs, capsys)
     assert "cron-orch-resume" in written
     assert f"-t {wd.TMUX_SESSION}" in written
     assert f"cd {wd.REPO} &&" in written
-    if _is_maestro(wd):
-        assert str(wd.VENV_MAESTRO) in written
+    assert str(wd.VENV_MAESTRO) in written
 
 
 def test_ensure_resume_job_keeps_existing_crontab_entries(wd, runs, capsys):
@@ -1004,7 +947,7 @@ def test_reap_never_touches_state_json(wd, box, runs, capsys):
 def test_reap_handles_several_entries_independently(wd, box, runs, capsys):
     _write_state(box, {"in_flight": [{"window": "T1"}, {"window": "T2"}]})
     runs.when("list-windows", stdout="T1\nT2\n")
-    runs.when("list-panes", "agents:T1" if not _is_maestro(wd) else f"{wd.TMUX_SESSION}:T1", stdout="1\n")
+    runs.when("list-panes", f"{wd.TMUX_SESSION}:T1", stdout="1\n")
     runs.when("list-panes", stdout="0\n")
     wd.reap_dead_implementers()
     capsys.readouterr()
@@ -1376,7 +1319,7 @@ def test_main_first_stall_kills_and_relaunches(wd, box, env, capsys, runs):
     assert "[watchdog] Stall #1 (21 min) — killing orchestrator." in out
     assert _detail(box, "stall_restart") == "restart=1 silence=21min"
     kill = runs.one("pkill")
-    assert kill.argv == ["pkill", "-f", r"launch_orchestrator\.py|orchestrator_run\.py"] or _is_maestro(wd)
+    assert kill.argv == ["pkill", "-f", wd.ORCHESTRATOR_PATTERN]
     assert kill.kwargs == {"capture_output": True}
     assert env.clock.sleeps[:2] == [wd.POLL_INTERVAL, 2]
     assert env.launches == 1
@@ -1469,10 +1412,7 @@ def test_main_stall_alert_is_tagged_with_the_project_name(wd, box, env, capsys):
     assert _run(wd, env, ticks=20, step=STALL) == 1
     capsys.readouterr()
     tag = env.notices[0].split("]")[0].lstrip("[")
-    if _is_maestro(wd):
-        assert tag
-    else:
-        assert tag == box.original["REPO"].name
+    assert tag
 
 
 def test_main_stall_restart_counter_never_resets_after_recovery(wd, box, env, capsys):

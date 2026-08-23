@@ -49,7 +49,6 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.reference_repo import LEGACY_REPO
 
 pytestmark = pytest.mark.maestro_module("docs.consistency")
 
@@ -61,39 +60,11 @@ REFERENCE_SCRIPT = "check_roadmap_consistency.py"
 _LEGACY_CACHE: dict[str, object] = {}
 
 
-def _load_legacy_consistency():
-    """Import the reference script by path, once per session. No import-time side
-    effects worth guarding (no `sys.path` insertion, no dotenv), and loading it under an
-    aliased name keeps its `__name__ == "__main__"` guard inert."""
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    path = LEGACY_REPO / "scripts" / REFERENCE_SCRIPT
-    if not path.is_file():
-        pytest.skip(f"reference script not found at {path}")
-    cached = _LEGACY_CACHE.get("module")
-    if cached is not None:
-        return cached
-    spec = importlib.util.spec_from_file_location("_legacy_check_roadmap_consistency", path)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module
-    spec.loader.exec_module(module)
-    _LEGACY_CACHE["module"] = module
-    return module
-
-
-def _is_maestro(subject) -> bool:
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
-
-
 @pytest.fixture
 def crc(subject):
     """The module that owns the consistency-check functions, whichever subject is under
     test."""
-    if _is_maestro(subject):
-        return subject
-    return _load_legacy_consistency()
+    return subject
 
 
 # --- the sandbox -----------------------------------------------------------------------
@@ -258,9 +229,8 @@ def run_cli_stubs(request, monkeypatch):
     crc = request.getfixturevalue("crc")
     depmap_stub = _StubRunCli()
     upcoming_stub = _StubRunCli()
-    if _is_maestro(crc):
-        monkeypatch.setattr(crc.gen_dependency_map, "run_cli", depmap_stub)
-        monkeypatch.setattr(crc.gen_upcoming, "run_cli", upcoming_stub)
+    monkeypatch.setattr(crc.gen_dependency_map, "run_cli", depmap_stub)
+    monkeypatch.setattr(crc.gen_upcoming, "run_cli", upcoming_stub)
     return SimpleNamespace(depmap=depmap_stub, upcoming=upcoming_stub)
 
 
@@ -269,12 +239,8 @@ def _stub_check(crc, run_cli_stubs, box, which: str, *,
     """Configure the depmap/upcoming `--check` outcome for whichever subject `crc` is:
     a real throwaway script for the legacy subject, or the maestro subject's `run_cli`
     stand-in (`run_cli_stubs`). `which` is `"depmap"` or `"upcoming"`."""
-    if _is_maestro(crc):
-        stub = run_cli_stubs.depmap if which == "depmap" else run_cli_stubs.upcoming
-        stub.returns(returncode, stdout, stderr)
-    else:
-        path = box.gen_script if which == "depmap" else box.gen_upcoming
-        _write_stub(path, returncode=returncode, stdout=stdout, stderr=stderr)
+    stub = run_cli_stubs.depmap if which == "depmap" else run_cli_stubs.upcoming
+    stub.returns(returncode, stdout, stderr)
 
 
 # =======================================================================================
@@ -447,44 +413,12 @@ def test_depmap_no_drift_nonzero_exit_reports_combined_stdout_stderr(crc, box, r
     ]
 
 
-def test_depmap_no_drift_missing_script_still_reports_a_problem(crc, box, run_cli_stubs):
-    """No `.exists()` guard for GEN_SCRIPT (unlike GEN_UPCOMING below) — a missing
-    generator surfaces as a drift problem via the subprocess's own nonzero exit, not a
-    distinct error path. Legacy-only: the maestro subject has no on-disk script that
-    could go missing — `maestro.docs.depmap` is always importable, and `run_cli_stubs`
-    always installs a stand-in (see `test_depmap_no_drift_clean_run_adds_no_problem`)."""
-    if _is_maestro(crc):
-        pytest.skip("R5: no on-disk generator to be missing — always called in-process now")
-    problems: list[str] = []
-    crc.check_depmap_no_drift(problems)
-    assert len(problems) == 1
-    assert problems[0].startswith(
-        "(b) docs/dependency_map.md is stale/drifted — run `python scripts/gen_dependency_map.py`:"
-    )
-
-
-def test_upcoming_no_drift_missing_generator_is_skipped_silently(crc, box, run_cli_stubs):
-    """Unlike GEN_SCRIPT, GEN_UPCOMING is existence-checked first — no generator means
-    no subprocess call and no problem at all. Legacy-only: R7 drops this guard for the
-    maestro subject — an in-process module import always "exists" — see
-    `test_upcoming_no_drift_always_calls_run_cli_now` below."""
-    if _is_maestro(crc):
-        pytest.skip("R7: the .exists() guard was dropped — see "
-                    "test_upcoming_no_drift_always_calls_run_cli_now")
-    problems: list[str] = []
-    crc.check_upcoming_no_drift(problems)
-    assert problems == []
-
-
 def test_upcoming_no_drift_always_calls_run_cli_now(crc, box, run_cli_stubs):
     """R7 target: dropping the reference's `GEN_UPCOMING.exists()` skip-guard means
     `check_upcoming_no_drift` now always calls `maestro.docs.upcoming.run_cli(["--check"])`
     — no more asymmetry with `check_depmap_no_drift`, which never had an `.exists()`
     guard to begin with. Maestro-only; the legacy reference's own guard is pinned by
     `test_upcoming_no_drift_missing_generator_is_skipped_silently` above."""
-    if not _is_maestro(crc):
-        pytest.skip("R7 target: maestro-only — see "
-                    "test_upcoming_no_drift_missing_generator_is_skipped_silently")
     problems: list[str] = []
     crc.check_upcoming_no_drift(problems)
     assert run_cli_stubs.upcoming.calls == [["--check"]]

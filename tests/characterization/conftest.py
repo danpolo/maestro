@@ -1,13 +1,10 @@
-"""Runs one test body against both the legacy orchestrator and extracted maestro modules.
+"""Runs each characterisation body against the extracted maestro modules.
 
-The legacy module has import-time side effects: it inserts `scripts/` on sys.path and
-calls load_dotenv(REPO/".env", override=True), which loads the consuming project's LIVE
-credentials into os.environ. The path argument is explicit, so there is no way to
-redirect it — instead we snapshot os.environ around the import and restore it, so no
-usable token ever survives into a test. (The session-wide scrub in `tests/conftest.py`
-already removed anything credential-shaped before that snapshot was taken.)
+Historically this ran every body twice — once against the reference orchestrator, once
+against maestro — as the equivalence oracle for the extraction. The legacy subject was
+retired on 2026-08-21; see the `subject` fixture for why.
 
-The `sandbox` fixture then repoints the subject's path globals at a temp tree. It does
+The `sandbox` fixture repoints the subject's path globals at a temp tree. It does
 **not** work from a hand-written list of global names: the reference module's globals are
 `STATE_JSON`, `JOURNAL`, `WORKSPACES`, `USAGE_JSON`, `HALT_FILE`, `PROJECT_YAML` and a
 dozen more, and any name missing from a hand-written list silently stays pointed at the
@@ -24,55 +21,41 @@ from types import SimpleNamespace
 
 import pytest
 
-from tests.reference_repo import LEGACY_REPO
-
 
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",
-        "maestro_module(name): skip the maestro subject until that module is extracted",
+        "maestro_module(name): the maestro module this test's subject resolves to",
     )
-
-
-def _load_legacy():
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    scripts = LEGACY_REPO / "scripts"
-    if not (scripts / "orchestrator_run.py").is_file():
-        pytest.skip(f"reference repo not found at {LEGACY_REPO}")
-    import os
-
-    env_before = dict(os.environ)
-    sys.path.insert(0, str(scripts))
-    try:
-        mod = importlib.import_module("orchestrator_run")
-    finally:
-        sys.path.remove(str(scripts))
-        # The import loaded the consuming project's real .env. Restore the
-        # environment so no live credential is reachable from any test.
-        os.environ.clear()
-        os.environ.update(env_before)
-    return mod
 
 
 def _load_maestro(request):
     marker = request.node.get_closest_marker("maestro_module")
     if marker is None:
-        pytest.skip("test does not declare a maestro_module marker yet")
+        raise AssertionError(
+            f"{request.node.nodeid} declares no maestro_module marker. Extraction is "
+            "complete, so there is no longer a 'not extracted yet' state to skip for — "
+            "a missing marker is a defect in the test."
+        )
     name = marker.args[0]
-    try:
-        return importlib.import_module(f"maestro.{name}")
-    except ModuleNotFoundError:
-        pytest.skip(f"maestro.{name} not extracted yet")
+    return importlib.import_module(f"maestro.{name}")
 
 
-@pytest.fixture(params=["legacy", "maestro"])
+@pytest.fixture
 def subject(request):
-    """The implementation under test."""
-    if request.param == "legacy":
-        return _load_legacy()
+    """The implementation under test.
+
+    Single-subject since the legacy subject was retired (2026-08-21). This harness was
+    built to run each body against both the reference orchestrator and the extracted
+    maestro module, proving equivalence one assertion at a time. M5's cutover commit
+    deleted the reference scripts, so the legacy half could never load again and 2285 of
+    5269 tests skipped silently — a suite that reported green while 43% of it did not
+    run. The equivalence oracle had already done its job by then: every stage M0-M6 was
+    signed off against it, and the extracted code has since run the live loop end to end.
+
+    Deliberately no fallback to a vendored or configured reference: maestro is a generic
+    tool and must not carry a path to any one consuming project.
+    """
     return _load_maestro(request)
 
 

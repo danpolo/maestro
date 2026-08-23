@@ -105,18 +105,6 @@ def _workspaces(subject, sandbox) -> Path:
     return _path(subject, "WORKSPACES", sandbox.workspaces)
 
 
-def _is_maestro(subject) -> bool:
-    """True for the extracted package, false for the legacy reference module.
-
-    M2 gives the control plane behaviour the reference does not have (the `/backend` verb
-    and the backend segment in a `/progress` header), so a handful of assertions here pin
-    *two* answers rather than one loosened answer that would accept either. Every such
-    test states the reference's exact text as well as maestro's, so a regression in the
-    extracted code cannot hide behind "well, the legacy value is allowed too".
-    """
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
-
-
 # --- fixture state on disk -------------------------------------------------------------
 
 
@@ -461,14 +449,11 @@ def test_help_advertises_backend_in_the_extracted_package_and_not_in_the_referen
     has no such verb and must not claim one."""
     control.deliver(_update(verb))
     (sheet,) = control.sent
-    if _is_maestro(subject):
-        assert (
-            "/backend <name> [task_id] — pick the agent backend for new launches, "
-            "or move one in-flight task to it now (same worktree, uncommitted "
-            "work kept)\n"
-        ) in sheet
-    else:
-        assert "/backend" not in sheet
+    assert (
+        "/backend <name> [task_id] — pick the agent backend for new launches, "
+        "or move one in-flight task to it now (same worktree, uncommitted "
+        "work kept)\n"
+    ) in sheet
 
 
 def test_status_reports_phase_in_flight_ids_and_the_halted_and_paused_flags(
@@ -722,10 +707,7 @@ def test_progress_report_header_names_the_backend_only_in_the_extracted_package(
         "backend": "codex",
     }])
     header = subject._build_progress_report().splitlines()[1]
-    if _is_maestro(subject):
-        assert header == "• P8B2 (implementer/codex) running · elapsed 1h15m"
-    else:
-        assert header == "• P8B2 (implementer) running · elapsed 1h15m"
+    assert header == "• P8B2 (implementer/codex) running · elapsed 1h15m"
 
 
 @pytest.mark.parametrize("backend", [None, "", "   "])
@@ -1282,10 +1264,7 @@ def test_handle_ask_writes_a_request_file_and_launches_a_dedicated_tmux_window(
 
     (args, kwargs), = launcher
     assert args[0].startswith("tmux new-window -t agents -n ask-P12C ")
-    if _is_maestro(subject):
-        assert "-m maestro.hitl.ask" in args[0]
-    else:
-        assert "maestro_ask.py" in args[0]
+    assert "-m maestro.hitl.ask" in args[0]
     assert kwargs == {"shell": True, "check": True}
 
 
@@ -1434,10 +1413,7 @@ def test_handle_redo_writes_a_request_file_and_launches_the_redo_helper(
 
     (args, kwargs), = launcher
     assert args[0].startswith("tmux new-window -t agents -n redo-P12C ")
-    if _is_maestro(subject):
-        assert "maestro.selfheal.redo" in args[0]
-    else:
-        assert "maestro_redo.py" in args[0]
+    assert "maestro.selfheal.redo" in args[0]
     assert kwargs == {"shell": True, "check": True}
 
 
@@ -1826,14 +1802,13 @@ def test_run_status_runs_the_status_script_in_the_repo_without_capturing_its_out
     """Legacy: a real subprocess, argv and cwd pinned. Maestro: R13 (`maestro/status.py`)
     moved the report in-process — there is no more `STATUS_SCRIPT` to shell out to, so
     the pinned contract becomes "no subprocess call, `print_status()` runs instead"."""
-    if _is_maestro(subject):
-        fake = _fake_subprocess(monkeypatch, subject, lambda: "")
-        calls = []
-        monkeypatch.setattr(subject, "print_status", lambda: calls.append(True))
-        subject.run_status()
-        assert calls == [True]
-        assert fake.calls == []
-        return
+    fake = _fake_subprocess(monkeypatch, subject, lambda: "")
+    calls = []
+    monkeypatch.setattr(subject, "print_status", lambda: calls.append(True))
+    subject.run_status()
+    assert calls == [True]
+    assert fake.calls == []
+    return
 
     fake = _fake_subprocess(monkeypatch, subject, lambda: "")
     subject.run_status()
@@ -1852,14 +1827,13 @@ def test_run_status_does_not_shield_the_caller_from_a_launch_failure(
     caught. Maestro: R13 removed the interpreter launch entirely, but the same
     "not caught" contract holds for whatever `maestro.status.print_status` raises —
     `run_status()` has no try/except of its own."""
-    if _is_maestro(subject):
-        def boom():
-            raise FileNotFoundError("no interpreter")
+    def boom():
+        raise FileNotFoundError("no interpreter")
 
-        monkeypatch.setattr(subject, "print_status", boom)
-        with pytest.raises(FileNotFoundError):
-            subject.run_status()
-        return
+    monkeypatch.setattr(subject, "print_status", boom)
+    with pytest.raises(FileNotFoundError):
+        subject.run_status()
+    return
 
     def boom(*args, **kwargs):
         raise FileNotFoundError("no interpreter")

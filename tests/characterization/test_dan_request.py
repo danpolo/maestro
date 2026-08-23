@@ -29,7 +29,6 @@ from types import SimpleNamespace
 import pytest
 import requests
 
-from tests.reference_repo import LEGACY_REPO
 
 pytestmark = pytest.mark.maestro_module("hitl.dan_request")
 
@@ -39,39 +38,10 @@ pytestmark = pytest.mark.maestro_module("hitl.dan_request")
 # =====================================================================================
 
 
-def _load_legacy_dan_request():
-    if LEGACY_REPO is None:
-        pytest.skip(
-            "reference repo unknown: set $MAESTRO_LEGACY_REPO or write its path to .legacy_repo"
-        )
-    scripts = LEGACY_REPO / "scripts"
-    if not (scripts / "send_dan_request.py").is_file():
-        pytest.skip(f"reference repo not found at {LEGACY_REPO}")
-    env_before = dict(os.environ)
-    sys.path.insert(0, str(scripts))
-    try:
-        mod = importlib.import_module("send_dan_request")
-    finally:
-        sys.path.remove(str(scripts))
-        os.environ.clear()
-        os.environ.update(env_before)
-    return mod
-
-
-@pytest.fixture(params=["legacy", "maestro"])
-def subject(request):
+@pytest.fixture
+def subject():
     """The implementation under test — overrides `conftest.py`'s `subject` for this file."""
-    if request.param == "legacy":
-        return _load_legacy_dan_request()
     return importlib.import_module("maestro.hitl.dan_request")
-
-
-def _is_maestro(subject) -> bool:
-    """True for the extracted `maestro.hitl.dan_request` subject, false for the legacy
-    reference. Mirrors `test_commands.py`'s `_is_maestro`: only used to pick the transport
-    a network stub has to patch and which command-line prefix an argv assertion expects —
-    never to branch on it inside a shared behavioural assertion."""
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
 
 
 # =====================================================================================
@@ -100,34 +70,19 @@ def _stub_send(subject, monkeypatch, message_id=12345, raises=None):
     (`url`, `data`, `timeout`). `message_id=None` simulates an unparseable response body
     (mirrors the reference's `except Exception: return None`)."""
     calls: list[dict] = []
-    if _is_maestro(subject):
-        body = (
-            json.dumps({"result": {"message_id": message_id}})
-            if message_id is not None
-            else "not-json"
-        )
+    body = (
+        json.dumps({"result": {"message_id": message_id}})
+        if message_id is not None
+        else "not-json"
+    )
 
-        def fake_post(url, data=None, timeout=None, **kwargs):
-            calls.append({"url": url, "data": data, "timeout": timeout})
-            if raises is not None:
-                raise raises
-            return SimpleNamespace(status_code=200, text=body)
+    def fake_post(url, data=None, timeout=None, **kwargs):
+        calls.append({"url": url, "data": data, "timeout": timeout})
+        if raises is not None:
+            raise raises
+        return SimpleNamespace(status_code=200, text=body)
 
-        monkeypatch.setattr(requests, "post", fake_post)
-    else:
-        body = (
-            json.dumps({"result": {"message_id": message_id}}).encode()
-            if message_id is not None
-            else b"not-json"
-        )
-
-        def fake_urlopen(req, timeout=None):
-            calls.append({"url": req.full_url, "data": req.data, "timeout": timeout})
-            if raises is not None:
-                raise raises
-            return _FakeHTTPResponse(body)
-
-        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(requests, "post", fake_post)
     return calls
 
 
@@ -522,20 +477,12 @@ def test_main_uses_requests_only_for_the_maestro_subject(subject, sandbox, monke
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
     other_calls: list = []
 
-    if _is_maestro(subject):
-        def fake_urlopen(req, timeout=None):
-            other_calls.append(req)
-            raise AssertionError("maestro should not touch urllib.request.urlopen")
+    def fake_urlopen(req, timeout=None):
+        other_calls.append(req)
+        raise AssertionError("maestro should not touch urllib.request.urlopen")
 
-        monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
-        calls = _stub_send(subject, monkeypatch, message_id=1)
-    else:
-        def fake_post(*args, **kwargs):
-            other_calls.append(args)
-            raise AssertionError("legacy should not touch requests.post")
-
-        monkeypatch.setattr(requests, "post", fake_post)
-        calls = _stub_send(subject, monkeypatch, message_id=1)
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+    calls = _stub_send(subject, monkeypatch, message_id=1)
 
     _set_argv(monkeypatch, "--type", "decision", "--question", "q", "--id", "danreq-transport")
     rc = subject.main()

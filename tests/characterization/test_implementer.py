@@ -33,14 +33,6 @@ from maestro.backends import registry
 pytestmark = pytest.mark.maestro_module("implementer")
 
 
-def _is_maestro(subject) -> bool:
-    """True for the extracted package, false for the legacy reference module. Mirrors
-    `test_commands.py`'s `_is_maestro`: only used to branch an assertion whose *shape*
-    is shared but whose exact command line differs — the reference always spawns
-    `scripts/send_dan_request.py`, maestro spawns `python -m maestro.hitl.dan_request`."""
-    return getattr(subject, "__name__", "").split(".")[0] == "maestro"
-
-
 # --- fakes and helpers -------------------------------------------------------------
 
 
@@ -451,12 +443,8 @@ def test_ask_question_argv_and_kwargs(subject, sandbox, monkeypatch):
     subject._ask_question("T1", {"id": "q1", "prompt": "Which model?"})
     argv = runs.first.args[0]
     assert argv[0] == str(subject.VENV_PYTHON)
-    if _is_maestro(subject):
-        assert argv[1] == "-m" and argv[2] == "maestro.hitl.dan_request"
-        rest = argv[3:]
-    else:
-        assert argv[1] == str(subject.SEND_DANREQ)
-        rest = argv[2:]
+    assert argv[1] == "-m" and argv[2] == "maestro.hitl.dan_request"
+    rest = argv[3:]
     assert rest[0:4] == ["--type", "manual-task", "--id", "q-T1-q1"]
     assert rest[4] == "--question"
     assert "T1" in rest[5] and "q1" in rest[5] and "Which model?" in rest[5]

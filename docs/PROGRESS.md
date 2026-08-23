@@ -38,6 +38,43 @@ reconcile-stale-retry backend-defaulting inconsistency found this session. None 
 part of any stage's Done-when. `abuali-nightly-eval.timer` re-enables itself automatically now that
 `PROGRAMME-STATUS` reaches `COMPLETE`, per the 2026-08-11 operator resolution recorded below.
 
+**Post-programme session, 2026-08-21 — decoupling and the hardening backlog.** Operator direction:
+maestro is the generic product and must stand alone, with no connection to any one consuming project
+until it is deliberately pointed at one. Four changes, each its own commit, suite green after every
+one (**2962 passed, 0 skipped, 0 failed, 0 errors, 0 warnings** — up from 2984 passed / **2285
+skipped**):
+
+| Change | Commit | What it settles |
+|---|---|---|
+| Legacy characterisation subject retired | `dca84a9` | The equivalence oracle could not load after M5 deleted the reference scripts, so 43% of the suite skipped **silently** — green while nearly half of it never ran. Also removed maestro's last path dependency on a consuming project. See the dedicated note below. |
+| `switch.on_usage_threshold` removed | `e2b51c9` | Dead config, plus a template-wide guard that found seven more unwired knobs. |
+| No-op merge parks instead of relaunching | `fd00142` | The `kind: script` retry storm; root cause was `park_regression` registering the task nowhere the launcher checks. |
+| A retry stays on its switched-to backend | `33e86ea` | `_do_retry` walked back a deliberate switch and re-hit the wall it was made to avoid. |
+| M4 `upcoming.py` question answered | `c12b8fc` | Backend-agnostic — and the question was scoped too narrowly: **six** call sites shell out to `claude -p` directly because the driver protocol has no one-shot method. Pinned by a test in both directions; the fix itself is deliberately a separate change. |
+
+**On retiring the legacy subject.** This was the extraction's equivalence oracle: every
+characterisation body ran twice, once against the reference orchestrator and once against maestro.
+It had already done its job — M0–M6 were each signed off against it and the extracted code has since
+driven the live loop end to end — and after M5's cutover commit deleted the reference scripts it
+could never load again. Retiring it rather than vendoring a frozen copy was the operator's call, and
+the right one for a generic tool: a snapshot would have embedded one project's superseded
+implementation inside maestro's own test tree permanently. Consequences worth knowing: **M1's "zero
+skips under `tests/characterization/`" done-when is satisfiable again** (it had become permanently
+unsatisfiable); 17 tests that could only ever have run against the reference were **deleted rather
+than left skipping**; `tests/reference_repo.py` and its write firewall are gone, because no test
+reaches outside this repository any more (the session-wide credential scrub stays); and two skips
+that were masking defects are now hard errors — a characterisation test with no `maestro_module`
+marker, and a module with no `REPO_ROOT` to rebase into the sandbox. Two assertions that were
+vacuous for maestro (`... or _is_maestro(wd)`) now pin `ORCHESTRATOR_PATTERN` and the tmux session
+for real. The `_is_maestro` collapse was done by a mechanical AST transform and verified
+behaviour-preserving by an identical passed-count either side (2282/0/0/0).
+
+Found along the way, **not** something the build had recorded: `tests/characterization/
+test_dan_request.py` and `test_depmap.py`'s `render_repo` section were still genuinely importing
+from and executing files in the reference project — `scripts/send_dan_request.py` and
+`scripts/render_dependency_map.sh` both survived M5's cutover deletion — so the maestro suite had a
+live dependency on a running external project that no doc mentioned. Both are gone now.
+
 **Operator decision, 2026-08-20 (recorded by Dan): option (c), executed this session.** A one-off
 synthetic/scratch task (`M5SCRATCH1`, `kind: script`, `eval_relevance: non-retrieval`, `deps: []`)
 was added to `AbuAliArchive/docs/ROADMAP.md`, picked up by the live loop, and completed end to end
@@ -2880,6 +2917,22 @@ Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the a
   `weekly_pct`). Whether to (a) wire `project.yaml`'s value in, (b) recalibrate the hardcoded constant,
   or (c) leave both as-is pending more real-world switches, is the operator's call — this build does
   not have enough production experience with switching to make it.
+  **PARTIALLY RESOLVED 2026-08-21 (operator decision): the dead schema is gone, calibration is still
+  open.** `switch.on_usage_threshold` was **removed** from `project.yaml`, not wired: its per-window
+  shape contradicts the check maestro actually performs — `threshold_crossed()` compares one limit
+  against `Usage.max_used_pct()`, the most-consumed window, precisely so an account whose only window
+  is the one you did not name still trips it (finding G5). Honouring two per-window keys would mean
+  reverting that fix. `SWITCH_THRESHOLD_PCT = 70.0` is now documented as the single enforced,
+  non-configurable value; making it configurable later means **one window-agnostic knob**, not
+  restoring that block. Calibrating it still needs more than one real switch — unchanged, still open.
+  Side-finding while confirming this: `on_usage_threshold` was not the only dead knob.
+  `tests/test_templates.py::test_project_yaml_declares_no_key_that_nothing_reads` now cross-checks
+  every template key against `maestro/`, and records seven more with zero readers —
+  `thresholds.five_h_pause_pct` (twin of `quota.PAUSE_92_PCT`), `thresholds.concurrency_cap` (twin of
+  `quota.CONCURRENCY_CAP`), `gate.primary_metric`/`baseline_source`/`bands` (D8 scoring inputs; the
+  gate only ever journals `unevaluated`), `switch.on_quota_exhausted`, `switch.manual` and
+  `prod_stores`. They are listed explicitly rather than exempted silently; the list is meant to
+  shrink, and removing an entry is the acceptance test for wiring that knob up.
 - ~~**M3** — Exact stall-detection window and the definition of journal progress for the generic watchdog.~~
   **ANSWERED 2026-08-18 by M4b, through extraction rather than design:** the window is 20 minutes
   (`STALL_WINDOW_MIN`), the strike count is 3 (`MAX_STALL_RESTARTS`, then HALT), and progress is the
@@ -2919,17 +2972,25 @@ Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the a
   `state.json`'s `parked_tasks` — see that same session's side-finding that `EVAL2` **is** already
   in `completed_tasks.json`, which reframes but does not resolve the "why aren't they running"
   question; still the operator's call, not this build's.
-- **New, 2026-08-20 (fourteenth session) — hardening, not blocking:** a `kind: script` task whose
+- ~~**New, 2026-08-20 (fourteenth session) — hardening, not blocking:** a `kind: script` task whose
   `run:` command produces a **no-op** branch (nothing new to commit) is never parked by
   `merge_and_eval`'s no-op-refusal path — it just falls back into the runnable set and gets
   relaunched every `POLL_INTERVAL` (30s) forever, with no backoff and no retry cap (unlike the
   LLM-implementer path, which parks after one retry). Observed directly: `M5SCRATCH1` looped 11
-  times in ~7 minutes before being caught and manually `hold: true`'d. The actual root cause that
-  session hit was elsewhere (two pre-commit hook bugs, now fixed) and reproducing it needed no
-  script-task design change — but the underlying gap (no backoff/cap on a `kind: script` no-op) is
-  still real and would recur for a genuinely-buggy future script task. Worth a small fix
-  (park after N no-op attempts, mirroring the implementer retry path) in a future session; not
-  done here to keep that session's live-code changes to exactly what was proven necessary.
+  times in ~7 minutes before being caught and manually `hold: true`'d.~~
+  **FIXED 2026-08-21 (`fd00142`).** Root cause was narrower and worse than "no cap": *every* failed
+  merge went to `park_regression`, which escalates to Dan but registers the task in neither
+  `parked_tasks` nor `waiting_on_dan` — the two sets the launcher actually checks — so it stayed
+  fully runnable. That is right for a genuine regression (Dan may still choose to keep it) and wrong
+  for a no-op, where re-running reproduces the same nothing. `merge_and_eval` now flags the refusal
+  as `noop: True` (a flag, not a `reason` substring, so the wording stays free to change), and
+  `_noop_merge_action(task_def, task_id, retry_counts)` — a pure function, so the policy is testable
+  without driving `main()`'s loop — parks a `kind: script` task on the first no-op (deterministic
+  command, no implementer to re-brief; the same reasoning the verification gate already applies) and
+  gives anything with an implementer exactly one re-brief first, matching the gate and proof-review
+  paths. Journals `merge_noop_retry`/`merge_noop_parked`. Genuine regressions still route to
+  `park_regression`, unchanged — **note that path shares the stays-runnable property**, left alone
+  because "revert and retry" is one of the options it offers Dan and changing it needs its own call.
 - ~~**M6 — a real threshold trigger producing a real backend switch on the migrated project.**~~
   **DONE 2026-08-20 (fifteenth session).** See that session's writeup above. `M6SCRATCH1`, journal
   `backend_switch {task=M6SCRATCH1, from=claude, to=codex, reason=usage_threshold}`. One real
@@ -2939,11 +3000,23 @@ Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the a
   project lived entirely under `/tmp`. Fixed via `--add-dir <workspace>`, always added regardless of
   configured `add_dirs`; verified against a real, isolated `codex exec` process (not just an argv
   shape) both before (refused) and after (succeeded) the fix.
-- **New, 2026-08-20 (fifteenth session) — hardening, not blocking, low priority:** the reconcile-stale
+- ~~**New, 2026-08-20 (fifteenth session) — hardening, not blocking, low priority:** the reconcile-stale
   retry path (`_do_retry` / whatever relaunches a task after `reconcile_stale` reaps a dead window)
   relaunched `M6SCRATCH1` on `claude` rather than continuing the fallback chain to a different backend
-  or retrying `codex`. Not investigated further — the observed outcome (a safe re-brief on the
-  configured default) was not itself wrong, just possibly not what a operator expecting "try the next
-  backend in the chain" would expect. Worth a closer look if it recurs with a task that has real
-  reason to avoid its default backend (e.g. it was originally switched *away from* that backend for a
-  concrete reason, not this scratch task's coincidental timing).
+  or retrying `codex`.~~
+  **FIXED 2026-08-21 (`33e86ea`) — and it was a real bug, not just a surprising default.**
+  `_do_retry` stamped the new entry with `_launch_backend()`, the role's *configured* default,
+  regardless of what the dying attempt was running on. A task only reaches a non-default backend
+  because something moved it there (quota exhaustion, a usage threshold), so re-resolving handed it
+  straight back to the backend that had just run out of room — the wall the switch existed to avoid,
+  and the same reasoning `reconcile_stale` already applies when it refuses to blind-retry a
+  usage-limit death. `launch_implementer(..., backend="")` now pins a backend instead of re-resolving
+  (empty/unknown falls through to ordinary resolution rather than failing the launch; the model still
+  comes from the role's per-backend table, so the pin picks a different column rather than needing one
+  of its own), and `_do_retry` resolves the carried backend **once** and hands the same name to both
+  the launch and the entry it writes — so the recorded backend and the running one cannot diverge,
+  the invariant `_launch_backend`'s docstring already called out. `backends_tried` is carried across
+  too: it is the switch machinery's anti-ping-pong memory, and dropping it on a retry would let a task
+  be handed back to a backend it has already exhausted. Note the fix deliberately **continues on the
+  same backend** rather than advancing the fallback chain: advancing is `switch.py`'s job, driven by a
+  trigger, and a reaped window is not evidence the current backend is unusable.

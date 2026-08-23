@@ -608,8 +608,9 @@ def retry_env(subject, sandbox, monkeypatch, tmp_path):
     monkeypatch.setattr(
         subject,
         "launch_implementer",
-        lambda task, sid, ws, wt, retry_note="": box.launches.append(
-            SimpleNamespace(task=task, sid=sid, workspace=ws, worktree=wt, note=retry_note)
+        lambda task, sid, ws, wt, retry_note="", backend="": box.launches.append(
+            SimpleNamespace(task=task, sid=sid, workspace=ws, worktree=wt, note=retry_note,
+                            backend=backend)
         ),
     )
     monkeypatch.setattr(subject, "parse_runnable_tasks", lambda: box.tasks)

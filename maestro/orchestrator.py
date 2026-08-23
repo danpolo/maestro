@@ -860,7 +860,19 @@ def _noop_merge_action(task_def: dict | None, task_id: str, retry_counts: dict) 
 
 def _do_retry(task_id: str, entry: dict, reason: str,
               retry_counts: dict, in_flight: list) -> None:
-    """Launch a retry implementer. Mutates in_flight and writes state."""
+    """Launch a retry implementer. Mutates in_flight and writes state.
+
+    The retry stays on the backend the dying attempt was running on, rather than
+    re-resolving the role default. A task reaches a non-default backend only because
+    something moved it there — a quota exhaustion or a usage threshold — and re-resolving
+    hands it straight back to the backend that just ran out of room, which is the wall the
+    switch existed to avoid. Same reasoning `reconcile_stale` already applies when it
+    refuses to blind-retry a usage-limit death.
+
+    `backends_tried` is carried across for the same reason: it is the switch machinery's
+    anti-ping-pong memory, and dropping it on a retry would let a task be handed back to a
+    backend it has already exhausted.
+    """
     ts_str     = datetime.now(tz=timezone.utc).strftime("%Y%m%d-%H%M%S")
     new_sid    = f"impl-{task_id}-{ts_str}"
     new_ws     = WORKSPACES / new_sid
@@ -870,16 +882,23 @@ def _do_retry(task_id: str, entry: dict, reason: str,
     tasks_by_id = {t["id"]: t for t in parse_runnable_tasks()}
     task = tasks_by_id.get(task_id,
         {"id": task_id, "title": task_id, "short_desc": "", "mode": "autonomous"})
+    carry_backend = _entry_backend(entry)
     try:
         create_worktree(task_id, worktree, new_branch)
         launch_implementer(task, new_sid, new_ws, worktree,
-            retry_note=f"Previous attempt failed: {reason}. Try a different approach.")
+            retry_note=f"Previous attempt failed: {reason}. Try a different approach.",
+            backend=carry_backend)
         new_entry: dict = {
             "session_id": new_sid, "task_id": task_id, "role": "implementer",
             "worktree": str(worktree), "window": f"impl-{task_id}",
             "branch": new_branch, "started_at": now_iso(), "status": "running",
-            "backend": _launch_backend(),   # M2: which backend this retry actually runs on
+            # M2: which backend this retry actually runs on. `launch_implementer` was
+            # handed the same name, so the record and the launch cannot diverge.
+            "backend": carry_backend or _launch_backend(),
         }
+        tried = entry.get("backends_tried")
+        if isinstance(tried, (list, tuple)) and tried:
+            new_entry["backends_tried"] = list(tried)
         in_flight.append(new_entry)
         state = read_state()
         state["in_flight"] = [e for e in state.get("in_flight", [])

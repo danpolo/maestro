@@ -839,6 +839,25 @@ def reconcile_in_flight(state: dict, launch_times: dict) -> list:
     return surviving
 
 
+def _noop_merge_action(task_def: dict | None, task_id: str, retry_counts: dict) -> str:
+    """`"retry"` or `"park"` for a branch that merged nothing. Never `"escalate"`.
+
+    A no-op is not a regression. `park_regression` — where every failed merge used to go —
+    escalates to Dan but registers the task in neither `parked_tasks` nor `waiting_on_dan`,
+    so it stays runnable and relaunches every `POLL_INTERVAL`. Observed live 2026-08-20: a
+    `kind: script` task looped 11 times in ~7 minutes with no backoff and no cap.
+
+    `kind: script` parks on the first no-op: its `run:` command is authored in ROADMAP and
+    deterministic, so re-running it reproduces the same nothing, and there is no implementer
+    to re-brief — the same reasoning the verification gate already applies to script tasks.
+    Anything with an implementer gets exactly one re-brief first, matching the gate and
+    proof-review retry paths, then parks.
+    """
+    if (task_def or {}).get("kind") == "script":
+        return "park"
+    return "retry" if retry_counts.get(task_id, 0) < 1 else "park"
+
+
 def _do_retry(task_id: str, entry: dict, reason: str,
               retry_counts: dict, in_flight: list) -> None:
     """Launch a retry implementer. Mutates in_flight and writes state."""
@@ -1236,6 +1255,36 @@ def main() -> int:
                         continue
                 # B6: phase completion report + dep map attachment
                 phase_report(task_id, get_task_by_id(task_id), smoke)
+            elif smoke.get("noop"):
+                # The branch introduced no commits. `park_regression` is wrong here: it
+                # escalates to Dan but registers neither `parked_tasks` nor `waiting_on_dan`,
+                # so the task stays runnable and relaunches every POLL_INTERVAL. Observed
+                # live on 2026-08-20: a `kind: script` task looped 11 times in ~7 minutes.
+                #
+                # A `kind: script` task parks on the first no-op — its `run:` command is
+                # authored in ROADMAP and deterministic, so a rerun reproduces the same
+                # nothing, and there is no implementer to re-brief (the same reasoning the
+                # verification gate above already applies). Anything with an implementer
+                # gets exactly one re-brief first, mirroring the gate/review retry paths.
+                reason_merge = smoke.get("reason", "")
+                print(f"  ✗ {task_id} produced no commits — {reason_merge[:80]}")
+                is_script = (task_def or {}).get("kind") == "script"
+                if _noop_merge_action(task_def, task_id, retry_counts) == "retry":
+                    retry_counts[task_id] = retry_counts.get(task_id, 0) + 1
+                    _rc_state = read_state()
+                    _rc_state["retry_counts"] = retry_counts
+                    write_state(_rc_state)
+                    print(f"  [retry] {task_id}: re-briefing after a no-op merge")
+                    append_journal("merge_noop_retry", f"{task_id} retry={retry_counts[task_id]}",
+                                   session_id=entry["session_id"])
+                    _do_retry(task_id, entry, reason_merge, retry_counts, in_flight)
+                else:
+                    notify_telegram(f"⚠ {task_id} produced no commits — parked.")
+                    append_journal("merge_noop_parked",
+                                   f"{task_id} kind={'script' if is_script else 'implementer'}",
+                                   session_id=entry["session_id"])
+                    park_failed(task_id, reason_merge)
+                    remove_worktree(worktree)
             else:
                 reason_merge = smoke.get("reason", "")
                 print(f"  ✗ {task_id} smoke/merge failed (Recall@5={r5}) — {reason_merge[:80]}")

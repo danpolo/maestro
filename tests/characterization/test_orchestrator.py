@@ -1560,3 +1560,45 @@ def test_main_breaks_out_while_a_usage_limit_pause_is_active(subject, sandbox, l
     assert _events(subject, sandbox) == ["paused_until_break"]
     assert _detail(subject, sandbox, "paused_until_break") == f"paused_until={future}"
     assert loop_env.calls.count("poll_control_commands") == 0
+
+
+# =====================================================================================
+# _noop_merge_action — a branch that merged nothing must not relaunch forever
+# =====================================================================================
+
+
+def test_noop_merge_parks_a_script_task_on_the_first_attempt(subject):
+    """No implementer to re-brief and a deterministic `run:` — retrying reproduces the
+    same nothing, so the first no-op parks."""
+    assert subject._noop_merge_action({"kind": "script"}, "T1", {}) == "park"
+
+
+def test_noop_merge_parks_a_script_task_even_with_retries_available(subject):
+    assert subject._noop_merge_action({"kind": "script"}, "T1", {"T1": 0}) == "park"
+
+
+def test_noop_merge_re_briefs_an_implementer_task_once(subject):
+    assert subject._noop_merge_action({"kind": "code"}, "T1", {}) == "retry"
+
+
+def test_noop_merge_parks_an_implementer_task_after_its_one_retry(subject):
+    """Mirrors the verification-gate and proof-review paths: one re-brief, then park."""
+    assert subject._noop_merge_action({"kind": "code"}, "T1", {"T1": 1}) == "park"
+
+
+def test_noop_merge_treats_a_missing_task_def_as_an_implementer_task(subject):
+    """A task that fell out of ROADMAP mid-flight still had an implementer, so it keeps
+    the re-brief. Guards against `None.get` too."""
+    assert subject._noop_merge_action(None, "T1", {}) == "retry"
+
+
+def test_noop_merge_never_escalates(subject):
+    """`park_regression` is the wrong destination for a no-op: it registers the task in
+    neither `parked_tasks` nor `waiting_on_dan`, leaving it runnable — the relaunch storm
+    this function exists to stop."""
+    seen = {
+        subject._noop_merge_action(td, "T1", rc)
+        for td in ({"kind": "script"}, {"kind": "code"}, None, {})
+        for rc in ({}, {"T1": 0}, {"T1": 1}, {"T1": 9})
+    }
+    assert seen <= {"retry", "park"}

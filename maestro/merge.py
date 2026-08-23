@@ -213,7 +213,11 @@ def merge_and_eval(entry: dict) -> tuple[bool, dict]:
         print(f"  [merge] REFUSED — {reason}")
         append_journal("merge_noop_refused", f"{task_id} {reason}",
                        session_id=entry["session_id"])
-        return False, {"pass": False, "metrics": {}, "reason": reason}
+        # `noop` distinguishes "produced nothing" from "produced a regression". The caller
+        # must not treat them alike: a regression is worth escalating and possibly keeping,
+        # while re-running work that produced no commits reproduces the same nothing. Flagged
+        # rather than left to a `reason` substring match so the wording stays free to change.
+        return False, {"pass": False, "metrics": {}, "reason": reason, "noop": True}
 
     # B6: Deny-list guard — fires before any merge attempt
     dl_ok, dl_reason = deny_list_guard(branch, task_id)

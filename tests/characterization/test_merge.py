@@ -1449,12 +1449,27 @@ def test_merge_and_eval_refuses_a_no_op_merge(subject, repo, sandbox, merge_env)
     _git(repo, "branch", "b", "main")
     ok, result = subject.merge_and_eval(_entry())
     assert ok is False
-    assert set(result) == {"pass", "metrics", "reason"}
+    assert set(result) == {"pass", "metrics", "reason", "noop"}
     assert result["pass"] is False
     assert result["metrics"] == {}
     assert "no-op merge" in result["reason"]
     assert _event_names(sandbox) == ["merge_noop_refused"]
     assert merge_env.smoke_calls == []
+
+
+def test_merge_and_eval_flags_a_no_op_refusal_as_noop(subject, repo, sandbox, merge_env):
+    """The caller has to tell "produced nothing" apart from "produced a regression".
+
+    A regression escalates to Dan and leaves the task runnable; a no-op must park, because
+    re-running it reproduces the same nothing. The orchestrator used to separate the two by
+    not separating them at all — every failed merge went to `park_regression`, which
+    registers neither `parked_tasks` nor `waiting_on_dan`, so a `kind: script` task whose
+    `run:` produced an empty branch relaunched every poll forever. Matching on the reason
+    string would re-couple them; this flag is the seam.
+    """
+    _git(repo, "branch", "b", "main")
+    _ok, result = subject.merge_and_eval(_entry())
+    assert result["noop"] is True
 
 
 def test_merge_and_eval_branch_falls_back_to_the_lowercased_session_id(

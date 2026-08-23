@@ -201,30 +201,95 @@ def test_both_implementer_launch_sites_record_a_backend():
         ]
 
 
-def test_do_retry_records_the_backend_the_retry_runs_on(monkeypatch, tmp_path):
-    """The retry's entry carries the backend `launch_implementer` resolves, and every
-    pre-existing key keeps its spelling, its value and its place."""
+def _retry_box(monkeypatch, tmp_path, *, default_backend=CODEX):
+    """`_do_retry` with everything it reaches stubbed. Records the launch's backend."""
     state: dict = {"in_flight": []}
+    seen: list = []
     monkeypatch.setattr(orchestrator, "WORKSPACES", tmp_path / "workspaces")
     monkeypatch.setattr(orchestrator, "worktree_path_for", lambda tid: tmp_path / f"wt-{tid}")
     monkeypatch.setattr(orchestrator, "create_worktree", lambda *a, **k: None)
-    monkeypatch.setattr(orchestrator, "launch_implementer", lambda *a, **k: None)
+    monkeypatch.setattr(orchestrator, "launch_implementer",
+                        lambda *a, **k: seen.append(k.get("backend", "")))
     monkeypatch.setattr(orchestrator, "parse_runnable_tasks", lambda: [])
     monkeypatch.setattr(orchestrator, "append_journal", lambda *a, **k: None)
     monkeypatch.setattr(orchestrator, "read_state", lambda: state)
     monkeypatch.setattr(orchestrator, "write_state", lambda new: state.update(new))
-    monkeypatch.setattr(orchestrator, "_launch_backend", lambda: CODEX)
+    monkeypatch.setattr(orchestrator, "_launch_backend", lambda: default_backend)
+    return seen
+
+
+def test_do_retry_records_the_backend_the_retry_runs_on(monkeypatch, tmp_path):
+    """The retry's entry carries a backend, and every pre-existing key keeps its
+    spelling, its value and its place."""
+    _retry_box(monkeypatch, tmp_path)
 
     old = _entry(tmp_path)
     in_flight = [old]
     orchestrator._do_retry("T1", old, "boom", {}, in_flight)
 
     new = in_flight[-1]
-    assert new["backend"] == CODEX
     assert new["role"] == "implementer"
     assert new["status"] == "running"
     assert new["window"] == "impl-T1"
     assert list(new)[-1] == "backend"          # appended, nothing reordered
+
+
+def test_do_retry_stays_on_the_backend_the_dying_attempt_was_running_on(monkeypatch, tmp_path):
+    """A task only reaches a non-default backend because something moved it there.
+
+    Re-resolving the role default on retry hands it straight back to the backend that just
+    ran out of room — the wall the switch existed to avoid. Observed live 2026-08-20:
+    M6SCRATCH1 had switched to codex on a usage threshold, its window was reaped, and the
+    retry relaunched on claude.
+    """
+    seen = _retry_box(monkeypatch, tmp_path, default_backend=CLAUDE)
+
+    old = _entry(tmp_path, backend=CODEX)
+    in_flight = [old]
+    orchestrator._do_retry("T1", old, "boom", {}, in_flight)
+
+    assert in_flight[-1]["backend"] == CODEX, "retry walked back the switch"
+    assert seen == [CODEX], "the launch must be pinned to the same backend it is recorded as"
+
+
+def test_do_retry_falls_back_to_the_role_default_when_the_entry_names_no_backend(
+    monkeypatch, tmp_path
+):
+    """Pre-M2 entries (and hand-edited ones) carry no `backend` key."""
+    seen = _retry_box(monkeypatch, tmp_path, default_backend=CODEX)
+
+    old = _entry(tmp_path)
+    old.pop("backend", None)
+    in_flight = [old]
+    orchestrator._do_retry("T1", old, "boom", {}, in_flight)
+
+    assert in_flight[-1]["backend"] == CODEX
+    assert seen == [CODEX]
+
+
+def test_do_retry_carries_backends_tried_across_the_relaunch(monkeypatch, tmp_path):
+    """`backends_tried` is the switch machinery's anti-ping-pong memory. Dropping it on a
+    retry would let the task be handed back to a backend it has already exhausted."""
+    _retry_box(monkeypatch, tmp_path)
+
+    old = _entry(tmp_path, backend=CODEX)
+    old["backends_tried"] = [CLAUDE]
+    in_flight = [old]
+    orchestrator._do_retry("T1", old, "boom", {}, in_flight)
+
+    assert in_flight[-1]["backends_tried"] == [CLAUDE]
+
+
+def test_do_retry_omits_backends_tried_when_the_dying_entry_had_none(monkeypatch, tmp_path):
+    """Absent, not an empty list — the key's absence is what `_backends_tried` reads as
+    'never switched', and an empty list would be a new spelling of the same thing."""
+    _retry_box(monkeypatch, tmp_path)
+
+    old = _entry(tmp_path)
+    in_flight = [old]
+    orchestrator._do_retry("T1", old, "boom", {}, in_flight)
+
+    assert "backends_tried" not in in_flight[-1]
 
 
 def _state_file(monkeypatch, tmp_path, **fields) -> Path:

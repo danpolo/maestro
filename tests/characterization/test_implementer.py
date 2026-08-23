@@ -965,12 +965,15 @@ def test_prep_brief_is_pure_and_writes_nothing(subject, sandbox, tmp_path):
 
 
 def _launch(subject, sandbox, monkeypatch, task=None, session_id="impl-T1-1",
-            ws_name="impl-T1-1", retry_note=""):
+            ws_name="impl-T1-1", retry_note="", backend=None):
     task = task if task is not None else TASK
     runs = _fake_run(monkeypatch)
     ws = _workspace(sandbox, ws_name)
     wt = sandbox.repo / "worktrees" / ws_name
-    subject.launch_implementer(task, session_id, ws, wt, retry_note)
+    if backend is None:
+        subject.launch_implementer(task, session_id, ws, wt, retry_note)
+    else:
+        subject.launch_implementer(task, session_id, ws, wt, retry_note, backend=backend)
     return SimpleNamespace(runs=runs, workspace=ws, worktree=wt)
 
 
@@ -1041,6 +1044,54 @@ def test_launch_implementer_agent_argv(subject, sandbox, monkeypatch, configured
 
     expected = configured_backend if _delegates_to_a_driver(subject) else _LEGACY_BACKEND
     assert _agent_argv(out.workspace / "launch.py", brief) == _AGENT_ARGV[expected](
+        subject, out, sess
+    )
+
+
+def test_launch_implementer_backend_pin_overrides_the_configured_role(
+    subject, sandbox, monkeypatch
+):
+    """`backend=` pins the launch instead of re-resolving the `roles:` block.
+
+    Asserted through the argv the driver actually builds, not just a recorded name: the
+    pin exists so a retry of work already switched onto another backend does not get
+    handed back to the one it was moved off, and only the argv proves the right CLI ran.
+    """
+    monkeypatch.setattr(registry, "resolve_binary", lambda *args, **kwargs: None)
+    # The role points at claude, but declares a model per backend (DESIGN.md §5) — so the
+    # pin picks a different column out of the same table, it does not need one of its own.
+    (sandbox.repo / "project.yaml").write_text(
+        "roles:\n"
+        "  implementer:\n"
+        "    backend: claude\n"
+        "    models:\n"
+        f"      codex: {_CONFIGURED_MODELS['codex']}\n",
+        encoding="utf-8",
+    )
+
+    out = _launch(subject, sandbox, monkeypatch, backend="codex")
+    sess = (out.workspace / "session_uuid.txt").read_text(encoding="utf-8")
+    brief = (out.workspace / "brief.txt").read_text(encoding="utf-8")
+
+    assert _agent_argv(out.workspace / "launch.py", brief) == _AGENT_ARGV["codex"](
+        subject, out, sess
+    )
+
+
+@pytest.mark.parametrize("pin", ["", "   ", "not-a-backend"])
+def test_launch_implementer_ignores_an_empty_or_unknown_backend_pin(
+    subject, sandbox, monkeypatch, pin
+):
+    """Degrade to ordinary resolution rather than failing the launch — the same way every
+    other malformed input on this path is handled."""
+    monkeypatch.setattr(registry, "resolve_binary", lambda *args, **kwargs: None)
+    _configure_backend(sandbox, "codex")
+
+    out = _launch(subject, sandbox, monkeypatch, backend=pin)
+    sess = (out.workspace / "session_uuid.txt").read_text(encoding="utf-8")
+    brief = (out.workspace / "brief.txt").read_text(encoding="utf-8")
+
+    assert _agent_argv(out.workspace / "launch.py", brief) == _AGENT_ARGV["codex"](
         subject, out, sess
     )
 

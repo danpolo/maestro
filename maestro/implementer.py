@@ -434,13 +434,24 @@ def _implementer_driver(backend: str, session_uuid: str):
 
 
 def launch_implementer(task: dict, session_id: str, workspace: Path,
-                       worktree: Path, retry_note: str = "") -> None:
+                       worktree: Path, retry_note: str = "", backend: str = "") -> None:
+    """Start an implementer. `backend` pins one instead of resolving the role's default.
+
+    The pin exists for relaunches of work that is already mid-flight on a *chosen* backend
+    — a retry after a reaped window, say, where the task had been switched off its default
+    for a concrete reason (quota, a usage threshold). Re-resolving there would silently
+    walk that decision back and re-hit the wall the switch was made to avoid. An unknown or
+    empty name falls through to the ordinary resolution rather than failing the launch,
+    matching how every other malformed input on this path degrades.
+    """
     task_id    = task["id"]
     window     = f"impl-{task_id}"
     brief_file = workspace / "brief.txt"
     brief_file.write_text(_make_brief(task, workspace, worktree, retry_note), encoding="utf-8")
 
-    backend, backend_models = _implementer_backend()
+    resolved, backend_models = _implementer_backend()
+    pinned = registry.normalise_name(backend) if backend else ""
+    backend = pinned if pinned in registry.known_backends() else resolved
     model_id = resolve_implementer_model(task)
     model_id = backend_models.get(backend) or model_id
     raw_key  = task.get("model")

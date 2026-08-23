@@ -2886,7 +2886,27 @@ Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the a
   journal's last line changing. Those are the reference's values, now defaults overridable under
   `project.yaml`'s `thresholds:`. Note `docs/FOUND_BUGS.md` #165: "last line changed" means a loop
   that repeats an identical event looks frozen.
-- **M4** — Should `upcoming.py` explanation generation be backend-agnostic or pinned to one role?
+- ~~**M4** — Should `upcoming.py` explanation generation be backend-agnostic or pinned to one role?~~
+  **ANSWERED 2026-08-21: backend-agnostic — and the question was scoped too narrowly.**
+  `upcoming.py`'s `_opus_complete` is not a documentation quirk; it is one of **six** call
+  sites that shell out to `claude -p` by name instead of going through the driver the
+  project configured (`gates.py` proof review, `docs/upcoming.py`, `selfheal/diagnose.py`,
+  `selfheal/redo.py`, `selfheal/selffix.py`, `hitl/ask.py`). Pinning it to a role would not
+  help: the role already resolves to a backend, and the call then ignores it.
+  **Root cause:** `AgentBackend` models a *session* (`launch`/`resume`/`parse_exit`) and has
+  no one-shot "ask a question, read stdout" method, so there is nothing for these callers to
+  go through. A project configured `fallback_chain: [codex]` therefore has no working
+  `--refresh-explanations`, `/redo`, `/ask`, self-fix or failure diagnosis — each degrades
+  silently to `""` or a non-zero exit rather than failing loudly.
+  **Fix (not done here — cross-cutting, touches a live launch path):** add
+  `complete(prompt, *, model="", timeout=240) -> str` to the protocol, implement in both
+  drivers, declare it through `capabilities()`, and resolve each site's driver from its role.
+  `tests/test_one_shot_agent_calls.py` pins the six sites in both directions — a new one
+  fails, and fixing one without striking it off the list also fails — plus asserts the
+  missing protocol method directly, so the gap cannot grow or be quietly forgotten.
+  `tests/test_no_name_branching.py` does not catch these, correctly: a backend name inside
+  an argv list is how you spell a CLI invocation. The defect is that no driver was consulted
+  before writing it.
 - ~~**M5 — operator decision needed, not resolvable by the build:**~~ **DECIDED 2026-08-20 by Dan
   (option c), EXECUTED 2026-08-20 (fourteenth session).** `M5SCRATCH1`, a synthetic zero-LLM
   scratch task, ran end to end on the live post-cutover `AbuAliArchive` loop — worktree → verify →

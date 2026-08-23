@@ -269,7 +269,7 @@ GLOSSARY: list[dict] = [
 # ── ROADMAP detail-link parsing ──
 
 def _detail_paths(roadmap_text: str) -> dict[str, str]:
-    """Map each task id -> the `Detail: \`retired/tasks/PhaseXX.md\`` path that
+    r"""Map each task id -> the `Detail: \`retired/tasks/PhaseXX.md\`` path that
     follows its yaml block in ROADMAP.md (the deep archived brief)."""
     out: dict[str, str] = {}
     for seg in re.split(r"(?=```yaml)", roadmap_text):

@@ -66,6 +66,8 @@ from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
 from maestro.backends import registry
 from maestro.backends.base import (
     Capabilities,
+    Completion,
+    CompletionSpec,
     ExitVerdict,
     Handle,
     LaunchSpec,
@@ -307,6 +309,68 @@ def resume_argv(
         str(thread_id),
         prompt,
     ]
+
+
+def _write_completion_log(path: Optional[Path], text: str) -> None:
+    """Best-effort tee of a completion's output. A log that cannot be written is never
+    a reason to fail the call it was only recording."""
+    if path is None:
+        return
+    try:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(text, encoding="utf-8")
+    except Exception:
+        pass
+
+
+def completion_argv(
+    binary: str,
+    spec: CompletionSpec,
+    *,
+    last_message_file: Path | str,
+) -> list[str]:
+    """The argv for one bounded call, writing the agent's reply to `last_message_file`.
+
+    Three things differ from `launch_argv`, each for a reason:
+
+    * **`-o/--output-last-message <file>` instead of `--json`.** A completion wants the
+      agent's final answer, not the event stream. `-o` is the CLI's own name for exactly
+      that, so there is no JSONL to parse and no guessing which event carried the reply.
+      Verified present on both `codex exec` and `codex exec resume` (`--help`, 2026-08-26).
+    * **`-s` follows `spec.writable`.** A judgment call gets `read-only`; only a caller
+      that says it is going to edit files gets `workspace-write`. `launch_argv` can assume
+      an implementer always writes; this cannot, and read-only is the safer default for
+      the half of the callers that only ask a question.
+    * **`--ephemeral`** on a fresh, read-only call: it leaves no session file behind, and a
+      one-shot judgment has nothing anyone would want to resume. Omitted when resuming
+      (there *is* a session, by definition) and when writable (the run is real work whose
+      thread may be continued).
+
+    The `resume` subcommand still comes after the shared flags (G1), and `--last` is still
+    never emitted (G2).
+    """
+    sandbox = "workspace-write" if spec.writable else "read-only"
+    argv = [
+        str(binary),
+        "exec",
+        "--skip-git-repo-check",
+        "-c",
+        APPROVAL_POLICY_OVERRIDE,
+    ]
+    if spec.model:
+        argv += ["-m", str(spec.model)]
+    argv += ["-s", sandbox_mode(sandbox)]
+    if spec.cwd:
+        argv += ["-C", str(spec.cwd)]
+    for extra in spec.add_dirs:
+        argv += ["--add-dir", str(extra)]
+    argv += ["-o", str(last_message_file)]
+    if not spec.resume_id and not spec.writable:
+        argv.append("--ephemeral")
+    if spec.resume_id:
+        argv += ["resume", str(spec.resume_id)]
+    argv.append(spec.prompt)
+    return argv
 
 
 # ── the resume handle ──
@@ -956,6 +1020,61 @@ class CodexBackend:
         if warning:
             self._journal("codex_binary_warning", f"{task_id} {warning}")
         return window
+
+    # ── complete ──
+
+    def complete(self, spec: CompletionSpec) -> Completion:
+        """Run one bounded call and hand back the agent's final message.
+
+        Never raises: a non-zero exit, a timeout and a crash all come back as an empty
+        `text`, because every caller is best-effort.
+
+        The reply is read from the `-o` file rather than stdout. Stdout here is Codex's
+        progress rendering — reasoning, tool calls, token counts — and scraping an answer
+        out of it would be guesswork. `-o` is the CLI's own name for "the last message the
+        agent produced", which is exactly what a completion means. The file goes in a temp
+        directory, not `cwd`: a read-only call cannot write to `cwd` by construction, and a
+        writable one must not have a stray artefact turn up in the commit it is about to
+        make.
+
+        A dead thread id (G3) is not an error to report — it means the session being
+        resumed is gone. Callers already handle that by re-asking with a full brief, so it
+        comes back as an ordinary empty completion.
+        """
+        with tempfile.TemporaryDirectory(prefix="maestro-completion-") as tmp:
+            last_message = Path(tmp) / "last-message.txt"
+            argv = completion_argv(
+                self.binary_path(), spec, last_message_file=last_message
+            )
+            cwd = str(spec.cwd) if spec.cwd else None
+            try:
+                result = self._run(
+                    argv, cwd=cwd, capture_output=True, text=True, timeout=spec.timeout,
+                )
+            except subprocess.TimeoutExpired:
+                _write_completion_log(spec.log_file, f"(timed out after {spec.timeout}s)")
+                return Completion(text="", returncode=124, timed_out=True)
+            except Exception as exc:
+                _write_completion_log(spec.log_file, f"(failed to run: {exc})")
+                return Completion(text="", returncode=1)
+
+            stdout = getattr(result, "stdout", "") or ""
+            stderr = getattr(result, "stderr", "") or ""
+            rc = int(getattr(result, "returncode", 0) or 0)
+            _write_completion_log(spec.log_file, stdout + stderr)
+
+            if DEAD_THREAD_MARKER in (stdout + stderr).lower():
+                return Completion(text="", returncode=rc)
+            if rc != 0:
+                return Completion(text="", returncode=rc)
+            try:
+                return Completion(
+                    text=last_message.read_text(encoding="utf-8").strip(), returncode=rc
+                )
+            except Exception:
+                # Exit 0 but no reply file: the run produced nothing to say. Same answer
+                # as any other empty completion.
+                return Completion(text="", returncode=rc)
 
     # ── exit classification (plan step 6) ──
 

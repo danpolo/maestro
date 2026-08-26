@@ -51,6 +51,8 @@ from typing import Any, Callable, Mapping, Optional, Sequence
 from maestro import quota
 from maestro.backends.base import (
     Capabilities,
+    Completion,
+    CompletionSpec,
     ExitVerdict,
     Handle,
     LaunchSpec,
@@ -208,6 +210,40 @@ def resume_argv(native_id: str, prompt: str, *, model: str = "") -> list[str]:
     return argv
 
 
+def _write_log(path: Optional[Path], text: str) -> None:
+    """Best-effort tee of a completion's output. A log that cannot be written is never
+    a reason to fail the call it was only recording."""
+    if path is None:
+        return
+    try:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_text(text, encoding="utf-8")
+    except Exception:
+        pass
+
+
+def completion_argv(spec: CompletionSpec) -> list[str]:
+    """The argv for one bounded call. The prompt is positional and last.
+
+    Same shape the six ex-hardcoded call sites were already using by hand — `claude -p
+    [--model M] [--resume ID] <prompt>` — so routing them through the driver changes which
+    binary can be chosen, not what this one is asked to do.
+
+    `--resume` and `--session-id` are still mutually exclusive (F4), and a completion never
+    names a session it is *creating*, so only `--resume` can appear. `spec.writable` has no
+    spelling here: the Claude CLI has no sandbox-mode flag in the invocation F4 pins, which
+    is exactly what `capabilities().sandbox is False` already advertises — the caller gets
+    isolation from the directory it points the call at, not from a flag.
+    """
+    argv = [BINARY, "-p"]
+    if spec.model:
+        argv += ["--model", str(spec.model)]
+    if spec.resume_id:
+        argv += ["--resume", str(spec.resume_id)]
+    argv.append(spec.prompt)
+    return argv
+
+
 # ── the generated launcher ──
 
 
@@ -316,11 +352,16 @@ class ClaudeBackend:
         python: Optional[Path] = None,
         usage_path: Optional[Path] = None,
         new_session_id: Optional[Callable[[], str]] = None,
+        runner: Optional[Callable[..., Any]] = None,
     ) -> None:
         self._tmux_session = tmux_session
         self._python = python
         self._usage_path = usage_path
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
+        #: The one seam that actually starts a process for `complete()`. Injectable for
+        #: the same reason every other seam here is: the suite must be able to cover the
+        #: whole driver without spending a token of quota.
+        self._run = runner or subprocess.run
 
     # ── capabilities ──
 
@@ -429,6 +470,40 @@ class ClaudeBackend:
             workspace=workspace,
             window=handle.window or window_target(task_id, self._tmux_session),
         )
+
+    # ── complete ──
+
+    def complete(self, spec: CompletionSpec) -> Completion:
+        """Run one bounded call and hand back what the agent said.
+
+        Never raises. A non-zero exit, a timeout and a crash all come back as an empty
+        `text` with the detail in `returncode`/`timed_out`, because every caller is
+        best-effort and an exception here would take down a poll cycle.
+
+        When `spec.log_file` is set the combined stdout+stderr is written there as well as
+        returned — `/redo` and self-fix keep that log inside the worktree they ran in, and
+        it is the only record of a run that timed out.
+        """
+        argv = completion_argv(spec)
+        cwd = str(spec.cwd) if spec.cwd else None
+        try:
+            result = self._run(
+                argv, cwd=cwd, capture_output=True, text=True, timeout=spec.timeout,
+            )
+        except subprocess.TimeoutExpired:
+            _write_log(spec.log_file, f"(timed out after {spec.timeout}s)")
+            return Completion(text="", returncode=124, timed_out=True)
+        except Exception as exc:
+            _write_log(spec.log_file, f"(failed to run: {exc})")
+            return Completion(text="", returncode=1)
+
+        stdout = getattr(result, "stdout", "") or ""
+        stderr = getattr(result, "stderr", "") or ""
+        rc = int(getattr(result, "returncode", 0) or 0)
+        _write_log(spec.log_file, stdout + stderr)
+        # A non-zero exit means the answer is not trustworthy even when something was
+        # printed, so the text is dropped rather than handed on as if it were a reply.
+        return Completion(text=stdout.strip() if rc == 0 else "", returncode=rc)
 
     def _open_window(self, window: str, worktree: Path, launcher: Path) -> None:
         subprocess.run(

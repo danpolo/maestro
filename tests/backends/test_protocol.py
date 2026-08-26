@@ -27,6 +27,8 @@ from maestro.backends.base import (
     SEVEN_DAY_MINUTES,
     AgentBackend,
     Capabilities,
+    Completion,
+    CompletionSpec,
     ExitVerdict,
     Handle,
     LaunchSpec,
@@ -83,6 +85,9 @@ class _StubBackend:
 
     def resume(self, handle: Handle, prompt: str) -> Handle:
         return handle
+
+    def complete(self, spec: CompletionSpec) -> Completion:
+        return Completion(text=f"stub answered: {spec.prompt}")
 
     def parse_exit(self, rc: int, log_tail: str) -> ExitVerdict:
         return ExitVerdict(kind="ok" if rc == 0 else "crashed")
@@ -332,16 +337,50 @@ def test_base_non_conforming_object_is_not_an_agent_backend():
     assert not isinstance(MissingParseExit(), AgentBackend)
 
 
-def test_base_protocol_members_are_the_documented_six():
+def test_base_protocol_members_are_the_documented_seven():
+    """`complete` joined the six on 2026-08-26.
+
+    The protocol described a *session* — launch, resume, poll for sentinels — and had no
+    word for the other half of what maestro does: ask one bounded question and read the
+    answer. Six call sites therefore shelled out to one CLI by name, so a project
+    configured for any other backend silently lost proof review, failure diagnosis,
+    explanation refresh, `/ask`, `/redo` and self-fix.
+    """
     members = {
         "name",
         "capabilities",
         "launch",
         "resume",
+        "complete",
         "parse_exit",
         "usage",
     }
     assert _protocol_attrs(AgentBackend) == members
+
+
+def test_base_a_driver_without_complete_is_not_an_agent_backend():
+    """The whole point of adding it to the Protocol rather than leaving it a convention:
+    a driver that forgets it fails `isinstance`, not a caller at runtime."""
+
+    class MissingComplete:
+        name = "partial"
+
+        def capabilities(self):
+            return Capabilities()
+
+        def launch(self, spec):
+            raise NotImplementedError
+
+        def resume(self, handle, prompt):
+            raise NotImplementedError
+
+        def parse_exit(self, rc, log_tail):
+            raise NotImplementedError
+
+        def usage(self):
+            return None
+
+    assert not isinstance(MissingComplete(), AgentBackend)
 
 
 def test_base_stub_driver_round_trips_a_launch(tmp_path):

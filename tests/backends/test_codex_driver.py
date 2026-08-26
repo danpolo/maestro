@@ -28,7 +28,14 @@ from types import SimpleNamespace
 import pytest
 
 from maestro.backends import codex, registry
-from maestro.backends.base import AgentBackend, Handle, LaunchSpec, Usage
+from maestro.backends.base import (
+    AgentBackend,
+    Completion,
+    CompletionSpec,
+    Handle,
+    LaunchSpec,
+    Usage,
+)
 from maestro.backends.codex import CodexBackend
 
 BINARY = "/opt/tools/bin/codex"
@@ -58,6 +65,10 @@ def _no_real_execution(monkeypatch):
             PIPE=subprocess.PIPE,
             STDOUT=subprocess.STDOUT,
             DEVNULL=subprocess.DEVNULL,
+            # Exception classes, not executors: `complete()` catches TimeoutExpired, and
+            # a stand-in that omits it turns a handled timeout into an AttributeError.
+            TimeoutExpired=subprocess.TimeoutExpired,
+            CalledProcessError=subprocess.CalledProcessError,
         ),
     )
     monkeypatch.setattr(registry, "_probe_version", forbidden)
@@ -1101,3 +1112,166 @@ def test_parse_exit_survives_garbage(driver):
 def test_parse_exit_runs_nothing(driver, runner):
     driver.parse_exit(1, json.dumps({"rate_limit_reached_type": "weekly"}))
     assert runner.calls == []
+
+
+# ── complete: one bounded call ──────────────────────────────────────────────────────
+
+
+MODEL = "gpt-5.6-sol"
+
+
+class _CompletionRunner:
+    """Stands in for `subprocess.run` on the `complete()` path.
+
+    `reply` is what the agent "wrote" — the runner drops it into the `-o` file the argv
+    names, which is how the real CLI delivers a final message.
+    """
+
+    def __init__(self, *, reply=None, stdout="", stderr="", returncode=0, raises=None):
+        self.calls: list[tuple[tuple, dict]] = []
+        self._reply = reply
+        self._stdout, self._stderr = stdout, stderr
+        self._rc, self._raises = returncode, raises
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        if self._raises is not None:
+            raise self._raises
+        argv = list(args[0])
+        if self._reply is not None and "-o" in argv:
+            Path(argv[argv.index("-o") + 1]).write_text(self._reply, encoding="utf-8")
+        return subprocess.CompletedProcess(
+            args=argv, returncode=self._rc, stdout=self._stdout, stderr=self._stderr
+        )
+
+    @property
+    def argv(self) -> list[str]:
+        return list(self.calls[0][0][0])
+
+
+def _completion_driver(**kwargs):
+    runner = _CompletionRunner(**kwargs)
+    return CodexBackend(binary=BINARY, runner=runner), runner
+
+
+def _argv(spec, last="/tmp/last.txt") -> list[str]:
+    return codex.completion_argv(BINARY, spec, last_message_file=last)
+
+
+def test_completion_argv_asks_for_the_last_message_not_the_event_stream():
+    """`-o` is the CLI's own name for the agent's final message. Scraping it out of the
+    `--json` event stream would be guesswork about which event carried the reply."""
+    argv = _argv(CompletionSpec(prompt="why?", model=MODEL))
+    assert "-o" in argv and argv[argv.index("-o") + 1] == "/tmp/last.txt"
+    assert "--json" not in argv
+
+
+def test_completion_argv_is_read_only_unless_the_caller_says_it_will_write():
+    """A judgment call must not be able to edit the tree it runs in."""
+    assert "read-only" in _argv(CompletionSpec(prompt="q", model=MODEL))
+    assert "workspace-write" in _argv(CompletionSpec(prompt="q", model=MODEL, writable=True))
+
+
+def test_completion_argv_keeps_the_never_approve_override_and_the_git_check_skip():
+    argv = _argv(CompletionSpec(prompt="q", model=MODEL))
+    assert "--skip-git-repo-check" in argv
+    assert codex.APPROVAL_POLICY_OVERRIDE in argv
+
+
+def test_completion_argv_is_ephemeral_only_for_a_fresh_read_only_call():
+    """Nothing would ever resume a one-shot judgment, so it leaves no session file. A
+    writable run is real work whose thread may be continued, and a resume by definition
+    already has a session."""
+    assert "--ephemeral" in _argv(CompletionSpec(prompt="q", model=MODEL))
+    assert "--ephemeral" not in _argv(CompletionSpec(prompt="q", model=MODEL, writable=True))
+    assert "--ephemeral" not in _argv(
+        CompletionSpec(prompt="q", model=MODEL, resume_id=THREAD_ID)
+    )
+
+
+def test_completion_argv_puts_the_shared_flags_before_the_resume_subcommand():
+    """G1: `resume` accepts none of `-s`, `-C`, `--add-dir`, and `--last` is never
+    emitted because it hangs scanning every rollout on disk (G2)."""
+    argv = _argv(CompletionSpec(prompt="again", model=MODEL, resume_id=THREAD_ID))
+    assert argv.index("-s") < argv.index("resume")
+    assert argv.index("resume") < argv.index(THREAD_ID)
+    assert argv[-1] == "again"
+    assert "--last" not in argv
+
+
+def test_completion_argv_carries_cwd_and_extra_writable_dirs(tmp_path):
+    argv = _argv(
+        CompletionSpec(prompt="q", model=MODEL, cwd=tmp_path, add_dirs=[tmp_path / "ws"])
+    )
+    assert argv[argv.index("-C") + 1] == str(tmp_path)
+    assert argv[argv.index("--add-dir") + 1] == str(tmp_path / "ws")
+
+
+def test_completion_argv_omits_the_model_when_the_caller_has_none():
+    assert "-m" not in _argv(CompletionSpec(prompt="q"))
+
+
+def test_complete_returns_the_last_message_file_contents():
+    driver, _ = _completion_driver(reply="  the answer\n", stdout="noisy progress output")
+    assert driver.complete(CompletionSpec(prompt="q", model=MODEL)).text == "the answer"
+
+
+def test_complete_ignores_stdout_because_it_is_progress_rendering():
+    """Codex prints reasoning and tool calls to stdout; only `-o` holds the reply."""
+    driver, _ = _completion_driver(reply="real answer", stdout="thinking… ran a command…")
+    assert driver.complete(CompletionSpec(prompt="q", model=MODEL)).text == "real answer"
+
+
+def test_complete_writes_the_reply_file_outside_the_working_directory(tmp_path):
+    """A read-only call could not write into `cwd` anyway, and a writable one must not
+    leave a stray artefact in the commit it is about to make."""
+    driver, runner = _completion_driver(reply="ok")
+    driver.complete(CompletionSpec(prompt="q", model=MODEL, cwd=tmp_path, writable=True))
+    out_path = Path(runner.argv[runner.argv.index("-o") + 1])
+    assert tmp_path not in out_path.parents
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_complete_cleans_up_the_reply_file(tmp_path):
+    driver, runner = _completion_driver(reply="ok")
+    driver.complete(CompletionSpec(prompt="q", model=MODEL))
+    assert not Path(runner.argv[runner.argv.index("-o") + 1]).exists()
+
+
+def test_complete_returns_empty_on_a_non_zero_exit():
+    driver, _ = _completion_driver(reply="half an answer", returncode=2)
+    result = driver.complete(CompletionSpec(prompt="q", model=MODEL))
+    assert (result.text, result.returncode) == ("", 2)
+
+
+def test_complete_treats_a_dead_thread_as_an_ordinary_empty_answer():
+    """G3: the session being resumed is gone. Callers already re-ask with a full brief."""
+    driver, _ = _completion_driver(stderr=codex.DEAD_THREAD_MARKER.upper(), returncode=1)
+    assert driver.complete(
+        CompletionSpec(prompt="q", model=MODEL, resume_id=THREAD_ID)
+    ).text == ""
+
+
+def test_complete_returns_empty_when_the_run_wrote_no_reply_file():
+    driver, _ = _completion_driver(reply=None, stdout="said nothing")
+    result = driver.complete(CompletionSpec(prompt="q", model=MODEL))
+    assert (result.text, result.returncode) == ("", 0)
+
+
+def test_complete_reports_a_timeout_without_raising():
+    driver, _ = _completion_driver(raises=subprocess.TimeoutExpired(cmd="codex", timeout=5))
+    result = driver.complete(CompletionSpec(prompt="q", model=MODEL, timeout=5))
+    assert (result.text, result.returncode, result.timed_out) == ("", 124, True)
+
+
+def test_complete_swallows_an_unexpected_failure():
+    driver, _ = _completion_driver(raises=FileNotFoundError("no codex on PATH"))
+    result = driver.complete(CompletionSpec(prompt="q", model=MODEL))
+    assert (result.text, result.returncode) == ("", 1)
+
+
+def test_complete_tees_stdout_and_stderr_to_the_log_file(tmp_path):
+    log = tmp_path / "nested" / "run.log"
+    driver, _ = _completion_driver(reply="ok", stdout="out", stderr="err")
+    driver.complete(CompletionSpec(prompt="q", model=MODEL, log_file=log))
+    assert log.read_text(encoding="utf-8") == "outerr"

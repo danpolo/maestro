@@ -30,6 +30,8 @@ from maestro.backends.base import (
     SEVEN_DAY_MINUTES,
     AgentBackend,
     Capabilities,
+    Completion,
+    CompletionSpec,
     Handle,
     LaunchSpec,
 )
@@ -705,3 +707,123 @@ def test_driver_source_branches_on_no_backend_name():
     source = Path(claude_mod.__file__).read_text(encoding="utf-8")
     for forbidden in ('name == "codex"', "name == 'codex'", 'backend.name =='):
         assert forbidden not in source
+
+
+# ── complete: one bounded call ──────────────────────────────────────────────────────
+
+
+class _CompletionRunner:
+    """Stands in for `subprocess.run` on the `complete()` path."""
+
+    def __init__(self, *, stdout="", stderr="", returncode=0, raises=None):
+        self.calls: list[tuple[tuple, dict]] = []
+        self._stdout, self._stderr = stdout, stderr
+        self._rc, self._raises = returncode, raises
+
+    def __call__(self, *args, **kwargs):
+        self.calls.append((args, kwargs))
+        if self._raises is not None:
+            raise self._raises
+        return subprocess.CompletedProcess(
+            args=args[0], returncode=self._rc, stdout=self._stdout, stderr=self._stderr
+        )
+
+    @property
+    def argv(self) -> list[str]:
+        return list(self.calls[0][0][0])
+
+
+def _completion_driver(**kwargs):
+    runner = _CompletionRunner(**kwargs)
+    return ClaudeBackend(runner=runner), runner
+
+
+def test_completion_argv_is_the_bounded_call_shape():
+    argv = claude_mod.completion_argv(CompletionSpec(prompt="why?", model=MODEL))
+    assert argv == ["claude", "-p", "--model", MODEL, "why?"]
+
+
+def test_completion_argv_omits_the_model_when_the_caller_has_none():
+    """The driver does not own the model allowlist, so it guesses nothing."""
+    assert claude_mod.completion_argv(CompletionSpec(prompt="why?")) == ["claude", "-p", "why?"]
+
+
+def test_completion_argv_resumes_by_id_and_never_emits_a_session_id():
+    """`--resume` and `--session-id` are mutually exclusive (F4), and a completion never
+    creates a session it would have to name."""
+    argv = claude_mod.completion_argv(
+        CompletionSpec(prompt="again", model=MODEL, resume_id=SESSION_UUID)
+    )
+    assert argv == ["claude", "-p", "--model", MODEL, "--resume", SESSION_UUID, "again"]
+    assert "--session-id" not in argv
+
+
+def test_completion_argv_keeps_the_prompt_positional_and_last():
+    argv = claude_mod.completion_argv(
+        CompletionSpec(prompt="--not-a-flag", model=MODEL, resume_id=SESSION_UUID)
+    )
+    assert argv[-1] == "--not-a-flag"
+
+
+def test_complete_returns_the_stripped_stdout():
+    driver, _ = _completion_driver(stdout="  the answer\n")
+    assert driver.complete(CompletionSpec(prompt="q")).text == "the answer"
+
+
+def test_complete_runs_in_the_requested_directory_with_the_requested_timeout(tmp_path):
+    driver, runner = _completion_driver(stdout="ok")
+    driver.complete(CompletionSpec(prompt="q", cwd=tmp_path, timeout=17))
+    assert runner.calls[0][1]["cwd"] == str(tmp_path)
+    assert runner.calls[0][1]["timeout"] == 17
+
+
+def test_complete_passes_no_cwd_when_the_caller_gave_none():
+    driver, runner = _completion_driver(stdout="ok")
+    driver.complete(CompletionSpec(prompt="q"))
+    assert runner.calls[0][1]["cwd"] is None
+
+
+def test_complete_drops_the_text_on_a_non_zero_exit():
+    """Output printed by a failing run is not an answer. Returning it would let a crash
+    message flow into a proof review or a Telegram reply as if the model had said it."""
+    driver, _ = _completion_driver(stdout="half an answer", returncode=2)
+    result = driver.complete(CompletionSpec(prompt="q"))
+    assert result.text == ""
+    assert result.returncode == 2
+
+
+def test_complete_reports_a_timeout_without_raising():
+    driver, _ = _completion_driver(raises=subprocess.TimeoutExpired(cmd="claude", timeout=5))
+    result = driver.complete(CompletionSpec(prompt="q", timeout=5))
+    assert (result.text, result.returncode, result.timed_out) == ("", 124, True)
+
+
+def test_complete_swallows_an_unexpected_failure():
+    """Every caller is best-effort; an exception here would take down a poll cycle."""
+    driver, _ = _completion_driver(raises=FileNotFoundError("no claude on PATH"))
+    result = driver.complete(CompletionSpec(prompt="q"))
+    assert (result.text, result.returncode, result.timed_out) == ("", 1, False)
+
+
+def test_complete_tees_stdout_and_stderr_to_the_log_file(tmp_path):
+    log = tmp_path / "nested" / "run.log"
+    driver, _ = _completion_driver(stdout="out", stderr="err")
+    driver.complete(CompletionSpec(prompt="q", log_file=log))
+    assert log.read_text(encoding="utf-8") == "outerr"
+
+
+def test_complete_records_a_timeout_in_the_log_file(tmp_path):
+    """The log is the only record of a run that produced nothing."""
+    log = tmp_path / "run.log"
+    driver, _ = _completion_driver(raises=subprocess.TimeoutExpired(cmd="claude", timeout=5))
+    driver.complete(CompletionSpec(prompt="q", timeout=5, log_file=log))
+    assert "timed out after 5s" in log.read_text(encoding="utf-8")
+
+
+def test_complete_survives_an_unwritable_log_file(tmp_path):
+    """A log that cannot be written must not fail the call it was only recording."""
+    clash = tmp_path / "afile"
+    clash.write_text("x")
+    driver, _ = _completion_driver(stdout="the answer")
+    result = driver.complete(CompletionSpec(prompt="q", log_file=clash / "nope.log"))
+    assert result.text == "the answer"

@@ -14,14 +14,10 @@ the call then ignores. A project configured `fallback_chain: [codex]` has no wor
 `--refresh-explanations`, no `/redo`, no `/ask`, no self-fix and no failure diagnosis —
 each one silently degrades to "" or a non-zero exit rather than failing loudly.
 
-Closing it means adding a one-shot capability to the protocol — roughly
-
-    def complete(self, prompt: str, *, model: str = "", timeout: int = 240) -> str
-
-implemented by both drivers, declared through `capabilities()` so callers can ask rather
-than assume, with each site below resolving its driver from its role. That is a
-cross-cutting change to a live launch path and is deliberately not bundled into the commit
-that added this test.
+**The capability landed on 2026-08-26**: `AgentBackend.complete(CompletionSpec) ->
+Completion`, implemented by both drivers. What remains is routing the sites below through
+it — each one resolving its driver from its role instead of naming a binary. This file
+tracks that migration: the list shrinks by one every time a site is converted.
 
 `tests/test_no_name_branching.py` does not catch these: a backend name in an argv list is
 explicitly allowed there, and correctly so — the argv *is* how you spell a CLI invocation.
@@ -114,17 +110,25 @@ def test_the_known_direct_call_sites_still_exist_where_recorded():
     )
 
 
-def test_the_driver_protocol_has_no_one_shot_completion_method():
-    """The root cause, asserted directly rather than described in a comment.
+def test_the_driver_protocol_offers_a_one_shot_completion():
+    """The root cause, now closed: `complete()` landed on the protocol 2026-08-26.
 
-    When this fails, the capability has been added — which is the moment the call sites
-    above can start being routed through it, and the moment this test should be replaced
-    by one asserting every driver implements it.
+    Asserted directly rather than described in a comment, because the call sites above can
+    only be routed through a capability that exists. Being on the `Protocol` rather than a
+    convention is what makes a driver that forgets it fail `isinstance` instead of failing
+    a caller at runtime.
     """
     from maestro.backends.base import AgentBackend
 
-    surface = {name for name in vars(AgentBackend) if not name.startswith("_")}
-    assert not (surface & {"complete", "one_shot", "prompt"}), (
-        "AgentBackend now offers a one-shot completion — route "
-        f"{len(KNOWN_DIRECT_CALL_SITES)} direct call sites through it and update this test"
-    )
+    assert "complete" in vars(AgentBackend)
+
+
+def test_every_registered_driver_implements_it():
+    """A backend that cannot answer a bounded question cannot serve half of maestro."""
+    from maestro.backends import registry
+    from maestro.backends.base import AgentBackend
+
+    for name in sorted(BACKENDS):
+        driver = registry.get_backend(name)
+        assert isinstance(driver, AgentBackend), f"{name} does not satisfy the protocol"
+        assert callable(getattr(driver, "complete", None)), f"{name} has no complete()"

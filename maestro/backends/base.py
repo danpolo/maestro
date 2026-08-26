@@ -43,6 +43,7 @@ from typing import (
     NamedTuple,
     Optional,
     Protocol,
+    Sequence,
     runtime_checkable,
 )
 
@@ -52,6 +53,8 @@ __all__ = [
     "NAMED_WINDOWS",
     "Capabilities",
     "LaunchSpec",
+    "CompletionSpec",
+    "Completion",
     "Handle",
     "ExitKind",
     "ExitVerdict",
@@ -96,6 +99,57 @@ class LaunchSpec:
     worktree: Path
     system_prompt_file: Optional[Path] = None
     sandbox: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class CompletionSpec:
+    """Everything a driver needs to run one bounded agent call and hand back its output.
+
+    The other half of the protocol. `LaunchSpec`/`launch` starts a *session* — a window
+    that outlives the call and is polled for sentinels. This is the synchronous case:
+    ask once, block, read what came back. Maestro does that constantly (proof review,
+    failure diagnosis, explanation refresh, `/ask`, `/redo`, self-fix) and before this
+    existed every one of those shelled out to a single CLI by name, which meant they
+    silently did nothing on a project configured for any other backend.
+
+    `writable` is the important field. A judgment call reads a prompt and answers; it must
+    not be able to touch the tree it runs in. An agentic call — `/redo`, self-fix — is
+    *expected* to edit files and commit inside `cwd`. Drivers that can enforce that
+    (`Capabilities.sandbox`) must; drivers that cannot are free to ignore it, which is why
+    it is a request and not a guarantee.
+
+    `resume_id` is whatever `Handle.native_id` gave for the session being continued, and is
+    opaque here exactly as it is there — core code never interprets it, it only hands it
+    back to the same driver. A driver without `native_resume`, or one handed a token it
+    cannot use, must start a fresh call rather than fail: every caller already has a
+    fall-back-to-a-full-brief path for precisely that case.
+    """
+
+    prompt: str
+    model: str = ""
+    timeout: int = 240
+    cwd: Optional[Path] = None
+    resume_id: str = ""
+    log_file: Optional[Path] = None
+    writable: bool = False
+    add_dirs: Sequence[Path] = ()
+
+
+@dataclass(frozen=True)
+class Completion:
+    """The result of one bounded agent call.
+
+    `text` is the agent's answer with surrounding whitespace stripped, and `""` on any
+    failure — a non-zero exit, a timeout, a crash, or a run that simply said nothing.
+    Callers are uniformly best-effort, so an empty string is the one thing they all
+    already handle. `returncode` and `timed_out` are there for the two callers that
+    distinguish *why* (`/ask` reports a timeout to Dan in its own words; the proof gate
+    refuses a review it could not obtain rather than passing it).
+    """
+
+    text: str
+    returncode: int = 0
+    timed_out: bool = False
 
 
 @dataclass(frozen=True)
@@ -197,6 +251,14 @@ class AgentBackend(Protocol):
 
     def resume(self, handle: Handle, prompt: str) -> Handle:
         """Continue an existing session with `prompt`, returning the new handle."""
+
+    def complete(self, spec: CompletionSpec) -> Completion:
+        """Run one bounded call and return what the agent said.
+
+        Synchronous: blocks until the agent finishes, times out, or dies. Never raises —
+        a failure is a `Completion` with empty `text`, because every caller is
+        best-effort and an exception here would take down a poll cycle.
+        """
 
     def parse_exit(self, rc: int, log_tail: str) -> ExitVerdict:
         """Classify a finished run as ok / quota_exhausted(reset_at) / crashed."""

@@ -333,7 +333,7 @@ def test_get_effective_cap_thresholds_are_the_documented_constants(subject):
     assert subject.CONCURRENCY_CAP == 3
     assert subject.THROTTLE_75_CAP == 1
     assert subject.THROTTLE_75_PCT == 75.0
-    assert subject.PAUSE_92_PCT == 92.0
+    assert subject.PAUSE_PCT == 92.0
 
 
 @pytest.mark.parametrize(

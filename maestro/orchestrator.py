@@ -74,7 +74,7 @@ from maestro.parking import (
 from maestro.paths import Paths
 from maestro.quota import (
     CONCURRENCY_CAP,
-    PAUSE_92_PCT,
+    PAUSE_PCT,
     _paused_until_epoch,
     _scan_impl_log_for_limit,
     _tail_text,
@@ -1080,7 +1080,7 @@ def main() -> int:
                     print(f"  [throttle] Concurrency cap={cap} (5h={five_pct:.0f}%)")
                 prev_cap = cap
         if cap == 0 and still_stranded:
-            print(f"  [throttle] 5h={five_pct:.0f}% >= {PAUSE_92_PCT}% — pausing.")
+            print(f"  [throttle] 5h={five_pct:.0f}% >= {PAUSE_PCT}% — pausing.")
             append_journal("rate_limit_pause", f"five_h={five_pct:.0f}%")
             break
 

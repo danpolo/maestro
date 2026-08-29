@@ -1,7 +1,8 @@
 """Usage quota: the concurrency cap, usage-limit detection and the pause it triggers.
 
 Extracted verbatim from the reference orchestrator. Bodies are unchanged — only the
-import block and the derivation of the module-level path globals differ. Behavioural
+import block, the derivation of the module-level path globals, and (since 2026-08-30)
+the two thresholds that now come from `project.yaml` rather than being hardcoded, differ. Behavioural
 surprises are catalogued in `docs/FOUND_BUGS.md` and pinned by
 `tests/characterization/test_quota.py`; none of them is fixed here.
 """
@@ -12,6 +13,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from maestro.config import threshold
 from maestro.paths import Paths
 from maestro.pending import deferred
 from maestro.state import append_journal, read_json, read_state, write_state
@@ -21,10 +23,19 @@ _PATHS = Paths.from_env()
 REPO                  = _PATHS.repo
 USAGE_JSON            = _PATHS.usage
 
-CONCURRENCY_CAP = 3
+# `thresholds:` in `project.yaml`, read once at import — the same shape and the same
+# moment `maestro.watchdog` reads its own two (`stall_window_min`, `max_stall_restarts`).
+# Both keys below were declared in the template from the first version and read by
+# nothing: a project could set `concurrency_cap: 1` to throttle itself and get three
+# implementers anyway. `tests/test_templates.py` recorded them as known-dead; this is
+# what strikes them off.
+CONCURRENCY_CAP = threshold("concurrency_cap", 3, cast=int)
 THROTTLE_75_PCT = 75.0
 THROTTLE_75_CAP = 1
-PAUSE_92_PCT    = 92.0
+#: Five-hour usage at or above which the loop stops launching entirely. Renamed from
+#: `PAUSE_92_PCT` when it became configurable: a constant whose name states its value is
+#: a name that lies the moment a project sets a different one.
+PAUSE_PCT = threshold("five_h_pause_pct", 92.0, cast=float)
 
 # Owned by `maestro.hitl.telegram`, which is extracted after this module. Late-bound
 # rather than imported so this module stays importable on its own and the M1 extraction
@@ -143,7 +154,7 @@ def get_effective_cap() -> tuple[int, float]:
     """Return (cap, five_h_pct)."""
     usage    = read_json(USAGE_JSON)
     five_pct = float((usage.get("five_hour") or {}).get("used_pct") or 0)
-    if five_pct >= PAUSE_92_PCT:
+    if five_pct >= PAUSE_PCT:
         return 0, five_pct
     if five_pct >= THROTTLE_75_PCT:
         return THROTTLE_75_CAP, five_pct

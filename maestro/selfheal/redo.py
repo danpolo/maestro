@@ -33,6 +33,7 @@ import sys
 from pathlib import Path
 
 from maestro import agentcall
+from maestro import confinement
 from maestro.docs.roadmap import run_dep_map
 from maestro.hitl.telegram import notify_telegram
 from maestro.merge import _merge_redo_branch
@@ -47,26 +48,36 @@ REPO                  = _PATHS.repo
 # git owner) to merge — the deliverable-rewrite analogue of SELFFIX_DIR.
 REDO_DIR = REPO / ".orchestrator" / "redo"
 
-# `/redo` confinement, re-checked at merge time (mirrors scripts/maestro_redo.py).
-_REDO_ALLOW = ("colab/", "data_export/", "scripts/", "docs/", "tasks/")
-_REDO_DENY = ("main_bot.py", ".env", "data/", "models/", "scripts/restart_bot.sh",
-              "scripts/watchdog.py", ".service", "requirements")
+# `/redo` confinement, re-checked at merge time. `_REDO_ALLOW` used to be
+# `("colab/", "data_export/", "scripts/", "docs/", "tasks/")` and `_REDO_DENY` named the
+# reference project's bot runtime; both now come from `project.yaml` via
+# `maestro.confinement`, because a deliverable surface is the one thing maestro cannot
+# guess about a project it has just been pointed at.
 # Maestro sidecars now live outside the worktree; ignore any stray in-tree copy so a good
 # rewrite is never discarded over a Maestro control file (mirrors maestro_redo.GATE_IGNORE).
 _REDO_GATE_IGNORE = ("redo_result.json", "redo_impl.log")
 
 
 def _redo_path_ok(files) -> tuple:
-    files = [str(f).strip().lstrip("./") for f in files if str(f).strip()]
-    files = [f for f in files if Path(f).name not in _REDO_GATE_IGNORE]
-    if not files:
+    """A `/redo` diff may touch only this project's configured deliverable surface.
+
+    Maestro's own sidecars are filtered out first, unchanged: they are control files, and
+    discarding a good rewrite over one was the bug `_REDO_GATE_IGNORE` exists to prevent.
+    Everything after that is `maestro.confinement`'s judgement — including the
+    `lstrip("./")` hole this function shared with its self-fix twin, where `../` was
+    stripped rather than refused.
+    """
+    kept = [f for f in _strings_for_gate(files)
+            if Path(f).name not in _REDO_GATE_IGNORE]
+    if not kept:
         return False, "no files changed"
-    for fn in files:
-        if any(d in fn for d in _REDO_DENY):
-            return False, f"denied path touched: {fn}"
-        if not fn.startswith(_REDO_ALLOW):
-            return False, f"out-of-scope path touched: {fn}"
-    return True, "ok"
+    return confinement.path_ok(kept, kind=confinement.REDO)
+
+
+def _strings_for_gate(files) -> list:
+    """`files` as non-empty strings. Kept separate so the sidecar filter above sees the
+    same normalisation the gate itself applies."""
+    return [str(f).strip() for f in (files or []) if str(f).strip()]
 
 
 def apply_ready_redo() -> None:

@@ -53,7 +53,19 @@ thresholds:
   # context ceilings come from model_limits, not from here
 
 risky_set: []
-deny_list_extra: []
+deny_list_extra: []             # REGEXES matched against diff TEXT (merge.deny_list_guard)
 secrets: [".env", ".env.local", "**/*.pem", "**/*credentials*.json"]
-prod_stores: []
+prod_stores: []                 # production data stores — denied to every autonomous change
+
+confinement:                    # what an autonomous change may touch (maestro/confinement.py)
+  # `self_fix` repairs THIS project's orchestration setup after a failure it diagnosed.
+  # It is not maestro's own package, which lives outside the repo. Default: the
+  # scaffolding `init` creates, which is the only surface maestro can assume exists.
+  self_fix_allow: [adapters/, profiles/, docs/]
+  # `/redo` rewrites a deliverable Dan reported a problem with. Maestro cannot guess where
+  # a project keeps those, so the default is deliberately narrow — widen it to your own
+  # deliverable directories (a notebook folder, an export folder, ...) to make /redo useful.
+  redo_allow: [docs/]
+  # Path fragments (or globs) neither may touch, on top of `secrets` and `prod_stores`.
+  deny: []
 docs: {roadmap: docs/ROADMAP.md, project: docs/PROJECT.md, dependency_map: docs/dependency_map.md}

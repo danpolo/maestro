@@ -20,6 +20,7 @@ import os
 import re
 
 from maestro import agentcall
+from maestro import confinement
 from maestro.paths import Paths
 from maestro.roles import ROLE_DIAGNOSER
 from maestro.state import now_iso
@@ -77,20 +78,32 @@ def _judge_complete(system: str, user: str, model: str = "", timeout: int = 240,
 
 def _diagnose_failure(task_id: str, reason: str, impl_tail: str,
                       journal_ctx: str) -> dict:
-    """One bounded Opus pass returning a STRUCTURED diagnosis. Best-effort: {} on error.
-    Keys: root_cause, failure_class, suggested_fix, target_files."""
+    """One bounded judgment pass returning a STRUCTURED diagnosis. Best-effort: {} on
+    error. Keys: root_cause, failure_class, suggested_fix, target_files.
+
+    The prompt names *this project's* self-fix surface rather than the reference
+    project's. It used to say "Maestro's OWN code lives under scripts/ and orchestrator/"
+    and warn about a RAG bot runtime — one project's layout, described to a model that
+    then chose `target_files` from it. Those paths are exactly what
+    `selffix._self_fix_path_ok` gates, so a diagnosis that named them was rejected by the
+    gate on every other project: the diagnoser was being asked to propose fixes it was
+    structurally forbidden from proposing.
+    """
+    allowed = confinement.allow_prefixes(confinement.SELF_FIX)
+    denied = confinement.deny_fragments()
     raw = _judge_complete(
         system=(
-            "You diagnose why an autonomous coding task (run by 'Maestro', an Opus-"
-            "orchestrated multi-agent system) failed after a retry. Maestro's OWN code "
-            "lives under scripts/ and orchestrator/. A SEPARATE RAG bot runtime "
-            "(main_bot.py, .env, data/, models/) must NEVER be changed by a self-fix. "
+            "You diagnose why an autonomous coding task (run by 'Maestro', an "
+            "orchestrated multi-agent system) failed after a retry. A self-fix may only "
+            f"change files under: {', '.join(allowed) or '(nothing — self-fix is disabled here)'}. "
+            f"It must NEVER change: {', '.join(denied)}. "
+            "Name only files you would actually change, inside that surface. "
             "Reply with ONLY a JSON object, no prose:\n"
             '{"root_cause":"1-2 sentences",'
             '"failure_class":"one of observability|orchestrator-logic|transient-infra|'
             'implementer-quality|task-spec|external-dependency|unknown",'
             '"suggested_fix":"one concrete fix or re-brief",'
-            '"target_files":["scripts/...", "..."]}'
+            '"target_files":["<path inside the allowed surface>", "..."]}'
         ),
         user=(f"Task: {task_id}\nFailure reason: {reason[:600]}\n\n"
               f"Implementer log tail (impl.log):\n{impl_tail[:2500]}\n\n"
@@ -122,7 +135,7 @@ def _failure_looks_normal(task_id: str, reason: str, impl_tail: str,
         system=(
             "You are a skeptical reviewer guarding an autonomous system ('Maestro') "
             "against UNNECESSARY self-edits. A task it ran failed, and Maestro will edit "
-            "its OWN orchestration code unless you stop it. Many failures are NOT code "
+            "this project's orchestration setup unless you stop it. Many failures are NOT code "
             "bugs: usage/rate limits, network or API blips, an external dependency being "
             "down, a flaky or underspecified task, or a one-off timeout — for these the "
             "right action is to change NOTHING and just retry or wait. Argue, as strongly "

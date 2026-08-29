@@ -25,12 +25,13 @@ Three things are specific to this module:
   globals of all three modules — `up`, `up.gdm`, and `sys.modules["prepared_actions"]`
   (pre-imported so it has something to rebase) — by reflection into one temp tree, the same
   "never a hand-written name list" discipline `sandbox`/`test_watchdog.py`'s `box` use;
-* `_opus_complete` is the one function that reaches an agent CLI (`claude -p --model
-  claude-opus-4-8 <prompt>`, billed against the Max subscription — see the module
-  docstring). Every test of it, and of `refresh_explanations` which calls it, swaps the
-  subject's own `subprocess` module reference for a small recording stand-in
-  (`_fake_subprocess`, mirroring `test_selfheal.py`'s `_fake_subprocess` for
-  `_judge_complete`) so no test can ever spawn a real `claude` process;
+* `_opus_complete` is the one function that reaches an agent, and since 2026-08-30 it does
+  so by asking the **judge role** through `maestro.agentcall` rather than by naming a CLI.
+  Every test of it, and of `refresh_explanations` which calls it, swaps the subject's own
+  `agentcall` module reference for a small recording stand-in (`_fake_agentcall`), so the
+  assertions are about *what was asked of which role* — the thing that stayed true when
+  the binary stopped being fixed — rather than about an argv. `tests/conftest.py` is the
+  belt to that braces: no test can reach a real agent binary from any direction;
 * `main()` reads `sys.argv` directly (plain `argparse`, no injectable args parameter), so
   CLI-level tests monkeypatch `sys.argv` rather than calling a `run_cli(argv)` seam — this
   script never grew one.
@@ -45,12 +46,13 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import json
-import subprocess
 import sys
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from maestro.backends.base import Completion
 
 
 pytestmark = pytest.mark.maestro_module("docs.upcoming")
@@ -164,24 +166,41 @@ def box(up, tmp_path, monkeypatch):
     assert not _leaks(), f"a test left path globals resolving inside the reference repo: {_leaks()}"
 
 
-# --- the LLM call site: fake `subprocess` -----------------------------------------------
+# --- the agent call site: fake `agentcall` ----------------------------------------------
 
 
-def _completed(returncode=0, stdout="", stderr=""):
-    return subprocess.CompletedProcess(args=["claude"], returncode=returncode, stdout=stdout, stderr=stderr)
+#: What `resolve_call` reports for the judge unless a test says otherwise. Deliberately not
+#: a real model id: nothing here should care which one it is, and a test that only passes
+#: against `claude-…` would be re-pinning the assumption this module just removed.
+FAKE_JUDGE_MODEL = "judge-model-x"
 
 
-def _fake_subprocess(monkeypatch, up, handler):
-    """Swap `up`'s own `subprocess` module reference for a recording stand-in. Scoped to
-    `up` only — the real `subprocess` module used elsewhere in the process is untouched."""
+def _fake_agentcall(monkeypatch, up, handler=None, *, model=FAKE_JUDGE_MODEL,
+                    backend="test-backend"):
+    """Swap `up`'s own `agentcall` module reference for a recording stand-in.
+
+    Same discipline the retired `_fake_subprocess` used, and for the same reason — scoped
+    to `up`, so the real seam other tests exercise is untouched. `handler(role, prompt, **kwargs)`
+    returns the `Completion` to reply with; the default is an empty, successful one.
+
+    `resolve_call` is stubbed too because `refresh_explanations` asks it which model
+    actually answered, in order to stamp the cache entry with it.
+    """
+    calls = []
+
+    def ask(role, prompt, **kwargs):
+        calls.append(SimpleNamespace(role=role, prompt=prompt, kwargs=kwargs))
+        if handler is None:
+            return Completion(text="")
+        return handler(role, prompt, **kwargs)
+
     fake = SimpleNamespace(
-        run=handler,
-        TimeoutExpired=subprocess.TimeoutExpired,
-        CalledProcessError=subprocess.CalledProcessError,
-        PIPE=subprocess.PIPE,
-        DEVNULL=subprocess.DEVNULL,
+        ask=ask,
+        resolve_call=lambda role, **_kw: (backend, model),
+        calls=calls,
+        DEFAULT_TIMEOUT=240,
     )
-    monkeypatch.setattr(up, "subprocess", fake)
+    monkeypatch.setattr(up, "agentcall", fake)
     return fake
 
 
@@ -202,9 +221,12 @@ def _task(id="T1", title="Title", short_desc="desc", est_time="2h", mode="autono
 # module constants
 # ===========================================================================================
 
-def test_judge_model_and_timeout_constants(up):
-    assert up.JUDGE_MODEL == "claude-opus-4-8"
+def test_the_refresh_timeout_constant_and_the_absent_model_one(up):
+    """`JUDGE_MODEL` is deliberately gone (it pinned `claude-opus-4-8`), so this asserts
+    its absence as well as the timeout's value — a model id reappearing here is the
+    regression, not a missing constant."""
     assert up.REFRESH_TIMEOUT == 240
+    assert not hasattr(up, "JUDGE_MODEL")
 
 
 # ===========================================================================================
@@ -516,58 +538,58 @@ def test_extract_json_greedy_regex_loses_both_objects_across_two_blobs(up):
 # _opus_complete — the LLM call site
 # ===========================================================================================
 
-def test_opus_complete_builds_the_claude_cli_argv(up, box, monkeypatch):
-    calls = []
+def test_opus_complete_asks_the_judge_role_with_the_prompt_and_repo_cwd(up, box, monkeypatch):
+    """The argv assertion this replaced pinned `claude -p --model claude-opus-4-8`.
 
-    def handler(argv, **kwargs):
-        calls.append((argv, kwargs))
-        return _completed(stdout="ok")
+    What it was really protecting — the prompt reaches an agent, in the repo, under a
+    bounded timeout — is asserted here against the seam instead, so the same guarantee
+    holds on whichever backend the project configured.
+    """
+    fake = _fake_agentcall(monkeypatch, up, lambda *a, **k: Completion(text="ok"))
 
-    _fake_subprocess(monkeypatch, up, handler)
+    assert up._opus_complete("PROMPT TEXT") == "ok"
 
-    result = up._opus_complete("PROMPT TEXT")
-
-    assert result == "ok"
-    argv, kwargs = calls[0]
-    assert argv == ["claude", "-p", "--model", up.JUDGE_MODEL, "PROMPT TEXT"]
-    assert kwargs["cwd"] == str(up.REPO_ROOT)
-    assert kwargs["capture_output"] is True
-    assert kwargs["text"] is True
-    assert kwargs["timeout"] == 240
+    call = fake.calls[0]
+    assert call.role == up.ROLE_JUDGE
+    assert call.prompt == "PROMPT TEXT"
+    assert call.kwargs["cwd"] == up.REPO_ROOT
+    assert call.kwargs["timeout"] == up.REFRESH_TIMEOUT
+    # No model is passed: the role's per-backend table chooses it.
+    assert "model" not in call.kwargs
 
 
-def test_opus_complete_returns_the_stripped_stdout(up, box, monkeypatch):
-    _fake_subprocess(monkeypatch, up, lambda *a, **k: _completed(stdout="  hi \n"))
+def test_opus_complete_returns_the_answer_text(up, box, monkeypatch):
+    _fake_agentcall(monkeypatch, up, lambda *a, **k: Completion(text="hi"))
     assert up._opus_complete("p") == "hi"
 
 
-def test_opus_complete_returns_empty_on_a_nonzero_exit_even_with_output(up, box, monkeypatch, capsys):
-    _fake_subprocess(monkeypatch, up, lambda *a, **k: _completed(returncode=1, stdout="partial"))
+def test_opus_complete_returns_empty_on_a_nonzero_exit(up, box, monkeypatch, capsys):
+    """`Completion` already drops the text of a failed run (a non-zero exit means the
+    answer is not trustworthy even when something was printed), so this asserts the
+    reporting rather than re-deriving the driver's rule."""
+    _fake_agentcall(monkeypatch, up, lambda *a, **k: Completion(text="", returncode=1))
     assert up._opus_complete("p") == ""
-    assert "[opus] rc=1" in capsys.readouterr().err
+    assert "[judge] no answer (rc=1)" in capsys.readouterr().err
 
 
-def test_opus_complete_returns_empty_on_blank_stdout_at_exit_zero(up, box, monkeypatch):
-    _fake_subprocess(monkeypatch, up, lambda *a, **k: _completed(stdout="   \n"))
+def test_opus_complete_returns_empty_on_a_blank_answer(up, box, monkeypatch):
+    _fake_agentcall(monkeypatch, up, lambda *a, **k: Completion(text=""))
     assert up._opus_complete("p") == ""
-
-
-def test_opus_complete_swallows_every_exception_including_a_missing_binary(up, box, monkeypatch, capsys):
-    def boom(*a, **k):
-        raise FileNotFoundError("claude")
-
-    _fake_subprocess(monkeypatch, up, boom)
-
-    assert up._opus_complete("p") == ""
-    assert "[opus] call failed" in capsys.readouterr().err
 
 
 def test_opus_complete_reports_a_timeout_as_an_empty_answer(up, box, monkeypatch, capsys):
-    def boom(*a, **k):
-        raise subprocess.TimeoutExpired(cmd="claude", timeout=240)
+    _fake_agentcall(monkeypatch, up,
+                    lambda *a, **k: Completion(text="", returncode=124, timed_out=True))
+    assert up._opus_complete("p") == ""
+    assert "[judge] no answer (timed out)" in capsys.readouterr().err
 
-    _fake_subprocess(monkeypatch, up, boom)
 
+def test_opus_complete_never_sees_an_exception_because_ask_never_raises(up, box, monkeypatch):
+    """`agentcall.ask` absorbs every failure into an empty `Completion` — a missing binary
+    included — which is why this module no longer has a `try` of its own. The contract is
+    asserted at the seam (`tests/test_agentcall.py`); here it is enough that the caller
+    holds no exception handler and still cannot raise."""
+    _fake_agentcall(monkeypatch, up)
     assert up._opus_complete("p") == ""
 
 
@@ -578,7 +600,7 @@ def test_opus_complete_reports_a_timeout_as_an_empty_answer(up, box, monkeypatch
 def test_refresh_explanations_writes_a_cache_entry_from_the_opus_reply(up, box, monkeypatch):
     task = _task(id="T1", title="A", short_desc="B", est_time="1h", deps=[])
     reply = json.dumps({"what_why": "W", "pipeline_fit": "P"})
-    _fake_subprocess(monkeypatch, up, lambda *a, **k: _completed(stdout=reply))
+    _fake_agentcall(monkeypatch, up, lambda *a, **k: Completion(text=reply))
 
     n = up.refresh_explanations([task], {})
 
@@ -587,7 +609,8 @@ def test_refresh_explanations_writes_a_cache_entry_from_the_opus_reply(up, box, 
     assert entry["hash"] == up._task_fingerprint(task)
     assert entry["what_why"] == "W"
     assert entry["pipeline_fit"] == "P"
-    assert entry["model"] == up.JUDGE_MODEL
+    # The model that actually answered, resolved from the role — not a constant.
+    assert entry["model"] == FAKE_JUDGE_MODEL
 
 
 def test_refresh_explanations_skips_a_fresh_cache_entry_without_calling_the_llm(up, box, monkeypatch):
@@ -599,7 +622,7 @@ def test_refresh_explanations_skips_a_fresh_cache_entry_without_calling_the_llm(
     def boom(*a, **k):
         raise AssertionError("must not call the LLM for a fresh cache entry")
 
-    _fake_subprocess(monkeypatch, up, boom)
+    _fake_agentcall(monkeypatch, up, boom)
 
     assert up.refresh_explanations([task], {}) == 0
 
@@ -610,7 +633,7 @@ def test_refresh_explanations_force_rewrites_even_a_fresh_entry(up, box, monkeyp
     box.cache.parent.mkdir(parents=True, exist_ok=True)
     box.cache.write_text(json.dumps({"T1": {"hash": fp, "what_why": "old", "pipeline_fit": "old"}}))
     reply = json.dumps({"what_why": "NEW", "pipeline_fit": "NEW"})
-    _fake_subprocess(monkeypatch, up, lambda *a, **k: _completed(stdout=reply))
+    _fake_agentcall(monkeypatch, up, lambda *a, **k: Completion(text=reply))
 
     n = up.refresh_explanations([task], {}, force=True)
 
@@ -620,7 +643,7 @@ def test_refresh_explanations_force_rewrites_even_a_fresh_entry(up, box, monkeyp
 
 def test_refresh_explanations_keeps_old_prose_when_the_reply_is_unusable(up, box, monkeypatch, capsys):
     task = _task(id="T1")
-    _fake_subprocess(monkeypatch, up, lambda *a, **k: _completed(stdout="not json at all"))
+    _fake_agentcall(monkeypatch, up, lambda *a, **k: Completion(text="not json at all"))
 
     n = up.refresh_explanations([task], {})
 
@@ -632,7 +655,7 @@ def test_refresh_explanations_keeps_old_prose_when_the_reply_is_unusable(up, box
 def test_refresh_explanations_skips_a_reply_missing_what_why(up, box, monkeypatch):
     task = _task(id="T1")
     reply = json.dumps({"pipeline_fit": "P only"})
-    _fake_subprocess(monkeypatch, up, lambda *a, **k: _completed(stdout=reply))
+    _fake_agentcall(monkeypatch, up, lambda *a, **k: Completion(text=reply))
 
     assert up.refresh_explanations([task], {}) == 0
 
@@ -774,7 +797,7 @@ def test_main_refresh_explanations_flag_calls_the_llm_before_writing(up, box, mo
     box.roadmap.parent.mkdir(parents=True, exist_ok=True)
     box.roadmap.write_text(_MINIMAL_ROADMAP, encoding="utf-8")
     reply = json.dumps({"what_why": "W", "pipeline_fit": "P"})
-    _fake_subprocess(monkeypatch, up, lambda *a, **k: _completed(stdout=reply))
+    _fake_agentcall(monkeypatch, up, lambda *a, **k: Completion(text=reply))
     monkeypatch.setattr(sys, "argv", ["gen_upcoming.py", "--refresh-explanations"])
 
     rc = up.main()

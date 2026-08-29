@@ -37,12 +37,16 @@ malformed `roles:` block, an unknown backend name or a junk fallback chain falls
 the documented defaults, because refusing to resolve a role would stop the orchestrator
 over a typo in a config file it can survive without.
 
-**Defaults reproduce today's behaviour exactly.** Every role defaults to
-`registry.DEFAULT_BACKEND`, and the default models are the ones the current call sites
-hardcode: the implementer's `_DEFAULT_IMPLEMENTER_MODEL`, the judge model in
-`maestro.gates` / `maestro.merge`, and `maestro.selfheal.diagnose.JUDGE_MODEL`. Those
-call sites are unchanged by M2; `tests/test_roles.py` pins the two tables together so
-they cannot drift apart silently.
+**Defaults reproduce the behaviour they replaced exactly.** Every role defaults to
+`registry.DEFAULT_BACKEND`, and the default models are the ones the call sites used to
+hardcode: the implementer's `_DEFAULT_IMPLEMENTER_MODEL` and
+`maestro.selfheal.diagnose.JUDGE_MODEL`. `tests/test_roles.py` pins those two tables
+together so they cannot drift apart silently.
+
+M2 left the call sites themselves alone — this module resolved roles that nothing asked.
+On 2026-08-30 the last of them was routed through `maestro.agentcall`, so this table is
+now the only place a model id is chosen, and the pins that used to assert *that* the call
+sites hardcoded a model now assert that none of them does.
 """
 from __future__ import annotations
 

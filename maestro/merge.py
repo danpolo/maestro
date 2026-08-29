@@ -18,6 +18,7 @@ from maestro.config import _load_project_yaml
 from maestro.hitl.telegram import notify_telegram
 from maestro.paths import Paths
 from maestro.pending import deferred
+from maestro.roles import ROLE_JUDGE
 from maestro.state import append_journal
 
 _PATHS = Paths.from_env()
@@ -123,9 +124,12 @@ def sonnet_risky_reviewer(branch: str, task_id: str) -> tuple[bool, str]:
     diff_snippet = diff_r.stdout[:6000]
 
     try:
-        # Routed through the CLI judge (subscription, no metered API). The safety
-        # gate stays on Sonnet: it runs per risky merge, Sonnet 4.6 reviews code
-        # well, and this keeps strong-model budget for proposal-shaping.
+        # Asked of the judge role, not of a named model. This gate runs per risky merge,
+        # so it deliberately sits on the review-tier role rather than the diagnoser —
+        # which keeps strong-model budget for proposal-shaping, the same reasoning that
+        # used to be spelled as a pinned `model="claude-sonnet-5"`. That pin named a
+        # model only one backend has; the role's per-backend table names the right one
+        # wherever the call actually lands.
         raw = _judge_complete(
             system=(
                 "You are a read-only security and correctness reviewer for an autonomous "
@@ -139,7 +143,7 @@ def sonnet_risky_reviewer(branch: str, task_id: str) -> tuple[bool, str]:
                 f"Task: {task_id}\nRisky files touched: {risky_touched}\n\nDiff:\n```\n{diff_snippet}\n```\n"
                 "Output JSON only."
             ),
-            model="claude-sonnet-5",
+            role=ROLE_JUDGE,
         )
         if not raw:
             return False, "risky reviewer unavailable (CLI judge returned nothing)"

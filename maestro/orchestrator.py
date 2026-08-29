@@ -61,6 +61,7 @@ from maestro.implementer import (
     launch_implementer,
     operator_backend,
 )
+from maestro import metrics
 from maestro.merge import _touches_bot_files, merge_and_eval
 from maestro.parking import (
     _graduate_manual_action,
@@ -1246,11 +1247,14 @@ def main() -> int:
                 still_running.append(entry)
                 continue
             accepted, smoke = merge_and_eval(entry)
-            r5 = smoke.get("metrics", {}).get("recall_at_5", "?")
+            # Whatever this project's adapter measured, named by its own keys. These
+            # lines used to read `recall_at_5` and print `Recall@5=` — one project's
+            # metric, reported as missing on every other one.
+            shown = metrics.summary(smoke)
             _remove_from_state(entry)
             if accepted:
-                print(f"  ✓ {task_id} merged and accepted (Recall@5={r5})")
-                append_journal("task_complete", f"{task_id} recall@5={r5}",
+                print(f"  ✓ {task_id} merged and accepted ({shown})")
+                append_journal("task_complete", f"{task_id} {shown}",
                                session_id=entry["session_id"])
                 remove_worktree(worktree)
                 mark_roadmap_complete(task_id)
@@ -1306,8 +1310,8 @@ def main() -> int:
                     remove_worktree(worktree)
             else:
                 reason_merge = smoke.get("reason", "")
-                print(f"  ✗ {task_id} smoke/merge failed (Recall@5={r5}) — {reason_merge[:80]}")
-                notify_telegram(f"⚠ {task_id} smoke/merge failed (Recall@5={r5}), reverted.")
+                print(f"  ✗ {task_id} smoke/merge failed ({shown}) — {reason_merge[:80]}")
+                notify_telegram(f"⚠ {task_id} smoke/merge failed ({shown}), reverted.")
                 park_regression(task_id, smoke)
                 remove_worktree(worktree)
             run_dep_map()

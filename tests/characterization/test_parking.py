@@ -894,13 +894,18 @@ def test_park_regression_asks_dan_with_the_three_revert_options(subject, sandbox
 
 
 def test_park_regression_question_carries_the_metric_and_reason(subject, sandbox, danreq):
+    """The metric is named by the adapter that reported it. This question used to read
+    `Recall@5=0.42` whatever the project measured, so on anything but the reference it
+    asked Dan to weigh a regression in a number that project has never computed."""
     subject.park_regression("T1", {"metrics": {"recall_at_5": 0.42}, "reason": "worse"})
-    assert danreq[0].question == "Regression on T1: Recall@5=0.42. worse. What to do?"
+    assert danreq[0].question == "Regression on T1: recall_at_5=0.42. worse. What to do?"
 
 
-def test_park_regression_defaults_a_missing_metric_to_a_question_mark(subject, sandbox, danreq):
+def test_park_regression_says_so_plainly_when_there_are_no_metrics(subject, sandbox, danreq):
+    """Was `Recall@5=?` — a named metric reported as missing. A project with no eval
+    harness is not missing a number, it has none, and the question now says that."""
     subject.park_regression("T1", {})
-    assert danreq[0].question == "Regression on T1: Recall@5=?. . What to do?"
+    assert danreq[0].question == "Regression on T1: no metrics. . What to do?"
 
 
 def test_park_regression_truncates_the_reason_at_two_hundred_chars(subject, sandbox, danreq):
@@ -910,7 +915,7 @@ def test_park_regression_truncates_the_reason_at_two_hundred_chars(subject, sand
 
 def test_park_regression_journals_the_escalation(subject, sandbox, danreq):
     subject.park_regression("T1", {"metrics": {"recall_at_5": 0.42}})
-    assert _detail(subject, sandbox, "regression_escalated") == "T1 recall@5=0.42"
+    assert _detail(subject, sandbox, "regression_escalated") == "T1 recall_at_5=0.42"
 
 
 def test_park_regression_sends_no_request_id_so_the_answer_is_unaddressable(subject, sandbox, danreq):

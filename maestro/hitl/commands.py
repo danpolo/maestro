@@ -45,6 +45,7 @@ from maestro.hitl.telegram import (
     phase_report,
 )
 from maestro.implementer import _answer_choice, _question_req_id, _task_questions
+from maestro import metrics
 from maestro.merge import _touches_bot_files, merge_and_eval
 from maestro.paths import Paths
 from maestro.pending import deferred
@@ -475,12 +476,12 @@ def _process_approve(dan_id_str: str, in_flight: list) -> None:
     # unpushed, and unmarked in ROADMAP.
     worktree = Path(parked["worktree"])
     accepted, smoke = merge_and_eval(entry)
-    r5 = smoke.get("metrics", {}).get("recall_at_5", "?")
+    shown = metrics.summary(smoke)
     in_flight[:] = [e for e in in_flight if e.get("session_id") != entry["session_id"]]
     _remove_from_state(entry)
     if accepted:
-        print(f"  ✓ {task_id} merged and accepted (Recall@5={r5})")
-        append_journal("task_complete", f"{task_id} recall@5={r5}",
+        print(f"  ✓ {task_id} merged and accepted ({shown})")
+        append_journal("task_complete", f"{task_id} {shown}",
                        session_id=entry["session_id"])
         remove_worktree(worktree)
         mark_roadmap_complete(task_id)
@@ -497,12 +498,13 @@ def _process_approve(dan_id_str: str, in_flight: list) -> None:
                 run_dep_map(); run_status()
                 return
         phase_report(task_id, get_task_by_id(task_id), smoke)
-        _r5 = f"Recall@5={r5}" if smoke.get("metrics") else "smoke skipped (non-retrieval)"
-        notify_telegram(f"✅ {task_id} merged & accepted ({_r5}).")
+        # `metrics.summary` already says "no metrics" for a skipped smoke, so the
+        # branch that used to spell that out per project is gone with it.
+        notify_telegram(f"✅ {task_id} merged & accepted ({shown}).")
     else:
         reason_merge = smoke.get("reason", "")
-        print(f"  ✗ {task_id} smoke/merge failed (Recall@5={r5}) — {reason_merge[:80]}")
-        notify_telegram(f"⚠ {task_id} smoke/merge failed (Recall@5={r5}) — reverted. See journal.")
+        print(f"  ✗ {task_id} smoke/merge failed ({shown}) — {reason_merge[:80]}")
+        notify_telegram(f"⚠ {task_id} smoke/merge failed ({shown}) — reverted. See journal.")
         park_regression(task_id, smoke)
         remove_worktree(worktree)
     run_dep_map()

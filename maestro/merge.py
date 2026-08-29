@@ -15,6 +15,7 @@ import re
 import subprocess
 
 from maestro.config import _load_project_yaml
+from maestro import metrics
 from maestro.hitl.telegram import notify_telegram
 from maestro.paths import Paths
 from maestro.pending import deferred
@@ -284,13 +285,13 @@ def merge_and_eval(entry: dict) -> tuple[bool, dict]:
     # false-regression bug). Done before the accept/revert split so it holds on
     # every path; the revert below resets to sha_pre, which undoes this commit too.
     _commit_eval_history(task_id)
-    r5    = smoke.get("metrics", {}).get("recall_at_5", "?")
-    if smoke.get("metrics"):
-        print(f"  [smoke] {task_id}: pass={smoke['pass']} recall@5={r5}")
+    shown = metrics.summary(smoke)
+    if metrics.metrics_of(smoke):
+        print(f"  [smoke] {task_id}: pass={smoke['pass']} {shown}")
     else:
         print(f"  [smoke] {task_id}: pass={smoke['pass']} — {smoke.get('reason','')[:100]}")
     if smoke["pass"]:
-        append_journal("merge_accepted", f"{task_id} sha={sha_short} recall@5={r5}",
+        append_journal("merge_accepted", f"{task_id} sha={sha_short} {shown}",
                        session_id=entry["session_id"])
         return True, smoke
     # Reset to the pre-merge SHA captured above. _commit_eval_history may have
@@ -302,7 +303,7 @@ def merge_and_eval(entry: dict) -> tuple[bool, dict]:
     else:
         print(f"  [merge] Smoke failed — nothing to revert (no new commits)")
     append_journal("merge_reverted",
-                   f"{task_id} sha={sha_short} recall@5={r5} reason={smoke.get('reason','')}",
+                   f"{task_id} sha={sha_short} {shown} reason={smoke.get('reason','')}",
                    session_id=entry["session_id"])
     return False, smoke
 

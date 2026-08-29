@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 import requests
 
 from maestro.paths import Paths
+from maestro import metrics
 from maestro.pending import deferred
 from maestro.state import append_journal, read_state, write_state
 
@@ -122,8 +123,6 @@ def notify_telegram_with_map(msg: str) -> None:
 
 def phase_report(task_id: str, task_def: dict, smoke: dict) -> None:
     """Send Telegram report on task completion. Attaches dependency_map.png."""
-    r5   = smoke.get("metrics", {}).get("recall_at_5", "?")
-    lat  = smoke.get("metrics", {}).get("latency_p95_ms", "?")
     desc = (task_def or {}).get("short_desc", task_id)
 
     # Find the next queued task(s). The main loop acts on TWO queues: autonomous
@@ -147,11 +146,13 @@ def phase_report(task_id: str, task_def: dict, smoke: dict) -> None:
     decisions = (task_def or {}).get("decisions_made", "")
     decision_block = f"\n📋 *Decisions made:* {decisions}\n⏳ Veto window: 24 h" if decisions else ""
 
-    # Non-retrieval tasks skip the Recall@5 smoke → no metrics to show.
-    if smoke.get("metrics"):
-        eval_line = f"📊 Recall@5: {r5}  |  p95 latency: {lat} ms"
+    # A skipped smoke has no numbers, so its *reason* is the report. When there are
+    # numbers they are named by whatever this project's adapter called them — the two
+    # lines here used to be hardcoded to one project's `recall_at_5`/`latency_p95_ms`.
+    if metrics.metrics_of(smoke):
+        eval_line = f"📊 {metrics.summary(smoke)}"
     else:
-        eval_line = f"📊 {smoke.get('reason', 'retrieval smoke skipped')[:90]}"
+        eval_line = f"📊 {smoke.get('reason', metrics.NO_METRICS)[:90]}"
 
     msg = (
         f"✅ *{task_id} shipped* — {desc}\n"

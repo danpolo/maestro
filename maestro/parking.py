@@ -40,6 +40,7 @@ from maestro.merge import (
     _resumable_code_change_escalation,
 )
 from maestro.paths import Paths
+from maestro import metrics
 from maestro.quota import _LIMIT_RE
 from maestro.selfheal.diagnose import (
     ORCH_SELF_FIX_SKEPTIC,
@@ -120,11 +121,11 @@ def _remove_from_state(entry: dict) -> None:
 
 
 def park_regression(task_id: str, smoke: dict) -> None:
-    r5     = smoke.get("metrics", {}).get("recall_at_5", "?")
+    shown  = metrics.summary(smoke)
     reason = smoke.get("reason", "")[:200]
-    _danreq(f"Regression on {task_id}: Recall@5={r5}. {reason}. What to do?",
+    _danreq(f"Regression on {task_id}: {shown}. {reason}. What to do?",
             ["Revert and shelve", "Revert and retry", "Keep despite regression"])
-    append_journal("regression_escalated", f"{task_id} recall@5={r5}")
+    append_journal("regression_escalated", f"{task_id} {shown}")
 
 
 def _retry_phrase(task_id: str, reason: str) -> str:

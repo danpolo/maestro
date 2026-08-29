@@ -5,6 +5,10 @@ import block and the derivation of the module-level path globals differ. Behavio
 surprises are catalogued in `docs/FOUND_BUGS.md` and pinned by
 `tests/characterization/test_gates.py`; none of them is fixed here.
 
+The smoke gate reaches the project's adapter through `maestro.adapters.run_adapter`,
+and runs at all only when `project.yaml`'s `gate.chain` names it — see `_run_smoke` and
+`_smoke_in_gate_chain` for what each of those fixed.
+
 `sonnet_review_proofs` asks the **judge role** through `maestro.agentcall` rather than
 naming a CLI, so the review runs on whichever backend the project configured. It used to
 shell out to one binary directly, which meant a project on any other backend got a
@@ -20,6 +24,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from maestro import agentcall
+from maestro.adapters import run_adapter
+from maestro.config import load_project_yaml
 from maestro import verifications  # M1: the checking engine itself — see run_verification_gate.
 from maestro.paths import Paths
 from maestro.pending import deferred
@@ -29,7 +35,9 @@ from maestro.state import append_journal
 _PATHS = Paths.from_env()
 
 REPO                  = _PATHS.repo
-SMOKE_ADAPTER         = REPO / "adapters" / "smoke.py"
+# `SMOKE_ADAPTER` used to live here as `REPO/"adapters"/"smoke.py"`. The adapter's
+# real home is `adapters/smoke`, with no extension (`maestro.adapters.adapter_path`),
+# and `_run_smoke` now goes through `run_adapter` rather than naming a path at all.
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
 
 # Async-verification park (Handoff B): a dispatch:manual task whose verification only
@@ -159,23 +167,53 @@ def sonnet_review_proofs(task_id: str, verifications: list[dict],
 
 # ── Smoke eval ──
 
+def _skipped(reason: str) -> dict:
+    """A smoke that did not run, reported as a pass with nothing measured.
+
+    Not a fudge: `merge_and_eval` reverts the merge and escalates a regression on
+    `pass: False`, so "this project has not wired up a smoke" and "your change broke
+    something" must not be the same value. The verification gate has already validated
+    the deliverable by this point; the reason travels with the result and is what the
+    operator is shown (`maestro.metrics.summary` reports no metrics, and the phase
+    report falls back to this text).
+    """
+    return {"pass": True, "metrics": {}, "reason": reason}
+
+
 def _run_smoke(task_id: str) -> dict:
-    smoke_input = json.dumps({"worktree": str(REPO), "task_id": task_id, "n": 20})
-    try:
-        sp = subprocess.run([str(VENV_PYTHON), str(SMOKE_ADAPTER)],
-                            input=smoke_input, capture_output=True, text=True,
-                            timeout=SMOKE_TIMEOUT)
-        if sp.returncode == 0 and sp.stdout.strip():
-            return json.loads(sp.stdout.strip())
-        err = (sp.stderr or sp.stdout or "no output")[:300]
-        return {"pass": False, "metrics": {}, "reason": f"smoke.py exit={sp.returncode}: {err}"}
-    except subprocess.TimeoutExpired:
-        return {"pass": False, "metrics": {}, "reason": "smoke timed out (45 min)"}
-    except Exception as exc:
-        # Never let a smoke infra error (e.g. malformed JSON) raise out of
-        # merge_and_eval — an uncaught throw here gets swallowed by the
-        # poll_control_commands blanket except, leaving a half-finalized merge.
-        return {"pass": False, "metrics": {}, "reason": f"smoke error: {exc}"}
+    """Run the project's `adapters/smoke` and normalise its answer.
+
+    Goes through `maestro.adapters.run_adapter` — the one supported way to reach a project
+    adapter — rather than executing a path of its own. That is not tidiness. This module
+    used to run `REPO/"adapters"/"smoke.py"`, while `init` scaffolds `adapters/smoke` with
+    no extension (`adapters.adapter_path`). On the reference project both files happened to
+    exist, the `.py` one being its real retrieval smoke, so the mismatch was invisible; on
+    every project maestro has ever scaffolded from the template, the file this looked for
+    did not exist at all. Python exited non-zero, the smoke read as *failed*, and
+    `merge_and_eval` reverted the merge and escalated a regression — for every task, on
+    work that was fine.
+
+    `absent` is therefore a skip, not a failure (D8: a project without an eval harness runs
+    unevaluated, and `doctor` already reports the absence). Every other adapter status —
+    a timeout, a crash, unparseable output — is still a failure, because those are a smoke
+    that was asked a question and could not answer it.
+    """
+    result = run_adapter(
+        "smoke", REPO,
+        payload={"worktree": str(REPO), "task_id": task_id, "n": 20},
+        timeout_s=SMOKE_TIMEOUT,
+    )
+    if result.status == "absent":
+        return _skipped("no smoke adapter — project is running unevaluated (D8)")
+    if result.status != "ok":
+        return {"pass": False, "metrics": {},
+                "reason": f"smoke {result.status}: {(result.detail or '')[:300]}"}
+    data = result.data if isinstance(result.data, dict) else {}
+    return {
+        "pass": bool(data.get("pass", False)),
+        "metrics": data.get("metrics") if isinstance(data.get("metrics"), dict) else {},
+        "reason": str(data.get("reason", "")),
+    }
 
 
 def _run_custom_smoke(task_id: str, cmd: str) -> dict:
@@ -193,27 +231,62 @@ def _run_custom_smoke(task_id: str, cmd: str) -> dict:
         return {"pass": False, "metrics": {}, "reason": f"custom smoke error: {exc}"}
 
 
-def _smoke_for_task(task_id: str, session_id: str = "") -> dict:
-    """Pick the right smoke for a task from its ROADMAP `eval_relevance`.
+#: `eval_relevance` values that mean "this task's deliverable is not what the smoke
+#: measures, so do not run it". `non-retrieval` is the reference project's spelling, kept
+#: so an existing roadmap does not silently change meaning: on a retrieval project it was
+#: how a data-gen or import task said "the smoke is irrelevant here, and its n=20 sampling
+#: noise makes it a false-regression risk". The other two say the same thing without
+#: naming a domain, and are what a new project should use.
+SKIP_EVAL_VALUES = frozenset({"none", "skip", "non-retrieval"})
 
-    - task declares `smoke: "<cmd>"`      → run that command (rc==0 passes).
-    - `eval_relevance: non-retrieval`     → skip; the verification gate already
-      validated the deliverable, and the Recall@5 retrieval smoke is both
-      irrelevant and a false-regression risk (n=20 sampling noise) for tasks
-      that don't touch the pipeline (data-gen, encode, import, scripts).
-    - otherwise (retrieval / unknown)     → full Recall@5 smoke (fail-safe default).
+
+def _smoke_in_gate_chain() -> bool:
+    """Whether `project.yaml`'s `gate.chain` includes the smoke step.
+
+    This is the seam D8 already documents and `doctor` already reports — `_check_gate`
+    tells the operator that `chain: [test]` means "eval/smoke are not wired into the gate
+    yet". Until now the loop did not agree with it: the chain was read by `doctor` and by
+    nobody else, and the smoke ran on every merge regardless. A fresh scaffold therefore
+    ran the `adapters/smoke` *stub*, which returns `pass: false` on purpose ("not
+    implemented" is not "succeeded"), and every task was merged and then reverted.
+
+    Reading the chain here is what makes the report and the behaviour the same statement.
+    Degrades to False on a malformed document, matching `maestro.config`: an unreadable
+    chain must not silently opt a project into a gate it never asked for.
+    """
+    document = load_project_yaml()
+    gate = document.get("gate") if isinstance(document, dict) else None
+    chain = gate.get("chain") if isinstance(gate, dict) else None
+    return isinstance(chain, (list, tuple)) and "smoke" in [str(step) for step in chain]
+
+
+def _smoke_for_task(task_id: str, session_id: str = "") -> dict:
+    """Pick the right smoke for a task. In order:
+
+    - task declares `smoke: "<cmd>"`   → run that command (rc==0 passes). An explicit
+      per-task opt-in, so it runs whatever the gate chain says.
+    - `smoke` not in `gate.chain`      → skip. The project has not wired a smoke into its
+      gate, which is the state a fresh `init` starts in and the one `doctor` reports.
+    - `eval_relevance` says to skip    → skip; the verification gate already validated the
+      deliverable (see `SKIP_EVAL_VALUES`).
+    - otherwise                        → the project's smoke adapter.
     """
     task_def  = get_task_by_id(task_id) or {}
     custom    = task_def.get("smoke")
     if custom:
         append_journal("smoke_custom", f"{task_id} cmd={str(custom)[:80]}", session_id=session_id)
         return _run_custom_smoke(task_id, str(custom))
-    relevance = str(task_def.get("eval_relevance", "retrieval")).strip().lower()
-    if relevance == "non-retrieval":
-        append_journal("smoke_skipped", f"{task_id} non-retrieval — retrieval smoke skipped",
+    if not _smoke_in_gate_chain():
+        append_journal("smoke_skipped", f"{task_id} smoke not in gate.chain",
                        session_id=session_id)
-        return {"pass": True, "metrics": {},
-                "reason": "non-retrieval task — retrieval smoke skipped (verification gate covered validation)"}
+        return _skipped("smoke is not in gate.chain — project is running unevaluated (D8)")
+    relevance = str(task_def.get("eval_relevance", "")).strip().lower()
+    if relevance in SKIP_EVAL_VALUES:
+        append_journal("smoke_skipped", f"{task_id} eval_relevance={relevance}",
+                       session_id=session_id)
+        return _skipped(
+            f"eval_relevance={relevance} — smoke skipped "
+            "(verification gate covered validation)")
     return _run_smoke(task_id)
 
 

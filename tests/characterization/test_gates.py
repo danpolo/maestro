@@ -546,135 +546,128 @@ def test_review_fails_closed_when_the_agent_binary_is_missing(subject, monkeypat
 
 
 # ── _run_smoke ──────────────────────────────────────────────────────────────────────
+#
+# Until 2026-08-30 these tests pointed a `SMOKE_ADAPTER` global at a script and asserted
+# the shape of a direct `subprocess.run`. That global named `adapters/smoke.py`, while
+# `init` scaffolds `adapters/smoke` with no extension — a mismatch invisible on the
+# reference project (which had both files) and fatal on every scaffolded one, where the
+# smoke "failed", the merge was reverted and a regression was escalated for every task.
+# The gate now goes through `maestro.adapters.run_adapter`, so these exercise it the way
+# a project actually wires one: a real executable at the path `run_adapter` looks in.
 
 
-def _stdin_echo_adapter(tmp_path: Path, payload: str) -> Path:
-    return _script(
-        tmp_path / "smoke_adapter.sh",
-        'cat > "$(dirname "$0")/stdin.json"\n'
-        f"cat <<'EOF'\n{payload}\nEOF\n",
-    )
+def _smoke_adapter(sandbox, body: str) -> Path:
+    """A real, executable `adapters/smoke` in the sandbox repo — where `run_adapter` looks.
+
+    Deliberately built at the path rather than monkeypatched: the bug this section was
+    rewritten around was a path that no scaffolded project had, and a test that patches
+    the path away cannot see that class of defect again.
+    """
+    return _script(sandbox.repo / "adapters" / "smoke", body)
 
 
-def test_run_smoke_returns_the_adapters_parsed_stdout(subject, sandbox, monkeypatch, tmp_path):
-    adapter = _stdin_echo_adapter(tmp_path, '{"pass": true, "metrics": {"score": 0.9}, "reason": "ok"}')
-    monkeypatch.setattr(subject, "SMOKE_ADAPTER", adapter)
-    monkeypatch.setattr(subject, "VENV_PYTHON", SH)
+def test_run_smoke_returns_the_adapters_verdict_metrics_and_reason(subject, sandbox):
+    _smoke_adapter(sandbox, 'cat > /dev/null\n'
+                            'echo \'{"pass": true, "metrics": {"score": 0.9}, "reason": "ok"}\'\n')
     assert subject._run_smoke("T1") == {"pass": True, "metrics": {"score": 0.9}, "reason": "ok"}
 
 
-def test_run_smoke_feeds_the_adapter_repo_task_id_and_a_hardcoded_n(
-    subject, sandbox, monkeypatch, tmp_path
-):
-    adapter = _stdin_echo_adapter(tmp_path, "{}")
-    monkeypatch.setattr(subject, "SMOKE_ADAPTER", adapter)
-    monkeypatch.setattr(subject, "VENV_PYTHON", SH)
+def test_run_smoke_feeds_the_adapter_repo_task_id_and_a_hardcoded_n(subject, sandbox):
+    _smoke_adapter(sandbox, f'cat > "{sandbox.repo}/stdin.json"\necho "{{}}"\n')
     subject._run_smoke("T7")
-    sent = json.loads((tmp_path / "stdin.json").read_text(encoding="utf-8"))
+    sent = json.loads((sandbox.repo / "stdin.json").read_text(encoding="utf-8"))
     assert sent == {"worktree": str(subject.REPO), "task_id": "T7", "n": 20}
 
 
-def test_run_smoke_names_the_key_worktree_but_sends_the_repo(subject, sandbox, monkeypatch, tmp_path):
+def test_run_smoke_names_the_key_worktree_but_sends_the_repo(subject, sandbox):
     """FOUND_BUGS: the smoke always evaluates REPO — the merged trunk, never a worktree."""
-    adapter = _stdin_echo_adapter(tmp_path, "{}")
-    monkeypatch.setattr(subject, "SMOKE_ADAPTER", adapter)
-    monkeypatch.setattr(subject, "VENV_PYTHON", SH)
+    _smoke_adapter(sandbox, f'cat > "{sandbox.repo}/stdin.json"\necho "{{}}"\n')
     subject._run_smoke("T7")
-    sent = json.loads((tmp_path / "stdin.json").read_text(encoding="utf-8"))
+    sent = json.loads((sandbox.repo / "stdin.json").read_text(encoding="utf-8"))
     assert Path(sent["worktree"]) == subject.REPO
 
 
-def test_run_smoke_returns_whatever_json_the_adapter_prints(subject, sandbox, monkeypatch, tmp_path):
-    """No schema validation: a JSON list comes straight back out of a `-> dict` function."""
-    adapter = _stdin_echo_adapter(tmp_path, "[1, 2]")
-    monkeypatch.setattr(subject, "SMOKE_ADAPTER", adapter)
-    monkeypatch.setattr(subject, "VENV_PYTHON", SH)
-    assert subject._run_smoke("T1") == [1, 2]
+def test_run_smoke_normalises_the_adapters_answer_to_the_three_keys(subject, sandbox):
+    """No longer "whatever JSON the adapter printed comes straight back out".
+
+    That was pinned as a surprise: a `-> dict` function returned a list when an adapter
+    printed one, and every reader downstream (`smoke["pass"]`, `metrics.summary`) then
+    met a type it had no branch for, *after* the merge had landed. The result is now
+    normalised here, at the one place that knows the adapter contract.
+    """
+    _smoke_adapter(sandbox, 'cat > /dev/null\necho \'{"pass": 1}\'\n')
+    assert subject._run_smoke("T1") == {"pass": True, "metrics": {}, "reason": ""}
 
 
-def test_run_smoke_fails_on_a_nonzero_exit_and_keeps_the_trailing_newline(
-    subject, sandbox, monkeypatch, tmp_path
-):
-    adapter = _script(tmp_path / "a.sh", 'echo boom >&2\nexit 3\n')
-    monkeypatch.setattr(subject, "SMOKE_ADAPTER", adapter)
-    monkeypatch.setattr(subject, "VENV_PYTHON", SH)
-    assert subject._run_smoke("T1") == {
-        "pass": False, "metrics": {}, "reason": "smoke.py exit=3: boom\n"
-    }
+def test_run_smoke_drops_a_metrics_value_that_is_not_a_mapping(subject, sandbox):
+    _smoke_adapter(sandbox, 'cat > /dev/null\necho \'{"pass": true, "metrics": [1, 2]}\'\n')
+    assert subject._run_smoke("T1")["metrics"] == {}
 
 
-def test_run_smoke_prefers_stderr_over_stdout_in_the_failure_reason(
-    subject, sandbox, monkeypatch, tmp_path
-):
-    adapter = _script(tmp_path / "a.sh", 'printf out\nprintf err >&2\nexit 1\n')
-    monkeypatch.setattr(subject, "SMOKE_ADAPTER", adapter)
-    monkeypatch.setattr(subject, "VENV_PYTHON", SH)
-    assert subject._run_smoke("T1")["reason"] == "smoke.py exit=1: err"
-
-
-def test_run_smoke_falls_back_to_stdout_then_to_no_output(subject, sandbox, monkeypatch, tmp_path):
-    adapter = _script(tmp_path / "a.sh", 'printf out\nexit 1\n')
-    monkeypatch.setattr(subject, "SMOKE_ADAPTER", adapter)
-    monkeypatch.setattr(subject, "VENV_PYTHON", SH)
-    assert subject._run_smoke("T1")["reason"] == "smoke.py exit=1: out"
-
-    _script(adapter, 'exit 1\n')
-    assert subject._run_smoke("T1")["reason"] == "smoke.py exit=1: no output"
-
-
-def test_run_smoke_fails_on_a_silent_success(subject, sandbox, monkeypatch, tmp_path):
-    """FOUND_BUGS: exit 0 with blank stdout is reported as `exit=0` — a success-shaped failure."""
-    adapter = _script(tmp_path / "a.sh", 'printf "   \\n"\n')
-    monkeypatch.setattr(subject, "SMOKE_ADAPTER", adapter)
-    monkeypatch.setattr(subject, "VENV_PYTHON", SH)
+def test_run_smoke_fails_on_a_nonzero_exit(subject, sandbox):
+    _smoke_adapter(sandbox, 'cat > /dev/null\necho boom >&2\nexit 3\n')
     got = subject._run_smoke("T1")
     assert got["pass"] is False
-    assert got["reason"].startswith("smoke.py exit=0:")
+    assert got["reason"].startswith("smoke nonzero_exit:")
 
 
-def test_run_smoke_truncates_the_error_to_300_characters(subject, sandbox, monkeypatch, tmp_path):
-    adapter = _script(tmp_path / "a.sh", 'printf "%0.sE" $(seq 1 500) >&2\nexit 1\n')
-    monkeypatch.setattr(subject, "SMOKE_ADAPTER", adapter)
-    monkeypatch.setattr(subject, "VENV_PYTHON", SH)
-    assert subject._run_smoke("T1")["reason"] == "smoke.py exit=1: " + "E" * 300
-
-
-def test_run_smoke_turns_malformed_adapter_json_into_a_failure(
-    subject, sandbox, monkeypatch, tmp_path
-):
-    adapter = _script(tmp_path / "a.sh", 'echo "not json"\n')
-    monkeypatch.setattr(subject, "SMOKE_ADAPTER", adapter)
-    monkeypatch.setattr(subject, "VENV_PYTHON", SH)
+def test_run_smoke_fails_on_output_that_is_not_a_json_object(subject, sandbox):
+    _smoke_adapter(sandbox, 'cat > /dev/null\necho "not json"\n')
     got = subject._run_smoke("T1")
     assert got["pass"] is False
-    assert got["reason"].startswith("smoke error:")
+    assert got["reason"].startswith("smoke bad_output:")
 
 
-def test_run_smoke_turns_a_missing_adapter_into_a_failure(subject, sandbox, monkeypatch, tmp_path):
-    monkeypatch.setattr(subject, "SMOKE_ADAPTER", tmp_path / "absent.py")
-    monkeypatch.setattr(subject, "VENV_PYTHON", tmp_path / "absent-interpreter")
+def test_run_smoke_fails_on_a_silent_success(subject, sandbox):
+    """FOUND_BUGS kept: exit 0 with blank stdout is a success-shaped failure, and
+    `run_adapter` classifies it `bad_output` rather than reading it as a pass."""
+    _smoke_adapter(sandbox, 'cat > /dev/null\nprintf "   \\n"\n')
     got = subject._run_smoke("T1")
     assert got["pass"] is False
-    assert got["reason"].startswith("smoke error:")
+    assert got["reason"].startswith("smoke bad_output:")
 
 
-def test_run_smoke_uses_the_module_timeout_and_says_45_min(subject, sandbox, monkeypatch):
-    def boom(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd="smoke", timeout=kwargs["timeout"])
-
-    fake = _fake_subprocess(monkeypatch, subject, boom)
-    assert subject._run_smoke("T1") == {
-        "pass": False, "metrics": {}, "reason": "smoke timed out (45 min)"
-    }
-    assert fake.calls[0][1]["timeout"] == subject.SMOKE_TIMEOUT
-    assert subject.SMOKE_TIMEOUT == 45 * 60
+def test_run_smoke_truncates_the_failure_detail_to_300_characters(subject, sandbox):
+    _smoke_adapter(sandbox, 'cat > /dev/null\nprintf "%0.sE" $(seq 1 500) >&2\nexit 1\n')
+    reason = subject._run_smoke("T1")["reason"]
+    assert reason.startswith("smoke nonzero_exit: ")
+    assert len(reason) - len("smoke nonzero_exit: ") == 300
 
 
-def test_run_smoke_does_not_pin_the_adapters_working_directory(subject, sandbox, monkeypatch):
-    """FOUND_BUGS: unlike every other subprocess here, no cwd= is passed."""
-    fake = _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout="{}"))
+def test_run_smoke_treats_an_absent_adapter_as_a_skip_not_a_failure(subject, sandbox):
+    """The whole point of the rewrite. A project with no smoke adapter is running
+    unevaluated (D8) — `doctor` already says so. Reporting that as `pass: False` made
+    `merge_and_eval` revert the merge and escalate a regression, which is what every
+    freshly scaffolded project did to every task it ever completed."""
+    assert not (sandbox.repo / "adapters" / "smoke").exists()
+    got = subject._run_smoke("T1")
+    assert got["pass"] is True
+    assert got["metrics"] == {}
+    assert "no smoke adapter" in got["reason"]
+
+
+def test_run_smoke_treats_a_non_executable_adapter_as_absent(subject, sandbox):
+    """`run_adapter`'s definition of absent, and the right one: a file the project cannot
+    run is not a smoke that failed."""
+    path = _smoke_adapter(sandbox, 'echo "{}"\n')
+    path.chmod(0o644)
+    assert subject._run_smoke("T1")["pass"] is True
+
+
+def test_run_smoke_uses_the_module_timeout_which_is_still_45_min(subject, sandbox, monkeypatch):
+    seen = {}
+
+    def fake_run_adapter(kind, root, payload=None, timeout_s=120):
+        seen.update(kind=kind, root=root, payload=payload, timeout_s=timeout_s)
+        from maestro.adapters import AdapterResult
+        return AdapterResult(kind=kind, status="ok", data={"pass": True})
+
+    monkeypatch.setattr(subject, "run_adapter", fake_run_adapter)
     subject._run_smoke("T1")
-    assert "cwd" not in fake.calls[0][1]
+    assert seen["kind"] == "smoke"
+    assert seen["root"] == subject.REPO
+    assert seen["timeout_s"] == subject.SMOKE_TIMEOUT
+    assert subject.SMOKE_TIMEOUT == 45 * 60
 
 
 # ── _run_custom_smoke ───────────────────────────────────────────────────────────────
@@ -768,6 +761,31 @@ def stub_roadmap(subject, monkeypatch):
     return box
 
 
+def _write_project_yaml(sandbox, document) -> None:
+    """Write the sandbox project's `project.yaml`. `maestro.config` reads it by path, and
+    the sandbox has already rebased that global, so this is the real loader end to end."""
+    import yaml
+
+    (sandbox.repo / "project.yaml").write_text(
+        yaml.safe_dump(document), encoding="utf-8")
+
+
+@pytest.fixture
+def smoke_in_chain(subject, sandbox, monkeypatch):
+    """Opt the sandbox project into the smoke step, the way a real project does.
+
+    `_smoke_for_task` consults `project.yaml`'s `gate.chain` since 2026-08-30. Before
+    that the chain was read by `doctor` and by nobody else: `doctor` told the operator
+    that `chain: [test]` meant "smoke is not wired into the gate yet" while the loop ran
+    it on every merge regardless — so a fresh scaffold ran the `adapters/smoke` stub,
+    which returns `pass: false` on purpose, and reverted every task it completed.
+
+    Tests of the default path therefore have to say they want the smoke, which is the
+    point: a project that has not said so does not get one.
+    """
+    monkeypatch.setattr(subject, "_smoke_in_gate_chain", lambda: True)
+
+
 @pytest.fixture
 def stub_retrieval_smoke(subject, monkeypatch):
     calls = []
@@ -806,7 +824,7 @@ def test_smoke_for_task_beats_eval_relevance_with_a_custom_command(
 
 
 def test_smoke_for_task_skips_a_non_retrieval_task(
-    subject, sandbox, stub_roadmap, stub_retrieval_smoke
+    subject, sandbox, stub_roadmap, stub_retrieval_smoke, smoke_in_chain
 ):
     stub_roadmap["task"] = {"eval_relevance": "non-retrieval"}
     got = subject._smoke_for_task("T1")
@@ -818,7 +836,7 @@ def test_smoke_for_task_skips_a_non_retrieval_task(
 
 
 def test_smoke_for_task_normalises_case_and_surrounding_space(
-    subject, sandbox, stub_roadmap, stub_retrieval_smoke
+    subject, sandbox, stub_roadmap, stub_retrieval_smoke, smoke_in_chain
 ):
     stub_roadmap["task"] = {"eval_relevance": "  Non-Retrieval  "}
     assert subject._smoke_for_task("T1")["pass"] is True
@@ -827,7 +845,7 @@ def test_smoke_for_task_normalises_case_and_surrounding_space(
 
 
 def test_smoke_for_task_defaults_to_the_full_smoke(
-    subject, sandbox, stub_roadmap, stub_retrieval_smoke
+    subject, sandbox, stub_roadmap, stub_retrieval_smoke, smoke_in_chain
 ):
     stub_roadmap["task"] = {}
     assert subject._smoke_for_task("T1")["reason"] == "SENTINEL"
@@ -835,7 +853,7 @@ def test_smoke_for_task_defaults_to_the_full_smoke(
 
 
 def test_smoke_for_task_defaults_to_the_full_smoke_for_an_unknown_task(
-    subject, sandbox, stub_roadmap, stub_retrieval_smoke
+    subject, sandbox, stub_roadmap, stub_retrieval_smoke, smoke_in_chain
 ):
     stub_roadmap["task"] = None
     assert subject._smoke_for_task("T1")["reason"] == "SENTINEL"
@@ -843,22 +861,22 @@ def test_smoke_for_task_defaults_to_the_full_smoke_for_an_unknown_task(
 
 
 def test_smoke_for_task_defaults_to_the_full_smoke_for_an_unrecognised_relevance(
-    subject, sandbox, stub_roadmap, stub_retrieval_smoke
+    subject, sandbox, stub_roadmap, stub_retrieval_smoke, smoke_in_chain
 ):
-    """Fail-safe: only the exact literal `non-retrieval` skips; a typo runs the full smoke."""
+    """Fail-safe: only a value in `SKIP_EVAL_VALUES` skips; a typo runs the full smoke."""
     stub_roadmap["task"] = {"eval_relevance": "nonretrieval"}
     assert subject._smoke_for_task("T1")["reason"] == "SENTINEL"
 
 
 def test_smoke_for_task_treats_an_empty_smoke_command_as_absent(
-    subject, sandbox, stub_roadmap, stub_retrieval_smoke
+    subject, sandbox, stub_roadmap, stub_retrieval_smoke, smoke_in_chain
 ):
     stub_roadmap["task"] = {"smoke": ""}
     assert subject._smoke_for_task("T1")["reason"] == "SENTINEL"
 
 
 def test_smoke_for_task_stringifies_a_non_string_smoke_value(
-    subject, sandbox, stub_roadmap, stub_retrieval_smoke
+    subject, sandbox, stub_roadmap, stub_retrieval_smoke, smoke_in_chain
 ):
     """FOUND_BUGS: a YAML list under `smoke:` is str()'d and handed to a shell."""
     stub_roadmap["task"] = {"smoke": ["true"]}
@@ -868,11 +886,65 @@ def test_smoke_for_task_stringifies_a_non_string_smoke_value(
 
 
 def test_smoke_for_task_does_not_journal_the_default_path(
-    subject, sandbox, stub_roadmap, stub_retrieval_smoke
+    subject, sandbox, stub_roadmap, stub_retrieval_smoke, smoke_in_chain
 ):
     stub_roadmap["task"] = {}
     subject._smoke_for_task("T1")
     assert _journal(sandbox) == []
+
+
+# ── the gate-chain opt-in ───────────────────────────────────────────────────────────
+
+
+def test_smoke_for_task_skips_when_smoke_is_not_in_the_gate_chain(
+    subject, sandbox, stub_roadmap, stub_retrieval_smoke
+):
+    """No `smoke_in_chain` fixture here: this is the state a fresh `init` starts in.
+
+    `project.yaml.tmpl` ships `gate.chain: [test]`, and the scaffolded `adapters/smoke`
+    stub returns `pass: false` on purpose ("not implemented" is not "succeeded"). Running
+    it anyway meant `merge_and_eval` reverted the merge and escalated a regression for
+    every task on every project maestro ever scaffolded.
+    """
+    stub_roadmap["task"] = {}
+    got = subject._smoke_for_task("T1")
+    assert got["pass"] is True
+    assert got["metrics"] == {}
+    assert "gate.chain" in got["reason"]
+    assert stub_retrieval_smoke == []
+    assert _journal(sandbox)[-1]["event"] == "smoke_skipped"
+
+
+def test_a_task_declared_smoke_command_runs_whatever_the_chain_says(
+    subject, sandbox, stub_roadmap, stub_retrieval_smoke
+):
+    """An explicit per-task `smoke:` is the task opting in for itself, so the chain does
+    not veto it — the chain says what the *project's* gate does by default."""
+    stub_roadmap["task"] = {"smoke": "true"}
+    assert subject._smoke_for_task("T1")["reason"] == "custom smoke ok: true"
+
+
+@pytest.mark.parametrize("chain", [["test", "smoke"], ["smoke"]],
+                         ids=["with-test", "alone"])
+def test_smoke_in_gate_chain_is_true_when_the_chain_names_it(subject, sandbox, chain):
+    _write_project_yaml(sandbox, {"gate": {"chain": chain}})
+    assert subject._smoke_in_gate_chain() is True
+
+
+@pytest.mark.parametrize("document", [
+    {}, {"gate": None}, {"gate": {}}, {"gate": {"chain": ["test"]}},
+    {"gate": {"chain": None}}, {"gate": {"chain": "smoke"}}, {"gate": "nope"},
+], ids=["no-gate", "null-gate", "no-chain", "test-only", "null-chain",
+        "chain-not-a-list", "gate-not-a-mapping"])
+def test_smoke_in_gate_chain_is_false_for_anything_that_does_not_name_it(
+    subject, sandbox, document
+):
+    """A malformed document must not opt a project into a gate it never asked for — the
+    same degrade-rather-than-raise contract `maestro.config` has. Note `chain: "smoke"`
+    is False: a bare string is not a chain, and substring-matching one would let
+    `chain: "smoketest"` turn the gate on."""
+    _write_project_yaml(sandbox, document)
+    assert subject._smoke_in_gate_chain() is False
 
 
 # ── _await_absent ───────────────────────────────────────────────────────────────────

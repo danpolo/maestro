@@ -1611,7 +1611,7 @@ def test_process_approve_merges_finalizes_and_graduates_an_accepted_task(
     assert merge_stubs.phase_reports == ["P8B2"]
     assert merge_stubs.dep_maps == [True] and merge_stubs.statuses == [True]
     assert notifier[0] == f"{CHECK} Approved P8B2 — merging now…"
-    assert notifier[-1] == f"{CHECK} P8B2 merged & accepted (Recall@5=0.91)."
+    assert notifier[-1] == f"{CHECK} P8B2 merged & accepted (recall_at_5=0.91)."
     events = [e["event"] for e in _journal_events(subject, sandbox)]
     assert events == ["hitl_approved", "task_complete"]
 
@@ -1633,7 +1633,9 @@ def test_process_approve_says_smoke_skipped_when_the_task_reports_no_metrics(
     merge_stubs.smoke = {}
     _put_state(subject, sandbox, waiting_on_dan={"7": _parked_entry(tmp_path)})
     subject._process_approve("7", [])
-    assert notifier[-1] == f"{CHECK} P8B2 merged & accepted (smoke skipped (non-retrieval))."
+    # Was "smoke skipped (non-retrieval)" — a per-project branch spelled in one
+    # project's vocabulary. `metrics.summary` says the same thing for any project.
+    assert notifier[-1] == f"{CHECK} P8B2 merged & accepted (no metrics)."
 
 
 def test_process_approve_aborts_the_finalize_when_a_bot_file_canary_deploy_fails(
@@ -1670,7 +1672,7 @@ def test_process_approve_parks_a_regression_when_the_merge_is_not_accepted(
     subject._process_approve("7", [])
     assert merge_stubs.regressions == [("P8B2", merge_stubs.smoke)]
     assert merge_stubs.graduated == []
-    assert notifier[-1] == (f"{WARN} P8B2 smoke/merge failed (Recall@5=0.2) — reverted. "
+    assert notifier[-1] == (f"{WARN} P8B2 smoke/merge failed (recall_at_5=0.2) — reverted. "
                             f"See journal.")
     assert [e["event"] for e in _journal_events(subject, sandbox)] == ["hitl_approved"]
 

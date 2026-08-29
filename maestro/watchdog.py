@@ -58,7 +58,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from maestro.config import load_project_yaml
+from maestro.config import load_project_yaml, threshold
 from maestro.hitl.telegram import notify_telegram
 from maestro.paths import Paths
 from maestro.worktree import TMUX_SESSION
@@ -97,8 +97,11 @@ PROJECT_NAME  = (_PROJECT_YAML.get("project") or {}).get("name") or REPO.name
 ORCHESTRATOR_PATTERN = r"maestro run|maestro\.orchestrator"
 
 POLL_INTERVAL     = 30   # seconds between watchdog ticks
-STALL_WINDOW_MIN  = _THRESHOLDS.get("stall_window_min", 20)    # minutes of journal silence before a stall restart
-MAX_STALL_RESTARTS = _THRESHOLDS.get("max_stall_restarts", 3)  # stall restarts before HALT
+# Read through `config.threshold` rather than off `_THRESHOLDS` directly: a `thresholds:`
+# block that is null, a scalar or a list makes `.get` raise, and this module reads these
+# at import — so a typo in a config file became a package that would not import.
+STALL_WINDOW_MIN  = threshold("stall_window_min", 20, cast=int)    # minutes of journal silence before a stall restart
+MAX_STALL_RESTARTS = threshold("max_stall_restarts", 3, cast=int)  # stall restarts before HALT
 
 
 def now_iso() -> str:

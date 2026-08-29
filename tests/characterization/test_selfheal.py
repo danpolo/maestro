@@ -78,6 +78,25 @@ def _fake_subprocess(monkeypatch, subject, handler=None):
     return fake
 
 
+def tmp_path_repo(subject):
+    """The sandbox repo, read off the subject's own rebased `REPO` global.
+
+    The two runner fixtures take `tmp_path` rather than `sandbox`, but `maestro.config`
+    reads `project.yaml` from the *rebased* repo root — so the file has to land where the
+    subject is actually looking, not beside the request files.
+    """
+    return SimpleNamespace(repo=subject.REPO)
+
+
+def _write_project_yaml(sandbox, document) -> None:
+    """Write the sandbox project's `project.yaml`. The confinement gates read it through
+    `maestro.config`, whose path global the sandbox has already rebased — so this is the
+    real loader end to end, not a stub of it."""
+    import yaml
+
+    (sandbox.repo / "project.yaml").write_text(yaml.safe_dump(document), encoding="utf-8")
+
+
 def _fake_agentcall(monkeypatch, subject, handler=None):
     """Swap the subject's own `agentcall` module reference for a recording stand-in.
 
@@ -328,6 +347,38 @@ def test_judgment_pass_truncates_reason_tail_and_context(subject, monkeypatch, j
 
 
 @DIAGNOSE
+def test_diagnosis_prompt_names_this_projects_self_fix_surface(subject, sandbox, monkeypatch):
+    """The prompt used to say "Maestro's OWN code lives under scripts/ and orchestrator/"
+    and warn about a RAG bot runtime — one project's layout, described to a model that
+    then chose `target_files` from it. Those are precisely the paths
+    `selffix._self_fix_path_ok` gates, so on every other project the diagnoser was asked
+    to propose fixes its own gate was structurally certain to reject.
+    """
+    _write_project_yaml(sandbox, {
+        "secrets": [".env"],
+        "confinement": {"self_fix_allow": ["adapters/", "docs/"]},
+    })
+    fake = _fake_agentcall(monkeypatch, subject, lambda *a, **k: Completion(text="{}"))
+    subject._diagnose_failure("T1", "boom", "tail", "journal")
+
+    prompt = fake.calls[0].prompt
+    assert "adapters/" in prompt and "docs/" in prompt
+    assert ".env" in prompt
+    assert "scripts/ and orchestrator/" not in prompt
+    assert "RAG" not in prompt
+
+
+@DIAGNOSE
+def test_diagnosis_prompt_says_so_when_self_fix_is_disabled(subject, sandbox, monkeypatch):
+    """`self_fix_allow: []` means this project permits no unattended self-fix. Telling the
+    diagnoser that is better than handing it an empty list to read as "anywhere"."""
+    _write_project_yaml(sandbox, {"confinement": {"self_fix_allow": []}})
+    fake = _fake_agentcall(monkeypatch, subject, lambda *a, **k: Completion(text="{}"))
+    subject._diagnose_failure("T1", "boom", "tail", "journal")
+    assert "self-fix is disabled here" in fake.calls[0].prompt
+
+
+@DIAGNOSE
 def test_diagnosis_asks_for_a_failure_class_and_target_files(subject, monkeypatch):
     judge = _use_judge(monkeypatch, subject)
     subject._diagnose_failure("T1", "r", "t", "c")
@@ -466,124 +517,108 @@ def test_persist_swallows_a_task_id_that_is_not_a_usable_filename(subject, sandb
 
 # =====================================================================================
 # _self_fix_path_ok — the self-fix allowlist
+#
+# Until 2026-08-30 this was a module constant, `("scripts/", "orchestrator/", "docs/")`,
+# paired with a deny-list naming the reference project's bot runtime. Since the
+# extraction, maestro's code is an installed package and a scaffolded project has none of
+# those directories: the allow half rejected every self-fix, and the deny half matched
+# nothing. The surface comes from `project.yaml` now (`maestro.confinement`), so what is
+# pinned here is the *delegation* and the defaults — the pattern matching itself has its
+# own unit tests in `tests/test_confinement.py`.
 # =====================================================================================
 
 
 @SELFFIX
-def test_self_fix_paths_are_the_orchestrators_own_surface(subject):
-    assert subject.SELF_FIX_PATHS == ("scripts/", "orchestrator/", "docs/")
+def test_the_self_fix_eligibility_constants_that_are_still_constants(subject):
+    """`SELF_FIX_PATHS`/`SELF_FIX_DENY` are gone; these two are not configuration."""
     assert subject.SELF_FIX_WHITELIST == {
         "observability", "orchestrator-logic", "transient-infra",
     }
     assert subject.SELF_FIX_MIN_HOURS == 6.0
+    assert not hasattr(subject, "SELF_FIX_PATHS")
+    assert not hasattr(subject, "SELF_FIX_DENY")
 
 
 @SELFFIX
-def test_self_fix_path_gate_refuses_an_empty_target_list(subject):
-    assert subject._self_fix_path_ok([]) == (False, "no target_files identified")
-    assert subject._self_fix_path_ok(None) == (False, "no target_files identified")
+def test_self_fix_path_gate_defaults_to_the_scaffolding_init_creates(subject, sandbox):
+    """With no `confinement:` block — a fresh scaffold — a self-fix may repair this
+    project's orchestration setup, which is the only surface maestro can assume exists."""
+    for allowed in ("adapters/smoke", "profiles/judge.md", "docs/PROJECT.md"):
+        assert subject._self_fix_path_ok([allowed]) == (True, "ok")
 
 
 @SELFFIX
-def test_self_fix_path_gate_drops_blank_entries_before_deciding(subject):
-    assert subject._self_fix_path_ok(["", "   ", "\n"]) == (False, "no target_files identified")
-    assert subject._self_fix_path_ok(["", "scripts/x.py"]) == (True, "ok")
+def test_self_fix_path_gate_refuses_an_empty_target_list(subject, sandbox):
+    assert subject._self_fix_path_ok([]) == (False, "no files identified")
+    assert subject._self_fix_path_ok(None) == (False, "no files identified")
+    assert subject._self_fix_path_ok(["", "  "]) == (False, "no files identified")
 
 
 @SELFFIX
-def test_self_fix_path_gate_accepts_every_allowed_prefix(subject):
-    for prefix in subject.SELF_FIX_PATHS:
-        assert subject._self_fix_path_ok([prefix + "thing.py"]) == (True, "ok")
-
-
-@SELFFIX
-def test_self_fix_path_gate_requires_the_prefix_to_include_its_slash(subject):
-    """`scripts` (the directory itself) is out of scope; only `scripts/…` is allowed."""
-    ok, why = subject._self_fix_path_ok(["scripts"])
-    assert (ok, why) == (False, "out-of-scope path: scripts")
-
-
-@SELFFIX
-def test_self_fix_path_gate_refuses_an_unlisted_top_level_path(subject):
-    assert subject._self_fix_path_ok(["README.md"]) == (False, "out-of-scope path: README.md")
-
-
-@SELFFIX
-def test_self_fix_path_gate_refuses_every_denied_fragment(subject):
-    for denied in subject.SELF_FIX_DENY:
-        name = "scripts/" + denied
-        ok, why = subject._self_fix_path_ok([name])
-        assert ok is False, name
-        assert why.startswith("denied path: "), name
-
-
-@SELFFIX
-def test_self_fix_path_gate_matches_a_denied_fragment_anywhere_in_the_path(subject):
-    """FOUND_BUGS: the deny list is a substring test, so it fires on unrelated names."""
-    denied_fragment = subject.SELF_FIX_DENY[0]
-    ok, why = subject._self_fix_path_ok(["docs/notes-about-" + denied_fragment + ".md"])
-    assert ok is False
-    assert why.startswith("denied path: ")
-
-
-@SELFFIX
-def test_self_fix_path_gate_checks_deny_before_allow(subject):
-    """A path inside an allowed prefix is still vetoed by a deny fragment."""
-    ok, why = subject._self_fix_path_ok(["scripts/" + subject.SELF_FIX_DENY[0]])
-    assert ok is False
-    assert why.startswith("denied path: ")
-
-
-@SELFFIX
-def test_self_fix_path_gate_vetoes_the_whole_set_on_one_bad_file(subject):
-    files = ["scripts/a.py", "docs/b.md", "elsewhere/c.py", "orchestrator/d.py"]
-    assert subject._self_fix_path_ok(files) == (False, "out-of-scope path: elsewhere/c.py")
-
-
-@SELFFIX
-def test_self_fix_path_gate_reports_the_first_offender_in_input_order(subject):
-    files = ["one/a.py", "two/b.py"]
-    assert subject._self_fix_path_ok(files)[1] == "out-of-scope path: one/a.py"
-
-
-@SELFFIX
-def test_self_fix_path_gate_strips_surrounding_whitespace(subject):
-    assert subject._self_fix_path_ok(["  scripts/x.py  "]) == (True, "ok")
-
-
-@SELFFIX
-def test_self_fix_path_gate_strips_a_leading_dot_slash(subject):
-    assert subject._self_fix_path_ok(["./scripts/x.py"]) == (True, "ok")
-
-
-@SELFFIX
-def test_self_fix_path_gate_lets_a_parent_traversal_in(subject):
-    """FOUND_BUGS: `lstrip("./")` strips a *character set*, so `../scripts/x` normalises
-    to `scripts/x` and passes the allowlist — the gate cannot see it points outside the
-    repo at all. The same applies to an absolute path: `/scripts/x` is accepted too."""
-    assert subject._self_fix_path_ok(["../scripts/x.py"]) == (True, "ok")
-    assert subject._self_fix_path_ok(["../../../scripts/x.py"]) == (True, "ok")
-    assert subject._self_fix_path_ok(["/scripts/x.py"]) == (True, "ok")
-
-
-@SELFFIX
-def test_self_fix_path_gate_reports_the_normalised_name_not_the_input(subject):
-    assert subject._self_fix_path_ok(["  ./elsewhere/c.py "])[1] == (
-        "out-of-scope path: elsewhere/c.py"
+def test_self_fix_path_gate_refuses_an_out_of_scope_path(subject, sandbox):
+    assert subject._self_fix_path_ok(["src/app.py"]) == (
+        False, "out-of-scope path: src/app.py"
     )
 
 
 @SELFFIX
-def test_self_fix_path_gate_stringifies_a_non_string_entry(subject):
-    assert subject._self_fix_path_ok([Path("scripts/x.py")]) == (True, "ok")
-    assert subject._self_fix_path_ok([7]) == (False, "out-of-scope path: 7")
+def test_self_fix_path_gate_vetoes_the_whole_set_on_one_bad_file(subject, sandbox):
+    assert subject._self_fix_path_ok(["docs/a.md", "src/b.py"]) == (
+        False, "out-of-scope path: src/b.py"
+    )
 
 
 @SELFFIX
-def test_self_fix_path_gate_iterates_a_bare_string_character_by_character(subject):
-    """FOUND_BUGS: `target_files` arriving as a string is not detected — each character
-    becomes a "file", so an allowed path is rejected on its own first letter."""
-    assert subject._self_fix_path_ok("scripts/x.py") == (False, "out-of-scope path: s")
+def test_self_fix_path_gate_refuses_a_secret_inside_an_allowed_directory(subject, sandbox):
+    """The deny half is real now. It used to name `main_bot.py` and `data/` — fragments
+    that match nothing on another project — so an allowed *prefix* was the only guard
+    there was, and a `.env` under `docs/` sailed through it."""
+    _write_project_yaml(sandbox, {"secrets": [".env", "**/*.pem"]})
+    assert subject._self_fix_path_ok(["docs/.env"])[0] is False
+    assert subject._self_fix_path_ok(["docs/deploy.pem"])[0] is False
+
+
+@SELFFIX
+def test_self_fix_path_gate_refuses_a_declared_production_store(subject, sandbox):
+    """`prod_stores` had zero readers until now: a project could name its production
+    database there and maestro would let an unattended self-fix rewrite it."""
+    _write_project_yaml(sandbox, {
+        "prod_stores": ["docs/prod.db"],
+        "confinement": {"self_fix_allow": ["docs/"]},
+    })
+    assert subject._self_fix_path_ok(["docs/prod.db"]) == (
+        False, "denied path: docs/prod.db"
+    )
+
+
+@SELFFIX
+def test_self_fix_path_gate_refuses_a_parent_traversal(subject, sandbox):
+    """Was `test_..._lets_a_parent_traversal_in`, a pinned FOUND_BUG: `lstrip("./")`
+    strips a *character set*, so `../etc/passwd` reached the prefix check as
+    `etc/passwd` — a path outside the repo laundered into one that looks inside it. An
+    unattended agent chooses these paths, so this one was worth fixing rather than
+    pinning."""
+    assert subject._self_fix_path_ok(["../etc/passwd"]) == (
+        False, "path escapes the repository: ../etc/passwd"
+    )
+    assert subject._self_fix_path_ok(["docs/../../etc/passwd"])[0] is False
+
+
+@SELFFIX
+def test_self_fix_path_gate_treats_a_bare_string_as_one_path(subject, sandbox):
+    """Was pinned as a FOUND_BUG: a string `target_files` was iterated character by
+    character, so an allowed path was rejected on its own first letter."""
+    assert subject._self_fix_path_ok("docs/a.md") == (True, "ok")
+
+
+@SELFFIX
+def test_self_fix_path_gate_honours_an_explicitly_empty_allow_list(subject, sandbox):
+    """`self_fix_allow: []` is a project saying it permits no unattended self-fix — not
+    the same as omitting the key, and not to be quietly replaced by the default."""
+    _write_project_yaml(sandbox, {"confinement": {"self_fix_allow": []}})
+    ok, reason = subject._self_fix_path_ok(["docs/a.md"])
+    assert ok is False
+    assert "no path is permitted" in reason
 
 
 # =====================================================================================
@@ -724,7 +759,9 @@ def test_rate_gate_allows_when_the_journal_cannot_be_opened(subject, sandbox):
 # =====================================================================================
 
 
-GOOD_DIAG = {"failure_class": "observability", "target_files": ["scripts/x.py"]}
+# `docs/` is in the default self-fix surface (`confinement.DEFAULT_ALLOW`); this used
+# to be `scripts/x.py`, which only the reference project's layout allowed.
+GOOD_DIAG = {"failure_class": "observability", "target_files": ["docs/x.md"]}
 
 
 @SELFFIX
@@ -783,7 +820,7 @@ def test_eligibility_passes_the_path_gates_own_reason_through(subject, sandbox, 
     diag = dict(GOOD_DIAG, target_files=["elsewhere/c.py"])
     assert subject._self_fix_eligible(diag) == (False, "out-of-scope path: elsewhere/c.py")
     assert subject._self_fix_eligible(dict(GOOD_DIAG, target_files=[]))[1] == (
-        "no target_files identified"
+        "no files identified"
     )
 
 
@@ -1178,104 +1215,90 @@ def test_apply_self_fixes_journals_a_missing_task_as_none(subject, sandbox, self
 
 # =====================================================================================
 # _redo_path_ok — the deliverable allowlist
+#
+# `_REDO_ALLOW` was `("colab/", "data_export/", "scripts/", "docs/", "tasks/")` — the
+# reference project's deliverable surface and nobody else's — with the same bot-runtime
+# deny-list as the self-fix gate. Both come from `project.yaml` now; the sidecar filter
+# is the only part that is still maestro's own business.
 # =====================================================================================
 
 
 @REDO
-def test_redo_allow_and_deny_lists_are_module_constants(subject):
-    assert subject._REDO_ALLOW == ("colab/", "data_export/", "scripts/", "docs/", "tasks/")
+def test_redo_gate_ignore_is_still_a_module_constant(subject):
+    """Maestro's own sidecars, not project configuration: discarding a good rewrite over
+    one of these is the bug this tuple exists to prevent."""
     assert subject._REDO_GATE_IGNORE == ("redo_result.json", "redo_impl.log")
+    assert not hasattr(subject, "_REDO_ALLOW")
+    assert not hasattr(subject, "_REDO_DENY")
 
 
 @REDO
-def test_redo_path_gate_refuses_an_empty_change_set(subject):
+def test_redo_path_gate_refuses_an_empty_change_set(subject, sandbox):
     assert subject._redo_path_ok([]) == (False, "no files changed")
     assert subject._redo_path_ok(["", "  "]) == (False, "no files changed")
 
 
 @REDO
-def test_redo_path_gate_crashes_on_none(subject):
-    """FOUND_BUGS: the self-fix twin guards with `files or []`; this one does not."""
-    with pytest.raises(TypeError):
-        subject._redo_path_ok(None)
+def test_redo_path_gate_no_longer_crashes_on_none(subject, sandbox):
+    """Was pinned as a crash — its self-fix twin had the `files or []` guard and this one
+    did not, so a `/redo` whose diff came back `None` took down the runner."""
+    assert subject._redo_path_ok(None) == (False, "no files changed")
 
 
 @REDO
-def test_redo_path_gate_accepts_every_allowed_prefix(subject):
-    for prefix in subject._REDO_ALLOW:
-        assert subject._redo_path_ok([prefix + "thing.txt"]) == (True, "ok")
-
-
-@REDO
-def test_redo_path_gate_refuses_an_unlisted_path(subject):
-    assert subject._redo_path_ok(["notebooks/x.ipynb"]) == (
-        False, "out-of-scope path touched: notebooks/x.ipynb"
+def test_redo_path_gate_defaults_to_docs_only(subject, sandbox):
+    """Deliberately narrow. Maestro cannot guess where a project keeps its deliverables,
+    and a default that guessed wide would let `/redo` rewrite files nobody nominated."""
+    assert subject._redo_path_ok(["docs/a.md"]) == (True, "ok")
+    assert subject._redo_path_ok(["colab/train.ipynb"]) == (
+        False, "out-of-scope path: colab/train.ipynb"
     )
 
 
 @REDO
-def test_redo_path_gate_refuses_every_denied_fragment(subject):
-    for denied in subject._REDO_DENY:
-        name = "scripts/" + denied
-        ok, why = subject._redo_path_ok([name])
-        assert ok is False, name
-        assert why.startswith("denied path touched: "), name
+def test_redo_path_gate_uses_the_projects_configured_surface(subject, sandbox):
+    _write_project_yaml(sandbox, {"confinement": {"redo_allow": ["colab/", "exports/"]}})
+    assert subject._redo_path_ok(["colab/train.ipynb"]) == (True, "ok")
+    assert subject._redo_path_ok(["docs/a.md"]) == (False, "out-of-scope path: docs/a.md")
 
 
 @REDO
-def test_redo_path_gate_checks_deny_before_allow(subject):
-    ok, why = subject._redo_path_ok(["scripts/" + subject._REDO_DENY[0]])
-    assert ok is False
-    assert why.startswith("denied path touched: ")
-
-
-@REDO
-def test_redo_path_gate_ignores_the_runners_own_sidecars_by_basename(subject):
-    """The ignore list is matched on the *name*, so a sidecar anywhere in the tree is
-    dropped from the gate — including one outside every allowed prefix."""
-    for ignored in subject._REDO_GATE_IGNORE:
-        assert subject._redo_path_ok([f"anywhere/deep/{ignored}"]) == (False, "no files changed")
-    assert subject._redo_path_ok(
-        ["docs/a.md", subject._REDO_GATE_IGNORE[0]]
-    ) == (True, "ok")
-
-
-@REDO
-def test_redo_path_gate_ignores_sidecars_after_normalising_the_path(subject):
+def test_redo_path_gate_drops_maestros_own_sidecars_before_deciding(subject, sandbox):
+    assert subject._redo_path_ok([subject._REDO_GATE_IGNORE[0]]) == (
+        False, "no files changed"
+    )
     assert subject._redo_path_ok(["./" + subject._REDO_GATE_IGNORE[0]]) == (
         False, "no files changed"
     )
+    assert subject._redo_path_ok(["docs/a.md", subject._REDO_GATE_IGNORE[1]]) == (True, "ok")
 
 
 @REDO
-def test_redo_path_gate_strips_whitespace_and_leading_dot_slash(subject):
+def test_redo_path_gate_strips_whitespace_and_a_leading_dot_slash(subject, sandbox):
     assert subject._redo_path_ok(["  ./docs/a.md "]) == (True, "ok")
 
 
 @REDO
-def test_redo_path_gate_lets_a_parent_traversal_in(subject):
-    """FOUND_BUGS: same `lstrip("./")` character-set bug as the self-fix gate."""
-    assert subject._redo_path_ok(["../docs/a.md"]) == (True, "ok")
-    assert subject._redo_path_ok(["/docs/a.md"]) == (True, "ok")
-
-
-@REDO
-def test_redo_path_gate_vetoes_the_whole_set_on_one_bad_file(subject):
-    assert subject._redo_path_ok(["docs/a.md", "elsewhere/b.md"]) == (
-        False, "out-of-scope path touched: elsewhere/b.md"
+def test_redo_path_gate_refuses_a_parent_traversal(subject, sandbox):
+    """Was `test_redo_path_gate_lets_a_parent_traversal_in` — the same `lstrip("./")`
+    character-set hole as the self-fix gate, fixed in the same place."""
+    assert subject._redo_path_ok(["../docs/a.md"]) == (
+        False, "path escapes the repository: ../docs/a.md"
     )
 
 
 @REDO
-def test_redo_path_gate_stringifies_a_non_string_entry(subject):
-    assert subject._redo_path_ok([Path("docs/a.md")]) == (True, "ok")
-    assert subject._redo_path_ok([7]) == (False, "out-of-scope path touched: 7")
+def test_redo_path_gate_treats_a_leading_slash_as_repo_relative(subject, sandbox):
+    """`/docs/a.md` is not an escape — it is a repo-relative path spelled with a leading
+    slash, which is how a diff sometimes arrives. It is normalised, not refused."""
+    assert subject._redo_path_ok(["/docs/a.md"]) == (True, "ok")
 
 
 @REDO
-def test_redo_path_gate_iterates_a_bare_string_character_by_character(subject):
-    """FOUND_BUGS: same string-instead-of-list hazard as the self-fix gate."""
-    assert subject._redo_path_ok("docs/a.md") == (False, "out-of-scope path touched: d")
+def test_redo_path_gate_vetoes_the_whole_set_on_one_bad_file(subject, sandbox):
+    assert subject._redo_path_ok(["docs/a.md", "elsewhere/b.md"]) == (
+        False, "out-of-scope path: elsewhere/b.md"
+    )
 
 
 # =====================================================================================
@@ -1490,6 +1513,11 @@ def redo_case(redo_runner_subject, tmp_path, monkeypatch):
     else:
         monkeypatch.setattr(subject, "notify", lambda msg: notes.append(msg))
     state: dict = {}
+    # The runner tests below ship notebooks, so the sandbox project declares the surface
+    # that makes that legal. It used to be a module constant naming the reference
+    # project's directories; declaring it here is what an adopting project now does.
+    _write_project_yaml(tmp_path_repo(subject),
+                        {"confinement": {"redo_allow": ["colab/", "docs/", "notebooks/"]}})
     fake = _fake_subprocess(monkeypatch, subject, _redo_handler(state))
     agent = _fake_agentcall(monkeypatch, subject, _agent_handler(state))
     created: list[Path] = []
@@ -1841,6 +1869,11 @@ def selffix_case(selffix_runner_subject, tmp_path, monkeypatch):
     else:
         monkeypatch.setattr(subject, "notify", lambda msg: notes.append(msg))
     state: dict = {}
+    # Same reasoning as `redo_case`: these exercise the runner's *other* gates (commit,
+    # byte-compile, cleanup), so the sandbox declares a surface that lets a fix through
+    # to them. `scripts/` was the reference project's orchestrator directory.
+    _write_project_yaml(tmp_path_repo(subject),
+                        {"confinement": {"self_fix_allow": ["scripts/", "docs/"]}})
     fake = _fake_subprocess(monkeypatch, subject, _selffix_handler(state))
     agent = _fake_agentcall(monkeypatch, subject, _agent_handler(state))
 
@@ -1954,11 +1987,12 @@ def test_main_rejects_and_cleans_up_an_out_of_scope_diff(selffix_case):
     assert rc == 0
     assert len(selffix_case.notes) == 1
     assert "REJECTED by path gate" in selffix_case.notes[0]
-    # NOTE: this module reuses `_self_fix_path_ok` for the gate (per the batch-3 task
-    # prompt), whose denied-path wording is "denied path: {fn}" — the standalone
-    # reference runner's own inline `path_ok` instead says "denied path touched: {fn}".
-    # Assert only the wording both share.
-    assert "denied path" in selffix_case.notes[0]
+    # `main_bot.py` was in a hardcoded deny-list naming the reference project's bot
+    # runtime, so this read "denied path". That list is gone: on a project that has not
+    # declared the file, it is refused for the reason that is actually true of it — it is
+    # outside the configured self-fix surface. A project that wants it named explicitly
+    # puts it in `confinement.deny`, and then gets "denied path" again.
+    assert "out-of-scope path" in selffix_case.notes[0]
     assert "main_bot.py" in selffix_case.notes[0]
     assert "the fix" in selffix_case.notes[0]
     branch = f"selffix-{payload['fix_id']}"

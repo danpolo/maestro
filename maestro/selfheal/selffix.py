@@ -36,6 +36,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from maestro import agentcall
+from maestro import confinement
 from maestro.docs.roadmap import run_dep_map
 from maestro.hitl.telegram import notify_telegram
 from maestro.implementer import _latest_impl_tail
@@ -62,12 +63,14 @@ VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
 ORCH_SELF_FIX = os.environ.get("ORCH_SELF_FIX", "1") == "1"
 # Failure classes eligible for an unattended self-fix (everything else → advisory).
 SELF_FIX_WHITELIST = {"observability", "orchestrator-logic", "transient-infra"}
-# A self-fix diff may ONLY touch these path prefixes …
-SELF_FIX_PATHS = ("scripts/", "orchestrator/", "docs/")
-# … and never these (RAG-bot runtime, secrets, data, the restart/bot surface). A single
-# denied path vetoes the whole self-fix → advisory. main_bot.py et al. are bot runtime.
-SELF_FIX_DENY = ("main_bot.py", ".env", "data/", "models/", "scripts/restart_bot.sh",
-                 "scripts/watchdog.py", ".service", "requirements")
+# What a self-fix diff may and may not touch is `maestro.confinement`'s question now.
+# `SELF_FIX_PATHS` was `("scripts/", "orchestrator/", "docs/")` — where the *reference*
+# project kept its orchestrator — and `SELF_FIX_DENY` named that project's bot runtime
+# (`main_bot.py`, `data/`, `models/`, `scripts/restart_bot.sh`, ...). Since the
+# extraction, maestro's code is an installed package and a scaffolded project has none
+# of those directories, so the allow-list rejected every self-fix and the deny-list
+# matched nothing: the feature was dead on every project but one, and unguarded on the
+# rest. Both surfaces come from `project.yaml` (`confinement:`, `secrets`, `prod_stores`).
 # At most one self-fix per failure-class per this many hours (journal-tracked loop break).
 SELF_FIX_MIN_HOURS = 6.0
 # Master enable prepares + gate-checks a self-fix unattended. This second flag controls
@@ -91,16 +94,15 @@ LIMIT_HINT = ("hit your limit", "usage limit", "rate limit", "too many requests"
 
 
 def _self_fix_path_ok(files) -> tuple:
-    """A self-fix diff may touch ONLY SELF_FIX_PATHS and NONE of SELF_FIX_DENY."""
-    files = [str(f).strip().lstrip("./") for f in (files or []) if str(f).strip()]
-    if not files:
-        return False, "no target_files identified"
-    for fn in files:
-        if any(d in fn for d in SELF_FIX_DENY):
-            return False, f"denied path: {fn}"
-        if not fn.startswith(SELF_FIX_PATHS):
-            return False, f"out-of-scope path: {fn}"
-    return True, "ok"
+    """A self-fix diff may touch only this project's configured self-fix surface.
+
+    Delegates to `maestro.confinement`, which also closes the `lstrip("./")` hole this
+    function used to have: that strips a *character set*, so `../etc/passwd` arrived at
+    the prefix check as `etc/passwd` — a path outside the repo laundered into one that
+    looks inside it (`docs/found_bugs_inbox/selfheal.md`). Paths that escape the
+    repository are now refused rather than rewritten.
+    """
+    return confinement.path_ok(files, kind=confinement.SELF_FIX)
 
 
 def _self_fix_rate_ok(failure_class: str) -> bool:

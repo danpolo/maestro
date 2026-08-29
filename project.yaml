@@ -1,0 +1,4 @@
+confinement:
+  self_fix_allow:
+  - scripts/
+  - docs/

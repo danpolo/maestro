@@ -326,10 +326,12 @@ def test_project_yaml_declares_no_key_that_nothing_reads():
         ("thresholds", "five_h_pause_pct"),   # twin of quota.PAUSE_92_PCT
         ("thresholds", "concurrency_cap"),    # twin of quota.CONCURRENCY_CAP
         ("prod_stores",),
-        # D8's eval-gate scoring inputs. `gate.chain` is read (cli.py:619); these three
-        # describe how to *score* a run and nothing consumes them — the gate currently
-        # only runs the chain and journals `unevaluated`.
-        ("gate", "primary_metric"),
+        # D8's eval-gate scoring inputs. `gate.chain` is read (cli.py), and
+        # `gate.primary_metric` since 2026-08-30 (`maestro/metrics.py` — it names the
+        # number an operator is quoted first, replacing the hardcoded `recall_at_5` every
+        # display site used to read). These two remain: they describe how to *score* a
+        # run against a baseline, and nothing consumes them — the gate still only runs
+        # the chain and journals `unevaluated`.
         ("gate", "baseline_source"),
         ("gate", "bands"),
     }

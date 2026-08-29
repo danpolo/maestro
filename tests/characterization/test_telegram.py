@@ -30,6 +30,8 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+from maestro import metrics
 import requests
 
 pytestmark = pytest.mark.maestro_module("hitl.telegram")
@@ -2358,12 +2360,18 @@ def test_phase_report_metrics_line(subject, sandbox, report):
     assert "120" in line
 
 
-def test_phase_report_metrics_line_uses_placeholders_for_missing_keys(
+def test_phase_report_names_whatever_metrics_the_adapter_reported(
     subject, sandbox, report
 ):
+    """Used to assert two `?` placeholders, because the line was hardcoded to one
+    project's `recall_at_5` and `latency_p95_ms` and printed `?` for each when a
+    different adapter reported something else. There are no fixed keys any more, so a
+    metric the project does actually measure is shown by its own name instead of being
+    reported as two missing ones."""
     subject.phase_report("T1", {}, {"metrics": {"other": 1}})
     line = _msg(report).splitlines()[1]
-    assert line.count("?") == 2
+    assert line == f"{CHART} other=1"
+    assert "?" not in line
 
 
 def test_phase_report_no_metrics_falls_back_to_the_smoke_reason(subject, sandbox, report):
@@ -2381,8 +2389,10 @@ def test_phase_report_empty_metrics_dict_falls_back_to_the_reason(
 
 
 def test_phase_report_default_reason_when_absent(subject, sandbox, report):
+    """The default said "retrieval smoke skipped" — one project's word for it. It is now
+    `metrics.NO_METRICS`, which is true of any project with nothing to report yet."""
     subject.phase_report("T1", {}, {})
-    assert "smoke" in _msg(report).splitlines()[1]
+    assert metrics.NO_METRICS in _msg(report).splitlines()[1]
 
 
 def test_phase_report_truncates_the_reason_at_ninety_chars(subject, sandbox, report):
@@ -2399,9 +2409,17 @@ def test_phase_report_raises_on_a_null_reason(subject, sandbox, report):
         subject.phase_report("T1", {}, {"reason": None})
 
 
-def test_phase_report_raises_when_metrics_is_not_a_mapping(subject, sandbox, report):
-    with pytest.raises(AttributeError):
-        subject.phase_report("T1", {}, {"metrics": ["recall"]})
+def test_phase_report_survives_metrics_that_is_not_a_mapping(subject, sandbox, report):
+    """This used to assert `AttributeError` — a pinned surprise, not an endorsed one.
+
+    A smoke result with a malformed `metrics` took down the *completion report*, which
+    runs after the merge has already landed, so the work was shipped and the operator was
+    told nothing. `metrics.metrics_of` treats anything unusable as "no metrics", which is
+    what every other display path here already does with a value it cannot read, and the
+    reason still reaches Dan.
+    """
+    subject.phase_report("T1", {}, {"metrics": ["recall"], "reason": "malformed"})
+    assert "malformed" in _msg(report).splitlines()[1]
 
 
 def test_phase_report_raises_on_a_null_smoke_result(subject, sandbox, report):
@@ -2572,7 +2590,7 @@ def test_phase_report_full_message_shape(subject, sandbox, report, monkeypatch):
     )
     lines = _msg(report).splitlines()
     assert lines[0] == f"{CHECK} *T1 shipped* — did a thing"
-    assert lines[1] == f"{CHART} Recall@5: 0.9  |  p95 latency: 42 ms"
+    assert lines[1] == f"{CHART} recall_at_5=0.9 · latency_p95_ms=42"
     assert lines[2] == ""
     assert lines[3] == f"{CLIPBOARD} *Decisions made:* chose B"
     assert lines[4] == f"{HOURGLASS} Veto window: 24 h"

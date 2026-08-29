@@ -37,6 +37,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from maestro.backends.base import Completion
+
 
 DIAGNOSE = pytest.mark.maestro_module("selfheal.diagnose")
 SELFFIX = pytest.mark.maestro_module("selfheal.selffix")
@@ -76,6 +78,36 @@ def _fake_subprocess(monkeypatch, subject, handler=None):
     return fake
 
 
+def _fake_agentcall(monkeypatch, subject, handler=None):
+    """Swap the subject's own `agentcall` module reference for a recording stand-in.
+
+    The same discipline as `_fake_subprocess` above, at the seam that replaced it: scoped
+    to one module, so nothing else in the process is affected. `handler(role, prompt,
+    **kwargs)` returns the `Completion` to answer with; the default is an empty, successful
+    one — which is what a caller sees when an agent runs and says nothing.
+
+    A stub is what makes these tests honest about *writes*, too: the two agentic runners
+    (`/redo`, self-fix) read back the log the driver would have written, so a handler that
+    is meant to stand in for a real run has to create that file itself.
+    """
+    calls = []
+
+    def ask(role, prompt, **kwargs):
+        calls.append(SimpleNamespace(role=role, prompt=prompt, kwargs=kwargs))
+        if handler is None:
+            return Completion(text="")
+        return handler(role, prompt, **kwargs)
+
+    fake = SimpleNamespace(
+        ask=ask,
+        resolve_call=lambda role, **_kw: ("test-backend", "test-model"),
+        calls=calls,
+        DEFAULT_TIMEOUT=240,
+    )
+    monkeypatch.setattr(subject, "agentcall", fake)
+    return fake
+
+
 class _Judge:
     """Records `_judge_complete(system=…, user=…)` calls and replays a canned answer."""
 
@@ -110,92 +142,103 @@ def _detail(sandbox, event: str) -> str:
 
 
 # =====================================================================================
-# _judge_complete — the one function here that reaches an agent CLI
+# _judge_complete — the one function here that reaches an agent
+#
+# It used to build `["claude", "-p", "--model", JUDGE_MODEL, prompt]` and run it through
+# this module's own `subprocess` reference, which these tests swapped. Since 2026-08-30 it
+# asks a *role* through `maestro.agentcall`, so the assertions moved with it: what is
+# pinned now is which role was asked, that the two parts are folded into one positional
+# prompt, and that a failure still comes back as `""` — the properties every caller here
+# actually depends on, none of which name a binary.
 # =====================================================================================
 
 
 @DIAGNOSE
-def test_judge_builds_a_single_positional_prompt_for_the_agent_cli(subject, sandbox, monkeypatch):
-    fake = _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout="answer"))
-    subject._judge_complete(system="SYS", user="USR")
-    argv, kwargs = fake.calls[0][0][0], fake.calls[0][1]
-    assert argv == ["claude", "-p", "--model", subject.JUDGE_MODEL, "SYS\n\nUSR"]
-    assert kwargs["cwd"] == str(subject.REPO)
-    assert kwargs["capture_output"] is True
-    assert kwargs["text"] is True
-    assert kwargs["timeout"] == 240
+def test_judge_folds_system_and_user_into_one_prompt_for_the_diagnoser_role(
+    subject, sandbox, monkeypatch
+):
+    fake = _fake_agentcall(monkeypatch, subject, lambda *a, **k: Completion(text="answer"))
+    assert subject._judge_complete(system="SYS", user="USR") == "answer"
+    call = fake.calls[0]
+    assert call.role == subject.ROLE_DIAGNOSER
+    assert call.prompt == "SYS\n\nUSR"
+    assert call.kwargs["cwd"] == subject.REPO
+    assert call.kwargs["timeout"] == 240
 
 
 @DIAGNOSE
-def test_judge_defaults_to_the_module_judge_model(subject, sandbox, monkeypatch):
-    """The default model is a module global, resolved at definition time, not per call."""
-    fake = _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout="x"))
-    monkeypatch.setattr(subject, "JUDGE_MODEL", "some-other-model")
+def test_judge_passes_no_model_so_the_role_table_chooses_one(subject, sandbox, monkeypatch):
+    """The inverse of the old `test_judge_defaults_to_the_module_judge_model`.
+
+    That test existed to pin *which constant* supplied the default. There is no such
+    constant in the call any more: an empty `model` is how the caller says "whatever the
+    role resolves to", and passing one would re-create the bug — a claude model id handed
+    to whichever backend actually answered.
+    """
+    fake = _fake_agentcall(monkeypatch, subject, lambda *a, **k: Completion(text="x"))
     subject._judge_complete(system="S", user="U")
-    assert fake.calls[0][0][0][3] != "some-other-model"
+    assert fake.calls[0].kwargs["model"] == ""
 
 
 @DIAGNOSE
 def test_judge_forwards_an_explicit_model_and_timeout(subject, sandbox, monkeypatch):
-    fake = _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout="x"))
+    """An explicit model still wins — `/redo` and self-fix pin one per task."""
+    fake = _fake_agentcall(monkeypatch, subject, lambda *a, **k: Completion(text="x"))
     subject._judge_complete(system="S", user="U", model="m9", timeout=7)
-    assert fake.calls[0][0][0][3] == "m9"
-    assert fake.calls[0][1]["timeout"] == 7
+    assert fake.calls[0].kwargs["model"] == "m9"
+    assert fake.calls[0].kwargs["timeout"] == 7
 
 
 @DIAGNOSE
-def test_judge_returns_the_stripped_stdout(subject, sandbox, monkeypatch):
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout="  hello \n\n"))
+def test_judge_asks_the_role_it_is_given(subject, sandbox, monkeypatch):
+    """`merge.py`'s risky-diff reviewer passes `ROLE_JUDGE`; diagnosis keeps the default.
+
+    Both used to be the same hardcoded binary with different `--model` values, which is
+    why the role had to become a parameter rather than a constant.
+    """
+    fake = _fake_agentcall(monkeypatch, subject, lambda *a, **k: Completion(text="x"))
+    subject._judge_complete(system="S", user="U", role="judge")
+    assert fake.calls[0].role == "judge"
+
+
+@DIAGNOSE
+def test_judge_returns_the_answer_text(subject, sandbox, monkeypatch):
+    _fake_agentcall(monkeypatch, subject, lambda *a, **k: Completion(text="hello"))
     assert subject._judge_complete(system="S", user="U") == "hello"
 
 
 @DIAGNOSE
-def test_judge_returns_empty_on_a_nonzero_exit_even_with_output(subject, sandbox, monkeypatch, capsys):
-    _fake_subprocess(
-        monkeypatch, subject,
-        lambda *a, **k: _completed(returncode=1, stdout="useful", stderr="E" * 300),
-    )
+def test_judge_returns_empty_on_a_nonzero_exit_and_says_so(subject, sandbox, monkeypatch, capsys):
+    _fake_agentcall(monkeypatch, subject,
+                    lambda *a, **k: Completion(text="", returncode=1))
     assert subject._judge_complete(system="S", user="U") == ""
-    out = capsys.readouterr().out
-    assert "rc=1" in out
-    assert "E" * 160 in out
-    assert "E" * 161 not in out
+    assert "rc=1" in capsys.readouterr().out
 
 
 @DIAGNOSE
-def test_judge_returns_empty_on_blank_stdout_at_exit_zero(subject, sandbox, monkeypatch, capsys):
-    """FOUND_BUGS: a successful-but-silent agent is reported on stdout as `rc=0`."""
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout="   \n"))
+def test_judge_reports_a_silent_success_as_no_answer(subject, sandbox, monkeypatch, capsys):
+    """FOUND_BUGS: a successful-but-silent agent is reported on stdout, not swallowed."""
+    _fake_agentcall(monkeypatch, subject, lambda *a, **k: Completion(text=""))
     assert subject._judge_complete(system="S", user="U") == ""
     assert "rc=0" in capsys.readouterr().out
 
 
 @DIAGNOSE
-def test_judge_tolerates_stdout_being_none(subject, sandbox, monkeypatch):
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout=None, stderr=None))
+def test_judge_reports_a_timeout_distinctly_from_a_failure(subject, sandbox, monkeypatch, capsys):
+    _fake_agentcall(monkeypatch, subject,
+                    lambda *a, **k: Completion(text="", returncode=124, timed_out=True))
     assert subject._judge_complete(system="S", user="U") == ""
+    assert "timed out" in capsys.readouterr().out
 
 
 @DIAGNOSE
-def test_judge_swallows_every_exception_including_a_missing_binary(
-    subject, sandbox, monkeypatch, capsys
-):
-    def boom(*args, **kwargs):
-        raise FileNotFoundError("claude")
-
-    _fake_subprocess(monkeypatch, subject, boom)
+def test_judge_holds_no_exception_handler_because_ask_never_raises(subject, sandbox, monkeypatch):
+    """The `try/except Exception` this function used to carry is gone: `agentcall.ask`
+    absorbs every failure — a missing binary included — into an empty `Completion`. The
+    contract is asserted at the seam in `tests/test_agentcall.py`; here it is enough that
+    the caller cannot raise without one."""
+    _fake_agentcall(monkeypatch, subject)
     assert subject._judge_complete(system="S", user="U") == ""
-    assert "call failed" in capsys.readouterr().out
-
-
-@DIAGNOSE
-def test_judge_reports_a_timeout_as_an_empty_answer(subject, sandbox, monkeypatch, capsys):
-    def boom(*args, **kwargs):
-        raise subprocess.TimeoutExpired(cmd="claude", timeout=240)
-
-    _fake_subprocess(monkeypatch, subject, boom)
-    assert subject._judge_complete(system="S", user="U") == ""
-    assert "call failed" in capsys.readouterr().out
 
 
 # =====================================================================================
@@ -1371,6 +1414,30 @@ def redo_runner_subject():
     return importlib.import_module("maestro.selfheal.redo")
 
 
+def _agent_handler(state: dict):
+    """Stands in for the driver behind `agentcall.ask`, for both agentic runners.
+
+    Consumes `state["agent_outputs"]` one entry per call, in call order, and writes that
+    text to the `log_file` the caller asked the driver to keep. Writing the file is not
+    incidental: both runners read it back as the run's *transcript* — that is where the
+    usage-limit wording and the resume-miss notice live — exactly as they did when the
+    driver's stdout was redirected into it by hand. A stub that only returned the text
+    would leave both of those checks reading an empty file.
+    """
+
+    def handler(role, prompt, **kwargs):
+        outputs = state.setdefault("agent_outputs", [""])
+        text = outputs.pop(0) if outputs else ""
+        log_file = kwargs.get("log_file")
+        if log_file is not None:
+            log_file = Path(log_file)
+            log_file.parent.mkdir(parents=True, exist_ok=True)
+            log_file.write_text(text, encoding="utf-8")
+        return Completion(text=text)
+
+    return handler
+
+
 def _redo_handler(state: dict):
     """`subprocess.run` replacement for the /redo runner's git/claude/check_notebook/
     rclone calls, dispatched purely on argv[0]/argv[1] — never anything real. `state` is a
@@ -1378,9 +1445,9 @@ def _redo_handler(state: dict):
 
     `commits` (`git log --oneline` stdout), `changed` (list, joined for `git diff
     --name-only` stdout — matches the reference's own `.split()`), `worktree_add_rc` /
-    `worktree_add_stderr`, `claude_outputs` (consumed one per `claude` invocation, in call
-    order, written into the real log file the reference opens for the agent's stdout),
-    `notebook_rc` / `notebook_stderr`, `rclone_rc` / `rclone_stderr`.
+    `worktree_add_stderr`, `notebook_rc` / `notebook_stderr`, `rclone_rc` / `rclone_stderr`.
+    The agent call is no longer one of these: it goes through `agentcall.ask` now, and
+    `_agent_handler` answers it from `state["agent_outputs"]`.
     """
 
     def handler(*args, **kwargs):
@@ -1393,13 +1460,6 @@ def _redo_handler(state: dict):
                 return _completed(stdout=state.get("commits", ""))
             if argv[1] == "diff":
                 return _completed(stdout=" ".join(state.get("changed", [])))
-            return _completed()
-        if argv[0] == "claude":
-            outputs = state.setdefault("claude_outputs", [""])
-            text = outputs.pop(0) if outputs else ""
-            fh = kwargs.get("stdout")
-            if fh is not None:
-                fh.write(text)
             return _completed()
         if argv[0] == "rclone":
             return _completed(returncode=state.get("rclone_rc", 0),
@@ -1431,6 +1491,7 @@ def redo_case(redo_runner_subject, tmp_path, monkeypatch):
         monkeypatch.setattr(subject, "notify", lambda msg: notes.append(msg))
     state: dict = {}
     fake = _fake_subprocess(monkeypatch, subject, _redo_handler(state))
+    agent = _fake_agentcall(monkeypatch, subject, _agent_handler(state))
     created: list[Path] = []
 
     def write_request(**overrides):
@@ -1451,7 +1512,8 @@ def redo_case(redo_runner_subject, tmp_path, monkeypatch):
         return subject.main()
 
     box = SimpleNamespace(subject=subject, notes=notes, state=state, argv=fake.calls,
-                          write_request=write_request, run=run, ready_dir=tmp_path / "redo_dir")
+                          agent=agent, write_request=write_request, run=run,
+                          ready_dir=tmp_path / "redo_dir")
     yield box
     for p in created:
         try:
@@ -1464,26 +1526,34 @@ def _git_calls(box, sub: str) -> list[list[str]]:
     return [list(c[0][0]) for c in box.argv if list(c[0][0])[0] == "git" and sub in c[0][0]]
 
 
-def _claude_calls(box) -> list[tuple]:
-    return [c for c in box.argv if list(c[0][0])[0] == "claude"]
+def _agent_calls(box) -> list:
+    """Every bounded agent call the runner made, in order.
+
+    Used to mean "every `subprocess.run` whose argv[0] was `claude`". It now reads the
+    `agentcall` stub, which is the same question asked at the seam that replaced the argv.
+    """
+    return list(box.agent.calls)
 
 
 @REDO
 def test_main_resumes_the_prior_session_when_a_uuid_is_present(redo_case):
     req_path, payload, _, _ = redo_case.write_request(uuid="sess-uuid-1", task="P7")
     # Non-empty, non-RESUME_MISS output so the resume is treated as usable (no fallback).
-    redo_case.state["claude_outputs"] = ["worked on it, made progress"]
+    redo_case.state["agent_outputs"] = ["worked on it, made progress"]
     redo_case.run(req_path)
 
-    (call,) = _claude_calls(redo_case)
-    argv, kwargs = list(call[0][0]), call[1]
-    assert argv[:6] == ["claude", "-p", "--model", redo_case.subject.REDO_MODEL,
-                        "--resume", "sess-uuid-1"]
-    assert payload["action"] in argv[6]
-    assert payload["message"] in argv[6]
-    assert kwargs["cwd"] == payload["worktree"]
-    assert kwargs["stderr"] is redo_case.subject.subprocess.STDOUT
-    assert kwargs["timeout"] == 1800
+    (call,) = _agent_calls(redo_case)
+    # The resume token is handed to the driver, not spelled as `--resume`: a driver
+    # without native resume can then seed a fresh session itself instead of being given
+    # a flag it cannot honour.
+    assert call.role == redo_case.subject.ROLE_IMPLEMENTER
+    assert call.kwargs["resume_id"] == "sess-uuid-1"
+    assert payload["action"] in call.prompt
+    assert payload["message"] in call.prompt
+    assert call.kwargs["cwd"] == Path(payload["worktree"])
+    assert call.kwargs["timeout"] == 1800
+    # A rewrite edits files and commits, so the call asks for a writable workspace.
+    assert call.kwargs["writable"] is True
 
 
 @REDO
@@ -1491,28 +1561,24 @@ def test_main_seeds_a_fresh_session_when_no_uuid_is_recorded(redo_case):
     req_path, payload, _, _ = redo_case.write_request(uuid="", task="P7")
     redo_case.run(req_path)
 
-    (call,) = _claude_calls(redo_case)
-    argv = list(call[0][0])
-    assert argv[:4] == ["claude", "-p", "--model", redo_case.subject.REDO_MODEL]
-    assert "--resume" not in argv
-    assert payload["action"] in argv[4]
+    (call,) = _agent_calls(redo_case)
+    assert call.kwargs["resume_id"] == ""
+    assert payload["action"] in call.prompt
 
 
 @REDO
 def test_main_falls_back_to_a_fresh_session_when_resume_is_unusable(redo_case):
     req_path, payload, _, _ = redo_case.write_request(uuid="sess-gone", task="P7")
-    redo_case.state["claude_outputs"] = [
+    redo_case.state["agent_outputs"] = [
         "No conversation found with session id sess-gone",
         "started fresh and fixed it",
     ]
     redo_case.run(req_path)
 
-    calls = _claude_calls(redo_case)
+    calls = _agent_calls(redo_case)
     assert len(calls) == 2
-    first_argv = list(calls[0][0][0])
-    second_argv = list(calls[1][0][0])
-    assert first_argv[4:6] == ["--resume", "sess-gone"]
-    assert "--resume" not in second_argv
+    assert calls[0].kwargs["resume_id"] == "sess-gone"
+    assert calls[1].kwargs["resume_id"] == ""
     # No commit was recorded (default state), so the runner still ends in the advisory
     # no-op path — cleanup ran, proving the fallback session's output is what was gated.
     branch = f"redo-{payload['redo_id']}"
@@ -1670,7 +1736,7 @@ def test_main_returns_1_and_notifies_when_worktree_add_fails(redo_case):
     assert len(redo_case.notes) == 1
     assert "worktree add failed" in redo_case.notes[0]
     assert "fatal: already exists" in redo_case.notes[0]
-    assert _claude_calls(redo_case) == []
+    assert _agent_calls(redo_case) == []
     # No _cleanup() call on this path — only the pre-flight branch delete ran.
     branch = f"redo-{payload['redo_id']}"
     assert _git_calls(redo_case, "remove") == []
@@ -1680,7 +1746,7 @@ def test_main_returns_1_and_notifies_when_worktree_add_fails(redo_case):
 @REDO
 def test_main_aborts_on_a_usage_limit_hint_without_a_commit_mentioned(redo_case):
     req_path, payload, _, _ = redo_case.write_request(task="P1", dan_id="9")
-    redo_case.state["claude_outputs"] = ["Sorry, you hit your limit for this session."]
+    redo_case.state["agent_outputs"] = ["Sorry, you hit your limit for this session."]
     rc = redo_case.run(req_path)
     assert rc == 0
     assert len(redo_case.notes) == 1
@@ -1729,9 +1795,9 @@ def _selffix_handler(state: dict):
     --name-only` stdout — matches the reference's own `.split()`), `worktree_add_rc` /
     `worktree_add_stderr` (a successful `worktree add` creates the target directory for
     real, the way real git would, so the runner's own `wt / "selffix_impl.log"` can be
-    opened), `claude_outputs` (consumed one per `claude` invocation, in call order,
-    written into the real log file the reference opens for the agent's stdout),
-    `compile_rc` / `compile_stderr` for the `py_compile` gate.
+    opened), `compile_rc` / `compile_stderr` for the `py_compile` gate. The agent call is
+    no longer one of these: it goes through `agentcall.ask` now, and `_agent_handler`
+    answers it from `state["agent_outputs"]`.
     """
 
     def handler(*args, **kwargs):
@@ -1748,13 +1814,6 @@ def _selffix_handler(state: dict):
                 return _completed(stdout=state.get("commits", ""))
             if argv[1] == "diff":
                 return _completed(stdout=" ".join(state.get("changed", [])))
-            return _completed()
-        if argv[0] == "claude":
-            outputs = state.setdefault("claude_outputs", [""])
-            text = outputs.pop(0) if outputs else ""
-            fh = kwargs.get("stdout")
-            if fh is not None:
-                fh.write(text)
             return _completed()
         # py_compile: [sys.executable, "-m", "py_compile", *pyfiles]
         return _completed(returncode=state.get("compile_rc", 0),
@@ -1783,6 +1842,7 @@ def selffix_case(selffix_runner_subject, tmp_path, monkeypatch):
         monkeypatch.setattr(subject, "notify", lambda msg: notes.append(msg))
     state: dict = {}
     fake = _fake_subprocess(monkeypatch, subject, _selffix_handler(state))
+    agent = _fake_agentcall(monkeypatch, subject, _agent_handler(state))
 
     def write_request(**overrides):
         fix_id = overrides.pop("fix_id", None) or f"FX-{tmp_path.name}"
@@ -1802,7 +1862,7 @@ def selffix_case(selffix_runner_subject, tmp_path, monkeypatch):
         return subject.main()
 
     box = SimpleNamespace(subject=subject, notes=notes, state=state, argv=fake.calls,
-                          write_request=write_request, run=run,
+                          agent=agent, write_request=write_request, run=run,
                           ready_dir=tmp_path / "selffix_dir")
     yield box
     for d in state.get("_created_dirs", []):
@@ -1819,37 +1879,39 @@ def test_main_returns_1_and_notifies_when_worktree_add_fails(selffix_case):
     assert len(selffix_case.notes) == 1
     assert "worktree add failed" in selffix_case.notes[0]
     assert "fatal: already exists" in selffix_case.notes[0]
-    assert _claude_calls(selffix_case) == []
+    assert _agent_calls(selffix_case) == []
     assert _git_calls(selffix_case, "remove") == []
     assert _git_calls(selffix_case, "-D") == []
 
 
 @SELFFIX
-def test_main_builds_the_exact_claude_argv_with_no_resume_support(selffix_case):
+def test_main_asks_the_implementer_role_and_never_resumes_a_session(selffix_case):
     """The self-fix runner never resumes a session — unlike `/ask`/`/redo`, its request
-    has no `uuid` field and its `main()` has no `--resume` branch at all."""
+    has no `uuid` field and its `main()` has no resume branch at all, so `resume_id` is
+    always empty. Named for the exact `claude` argv until 2026-08-30, when the call moved
+    behind `agentcall`; what is pinned is the same thing, minus the binary."""
     req_path, payload = selffix_case.write_request(
         task="P1", failure_class="orchestrator-logic", root_cause="the RC",
         suggested_fix="the SF", reason="boom reason")
     selffix_case.run(req_path)
 
-    (call,) = _claude_calls(selffix_case)
-    argv, kwargs = list(call[0][0]), call[1]
-    assert argv[:4] == ["claude", "-p", "--model", selffix_case.subject.SELF_FIX_MODEL]
-    assert "--resume" not in argv
-    brief = argv[4]
+    (call,) = _agent_calls(selffix_case)
+    assert call.role == selffix_case.subject.ROLE_IMPLEMENTER
+    # Not passed at all, rather than passed empty: there is no session to continue.
+    assert "resume_id" not in call.kwargs
+    brief = call.prompt
     assert "the RC" in brief
     assert "the SF" in brief
     assert "boom reason" in brief
     assert "P1" in brief
-    assert kwargs["stderr"] is selffix_case.subject.subprocess.STDOUT
-    assert kwargs["timeout"] == 1800
+    assert call.kwargs["timeout"] == 1800
+    assert call.kwargs["writable"] is True
 
 
 @SELFFIX
 def test_main_aborts_on_a_usage_limit_hint_without_a_commit_mentioned(selffix_case):
     req_path, payload = selffix_case.write_request(task="P1")
-    selffix_case.state["claude_outputs"] = ["Sorry, you hit your limit for this session."]
+    selffix_case.state["agent_outputs"] = ["Sorry, you hit your limit for this session."]
     rc = selffix_case.run(req_path)
     assert rc == 0
     assert len(selffix_case.notes) == 1

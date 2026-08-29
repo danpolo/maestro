@@ -34,6 +34,9 @@ from types import SimpleNamespace
 
 import pytest
 
+from maestro.backends.base import Completion
+from maestro.roles import ROLE_JUDGE
+
 pytestmark = pytest.mark.maestro_module("gates")
 
 SH = Path("/bin/sh")
@@ -103,6 +106,40 @@ def _write_roadmap_auto_check(sandbox, task_id: str, cmd: str, expect: str) -> N
         f"```\n",
         encoding="utf-8",
     )
+
+
+def _reply(stdout="", returncode=0, timed_out=False):
+    """The shape `agentcall.ask` answers with, spelled like the old `_completed` so the
+    bodies below still read as "the model said X"."""
+    return Completion(text=stdout, returncode=returncode, timed_out=timed_out)
+
+
+def _fake_review(monkeypatch, subject, handler):
+    """Stub the seam the proof review reaches an agent through.
+
+    Before 2026-08-26 this file swapped `gates.subprocess`, because the gate built its own
+    argv and ran it in place. It now asks the *judge role* via `maestro.agentcall`, so the
+    argv — and the choice of binary — belongs to whichever driver the project configured.
+    Stubbing here keeps these tests about what they were always about: what the gate does
+    with the answer it gets.
+
+    `handler` may raise, exactly as the old one could; `ask()` never raises, so a raised
+    `TimeoutExpired` becomes a timed-out `Completion` and anything else an empty one, which
+    is what the real seam would have produced.
+    """
+    asks = []
+
+    def ask(role, prompt, **kwargs):
+        asks.append(((role, prompt), kwargs))
+        try:
+            return handler()
+        except subprocess.TimeoutExpired:
+            return Completion(text="", returncode=124, timed_out=True)
+        except Exception:
+            return Completion(text="", returncode=1)
+
+    monkeypatch.setattr(subject.agentcall, "ask", ask)
+    return SimpleNamespace(asks=asks)
 
 
 # ── run_verification_gate ───────────────────────────────────────────────────────────
@@ -267,25 +304,25 @@ def test_gate_reports_any_other_exception_as_a_failure(subject, sandbox, monkeyp
 
 
 def test_review_returns_pass_when_there_are_no_manual_verifications(subject, monkeypatch):
-    fake = _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed())
+    fake = _fake_review(monkeypatch, subject, lambda: _reply())
     assert subject.sonnet_review_proofs("T1", [], {}) == (True, "")
     assert subject.sonnet_review_proofs("T1", [{"id": "V1", "kind": "auto"}], {}) == (True, "")
-    assert fake.calls == []
+    assert fake.asks == []
 
 
 def test_review_prefilter_rejects_a_short_proof_without_calling_the_agent(subject, monkeypatch):
-    fake = _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed())
+    fake = _fake_review(monkeypatch, subject, lambda: _reply())
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "short"}}
     )
     assert ok is False
-    assert msg.startswith("Sonnet proof review failed:\n  ✗ V1: proof too vague")
+    assert msg.startswith("proof review failed:\n  ✗ V1: proof too vague")
     assert "deterministic pre-filter" in msg
-    assert fake.calls == []
+    assert fake.asks == []
 
 
 def test_review_prefilter_rejects_a_missing_proof(subject, monkeypatch):
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed())
+    _fake_review(monkeypatch, subject, lambda: _reply())
     ok, msg = subject.sonnet_review_proofs("T1", [{"id": "V1", "kind": "manual"}], {})
     assert ok is False
     assert "got 0 non-ws chars" in msg
@@ -293,7 +330,7 @@ def test_review_prefilter_rejects_a_missing_proof(subject, monkeypatch):
 
 def test_review_prefilter_counts_non_whitespace_characters_only(subject, monkeypatch):
     """11 non-ws chars fails, 12 passes the floor — whitespace never counts toward it."""
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout='{"V1": {"pass": true}}'))
+    _fake_review(monkeypatch, subject, lambda: _reply(stdout='{"V1": {"pass": true}}'))
     eleven = "a b c d e f g h i j k"  # 11 non-ws chars, 21 raw
     ok, _ = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": eleven}}
@@ -310,42 +347,38 @@ def test_review_prefilter_only_counts_spaces_tabs_and_newlines_as_whitespace(sub
 
     Seven letters and six carriage returns clears a floor of twelve *characters*.
     """
-    fake = _fake_subprocess(
-        monkeypatch, subject, lambda *a, **k: _completed(stdout='{"V1": {"pass": true}}')
-    )
+    fake = _fake_review(monkeypatch, subject, lambda: _reply(stdout='{"V1": {"pass": true}}'))
     ok, _ = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a\r" * 7}}
     )
     assert ok is True
-    assert len(fake.calls) == 1
+    assert len(fake.asks) == 1
 
 
 def test_review_prefilter_rejects_a_whole_filler_phrase_that_clears_the_length_floor(
     subject, monkeypatch
 ):
-    fake = _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed())
+    fake = _fake_review(monkeypatch, subject, lambda: _reply())
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "Tested manually."}}
     )
     assert ok is False
     assert "proof too vague" in msg
-    assert fake.calls == []
+    assert fake.asks == []
 
 
 def test_review_prefilter_matches_filler_only_as_the_whole_proof(subject, monkeypatch):
     """A proof merely *containing* a filler word is escalated to the agent, not rejected."""
-    fake = _fake_subprocess(
-        monkeypatch, subject, lambda *a, **k: _completed(stdout='{"V1": {"pass": true}}')
-    )
+    fake = _fake_review(monkeypatch, subject, lambda: _reply(stdout='{"V1": {"pass": true}}'))
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "the token flow works"}}
     )
     assert (ok, msg) == (True, "")
-    assert len(fake.calls) == 1
+    assert len(fake.asks) == 1
 
 
 def test_review_prefilter_reports_every_bad_proof_at_once(subject, monkeypatch):
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed())
+    _fake_review(monkeypatch, subject, lambda: _reply())
     verifs = [{"id": "V1", "kind": "manual"}, {"id": "V2", "kind": "manual"}]
     ok, msg = subject.sonnet_review_proofs("T1", verifs, {})
     assert ok is False
@@ -355,15 +388,13 @@ def test_review_prefilter_reports_every_bad_proof_at_once(subject, monkeypatch):
 
 def test_review_raises_when_a_manual_verification_has_no_id(subject, monkeypatch):
     """FOUND_BUGS: `v["id"]` on a hand-edited ROADMAP block crashes the whole gate."""
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed())
+    _fake_review(monkeypatch, subject, lambda: _reply())
     with pytest.raises(KeyError):
         subject.sonnet_review_proofs("T1", [{"kind": "manual"}], {})
 
 
 def test_review_sends_check_and_proof_for_manual_items_only(subject, monkeypatch):
-    fake = _fake_subprocess(
-        monkeypatch, subject, lambda *a, **k: _completed(stdout='{"V1": {"pass": true}}')
-    )
+    fake = _fake_review(monkeypatch, subject, lambda: _reply(stdout='{"V1": {"pass": true}}'))
     verifs = [
         {"id": "V1", "kind": "manual", "check": "the button is blue"},
         {"id": "V2", "kind": "auto", "check": "never reviewed"},
@@ -371,9 +402,8 @@ def test_review_sends_check_and_proof_for_manual_items_only(subject, monkeypatch
     subject.sonnet_review_proofs(
         "T7", verifs, {"V1": {"proof": "screenshot attached, hex #0000ff"}}
     )
-    argv = fake.calls[0][0][0]
-    prompt = argv[-1]
-    assert argv[0] == "claude"
+    (role, prompt), _kwargs = fake.asks[0]
+    assert role == ROLE_JUDGE, "a proof review is a judgment, so it asks the judge role"
     assert "T7" in prompt
     assert "the button is blue" in prompt
     assert "screenshot attached, hex #0000ff" in prompt
@@ -382,7 +412,7 @@ def test_review_sends_check_and_proof_for_manual_items_only(subject, monkeypatch
 
 def test_review_passes_when_every_verdict_passes(subject, monkeypatch):
     out = '{"V1": {"pass": true, "reason": "solid"}}'
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout=out))
+    _fake_review(monkeypatch, subject, lambda: _reply(stdout=out))
     assert subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     ) == (True, "")
@@ -390,33 +420,33 @@ def test_review_passes_when_every_verdict_passes(subject, monkeypatch):
 
 def test_review_fails_and_lists_the_reasons_of_failing_verdicts(subject, monkeypatch):
     out = '{"V1": {"pass": false, "reason": "no evidence"}, "V2": {"pass": true}}'
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout=out))
+    _fake_review(monkeypatch, subject, lambda: _reply(stdout=out))
     verifs = [{"id": "V1", "kind": "manual"}, {"id": "V2", "kind": "manual"}]
     impl = {"V1": {"proof": "a detailed proof here"}, "V2": {"proof": "another long proof"}}
     ok, msg = subject.sonnet_review_proofs("T1", verifs, impl)
     assert ok is False
-    assert msg == "Sonnet proof review failed:\n  ✗ V1: no evidence"
+    assert msg == "proof review failed:\n  ✗ V1: no evidence"
 
 
 def test_review_treats_a_missing_pass_key_as_a_failure(subject, monkeypatch):
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout='{"V1": {}}'))
+    _fake_review(monkeypatch, subject, lambda: _reply(stdout='{"V1": {}}'))
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     )
     assert ok is False
-    assert msg == "Sonnet proof review failed:\n  ✗ V1: "
+    assert msg == "proof review failed:\n  ✗ V1: "
 
 
 def test_review_judges_ids_the_agent_invented_and_ignores_ids_it_dropped(subject, monkeypatch):
     """FOUND_BUGS: the verdict map is never reconciled with the ids that were sent."""
     out = '{"V9": {"pass": false, "reason": "hallucinated"}}'
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout=out))
+    _fake_review(monkeypatch, subject, lambda: _reply(stdout=out))
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     )
-    assert (ok, msg) == (False, "Sonnet proof review failed:\n  ✗ V9: hallucinated")
+    assert (ok, msg) == (False, "proof review failed:\n  ✗ V9: hallucinated")
 
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout="{}"))
+    _fake_review(monkeypatch, subject, lambda: _reply(stdout="{}"))
     assert subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     ) == (True, "")
@@ -424,7 +454,7 @@ def test_review_judges_ids_the_agent_invented_and_ignores_ids_it_dropped(subject
 
 def test_review_extracts_json_greedily_from_surrounding_prose(subject, monkeypatch):
     out = 'Sure! Here you go:\n{"V1": {"pass": true}}\nHope that helps.'
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout=out))
+    _fake_review(monkeypatch, subject, lambda: _reply(stdout=out))
     assert subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     ) == (True, "")
@@ -433,74 +463,86 @@ def test_review_extracts_json_greedily_from_surrounding_prose(subject, monkeypat
 def test_review_greedy_regex_spans_two_json_objects(subject, monkeypatch):
     """FOUND_BUGS: `\\{.*\\}` with DOTALL grabs first-brace-to-last-brace, not one object."""
     out = '{"V1": {"pass": true}}\nand also {"V1": {"pass": false}}'
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout=out))
+    _fake_review(monkeypatch, subject, lambda: _reply(stdout=out))
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     )
     assert ok is False
-    assert msg.startswith("Sonnet returned invalid JSON:")
+    assert msg.startswith("proof review returned invalid JSON:")
 
 
-def test_review_fails_on_a_nonzero_exit_and_truncates_stderr(subject, monkeypatch):
-    _fake_subprocess(
-        monkeypatch, subject, lambda *a, **k: _completed(returncode=3, stderr="E" * 500)
-    )
+def test_review_fails_closed_when_the_agent_returned_nothing(subject, monkeypatch):
+    """A review that did not happen is not a review that passed.
+
+    This used to surface the CLI's truncated stderr, which only existed because the gate
+    ran the process itself. The driver now reports a failed run as an empty completion, and
+    the property worth pinning was never the error text — it is that an unanswered review
+    fails the gate instead of waving the task through.
+    """
+    _fake_review(monkeypatch, subject, lambda: _reply(returncode=3))
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     )
     assert ok is False
-    assert msg == "Sonnet review failed (exit 3): " + "E" * 200
+    assert "produced no answer" in msg
 
 
 def test_review_fails_when_the_output_has_no_braces(subject, monkeypatch):
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout="I cannot do that"))
+    _fake_review(monkeypatch, subject, lambda: _reply(stdout="I cannot do that"))
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     )
-    assert (ok, msg) == (False, "Sonnet returned non-JSON: I cannot do that")
+    assert (ok, msg) == (False, "proof review returned non-JSON: I cannot do that")
 
 
 def test_review_fails_when_the_braced_span_is_not_valid_json(subject, monkeypatch):
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout="{nope}"))
+    _fake_review(monkeypatch, subject, lambda: _reply(stdout="{nope}"))
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     )
     assert ok is False
-    assert msg.startswith("Sonnet returned invalid JSON:")
+    assert msg.startswith("proof review returned invalid JSON:")
 
 
 def test_review_fails_when_a_verdict_is_not_an_object(subject, monkeypatch):
     """A well-formed but wrongly-shaped verdict lands in the catch-all, not the JSON branch."""
-    _fake_subprocess(monkeypatch, subject, lambda *a, **k: _completed(stdout='{"V1": true}'))
+    _fake_review(monkeypatch, subject, lambda: _reply(stdout='{"V1": true}'))
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     )
     assert ok is False
-    assert msg.startswith("Sonnet review error:")
+    assert msg.startswith("proof review error:")
 
 
 def test_review_reports_a_timeout(subject, monkeypatch):
     def boom(*args, **kwargs):
         raise subprocess.TimeoutExpired(cmd="claude", timeout=120)
 
-    fake = _fake_subprocess(monkeypatch, subject, boom)
+    fake = _fake_review(monkeypatch, subject, boom)
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     )
-    assert (ok, msg) == (False, "Sonnet review timed out (120 s)")
-    assert fake.calls[0][1]["timeout"] == 120
+    assert (ok, msg) == (False, "proof review timed out (120 s)")
+    assert fake.asks[0][1]["timeout"] == 120
 
 
-def test_review_reports_a_missing_agent_binary(subject, monkeypatch):
+def test_review_fails_closed_when_the_agent_binary_is_missing(subject, monkeypatch):
+    """A missing CLI reaches the gate as a failed run, not as an exception.
+
+    It used to raise straight through this function, because the function was the one
+    calling `subprocess.run`. `agentcall.ask` never raises — that is what stops one absent
+    binary taking down a poll cycle — so a missing agent now arrives the same way every
+    other unanswered review does. The gate still fails, which is the part that matters.
+    """
     def boom(*args, **kwargs):
         raise FileNotFoundError("claude")
 
-    _fake_subprocess(monkeypatch, subject, boom)
+    _fake_review(monkeypatch, subject, boom)
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     )
     assert ok is False
-    assert msg.startswith("Sonnet review error:")
+    assert "produced no answer" in msg
 
 
 # ── _run_smoke ──────────────────────────────────────────────────────────────────────

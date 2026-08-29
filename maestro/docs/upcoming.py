@@ -27,14 +27,12 @@ globals, and a few project-specific spots differ:
   anything test-observable — `GLOSSARY` term names/aliases, `detect_terms`, and `render`'s
   output shape are all pinned by `tests/characterization/test_upcoming.py` and unaffected.
 
-`_opus_complete` is the one function that shells out to an agent CLI (`claude -p --model
-claude-opus-4-8 <prompt>`, billed against the Max subscription, never the metered API — see
-`refresh_explanations`/`_refresh_prompt`, which build and consume its prompt/response). It
-is extracted verbatim and left fully wired, not stubbed: it is exercised in tests by
-swapping this module's own `subprocess` reference for a small recording stand-in
-(`tests/characterization/test_upcoming.py`'s `_fake_subprocess`, mirroring
-`test_selfheal.py`'s `_fake_subprocess` for `_judge_complete`), so no test can ever spawn a
-real `claude` process.
+`_opus_complete` is the one function that reaches an agent (see `refresh_explanations`/
+`_refresh_prompt`, which build and consume its prompt/response). It was extracted verbatim,
+shelling out to `claude -p` by name; since 2026-08-26 it asks the **judge role** through
+`maestro.agentcall`, so `--refresh-explanations` works on whichever backend the project
+configured instead of being a silent no-op anywhere else. Tests stub `agentcall.ask`, and
+`tests/conftest.py` makes reaching a real CLI impossible from any direction.
 
 Behavioural surprises are catalogued in `docs/FOUND_BUGS.md` (entries #182–#184, shared
 with `maestro.docs.depmap`'s characterisation) and pinned by
@@ -53,10 +51,12 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from maestro import agentcall
 from maestro import prep_actions as prepared_actions
 from maestro.config import load_project_yaml
 from maestro.docs import depmap as gdm
 from maestro.paths import Paths
+from maestro.roles import ROLE_JUDGE
 
 _PATHS = Paths.from_env()
 _PROJECT_YAML = load_project_yaml()
@@ -78,7 +78,11 @@ PREPARED_ACTIONS   = REPO_ROOT / ".orchestrator" / "prepared_actions.json"
 #: project's name in the Opus prompt built by `_refresh_prompt`; here it is substituted in.
 PROJECT_NAME = (_PROJECT_YAML.get("project") or {}).get("name") or REPO_ROOT.name
 
-JUDGE_MODEL = "claude-opus-4-8"
+# `JUDGE_MODEL` used to live here, pinning `claude-opus-4-8` for the refresh judgment. It
+# is gone rather than kept as a documented default: the model comes from `project.yaml`'s
+# `roles.judge` table for whichever backend answers, and a claude id sitting in a
+# project-agnostic module is the exact shape of the bug this call site had — a literal
+# that looks authoritative and is wrong everywhere but one backend.
 REFRESH_TIMEOUT = 240
 
 
@@ -415,20 +419,21 @@ def detect_terms(text: str) -> list[dict]:
 # ── Opus refresh path (--refresh-explanations) ──
 
 def _opus_complete(prompt: str) -> str:
-    """One bounded Opus call via the Claude CLI (Max subscription, never metered).
-    Returns stdout or "" on any failure — every caller is best-effort."""
-    try:
-        r = subprocess.run(
-            ["claude", "-p", "--model", JUDGE_MODEL, prompt],
-            cwd=str(REPO_ROOT), capture_output=True, text=True, timeout=REFRESH_TIMEOUT,
-        )
-        out = (r.stdout or "").strip()
-        if r.returncode == 0 and out:
-            return out
-        print(f"  [opus] rc={r.returncode} stderr={(r.stderr or '')[:160]}", file=sys.stderr)
-    except Exception as exc:
-        print(f"  [opus] call failed: {exc}", file=sys.stderr)
-    return ""
+    """One bounded judge call. Returns the answer or "" — every caller is best-effort.
+
+    Asks the **judge role** rather than naming a CLI, so explanation refresh works on
+    whichever backend the project configured. It used to shell out to one binary directly,
+    which meant `--refresh-explanations` was a silent no-op anywhere else.
+
+    `JUDGE_MODEL` is no longer passed: the model belongs to the role's per-backend table in
+    `project.yaml`, and pinning one here would have handed a claude model id to whatever
+    backend actually answered.
+    """
+    answer = agentcall.ask(ROLE_JUDGE, prompt, cwd=REPO_ROOT, timeout=REFRESH_TIMEOUT)
+    if not answer.text:
+        detail = "timed out" if answer.timed_out else f"rc={answer.returncode}"
+        print(f"  [judge] no answer ({detail})", file=sys.stderr)
+    return answer.text
 
 
 def _extract_json(text: str) -> dict | None:
@@ -473,7 +478,10 @@ def refresh_explanations(tasks: list[dict], detail_paths: dict[str, str],
             "hash": _task_fingerprint(task),
             "what_why": str(parsed.get("what_why", "")).strip(),
             "pipeline_fit": str(parsed.get("pipeline_fit", "")).strip(),
-            "model": JUDGE_MODEL,
+            # The model that actually answered, not a constant: with the backend
+            # configurable, stamping a fixed id would mislabel every cached entry on
+            # any project that is not running the default.
+            "model": agentcall.resolve_call(ROLE_JUDGE)[1] or "unknown",
             "refreshed_at": datetime.now(timezone.utc).isoformat(),
         }
         refreshed += 1
@@ -666,7 +674,8 @@ def main() -> int:
         completed = gdm._registry_completed() | {t["id"] for t in tasks if t.get("status") == "complete"}
         pending = [t for t in tasks if t["id"] not in completed]
         n = refresh_explanations(pending, _detail_paths(roadmap_text), force=args.force_refresh)
-        print(f"Refreshed {n} task explanation(s) via {JUDGE_MODEL}.")
+        _backend, _model = agentcall.resolve_call(ROLE_JUDGE)
+        print(f"Refreshed {n} task explanation(s) via {_model or _backend}.")
 
     tasks, rendered = _build()
 

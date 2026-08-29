@@ -19,6 +19,11 @@ confinement + a byte-compile check + >=1 commit), and drops the `.ready.json` th
 module's own `apply_ready_self_fixes` picks up. The only non-verbatim change is the `/tmp`
 scratch prefix, which named the consuming project in the reference — neutralised the same
 way `SELFFIX_WORKTREE_PREFIX` already neutralised it above.
+
+Since 2026-08-26 the fix itself goes through `maestro.agentcall` rather than naming a CLI,
+so an unattended self-fix runs on whichever backend the project configured. Like `/redo`
+it is an *agentic* one-shot call (`writable=True`): it is expected to edit files and commit
+inside its worktree, and a driver that can enforce that boundary is asked to.
 """
 from __future__ import annotations
 
@@ -30,11 +35,13 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+from maestro import agentcall
 from maestro.docs.roadmap import run_dep_map
 from maestro.hitl.telegram import notify_telegram
 from maestro.implementer import _latest_impl_tail
 from maestro.merge import _merge_self_fix_branch
 from maestro.paths import Paths
+from maestro.roles import ROLE_IMPLEMENTER
 from maestro.state import append_journal
 from maestro.worktree import TMUX_SESSION
 
@@ -76,7 +83,10 @@ SELFFIX_DIR = REPO / ".orchestrator" / "selffix"
 # project's name. Only that literal is neutralised here; the shape is identical.
 SELFFIX_WORKTREE_PREFIX = "/tmp/maestro-selffix-"
 
-SELF_FIX_MODEL = "claude-opus-4-8"
+# `SELF_FIX_MODEL` used to live here, pinning `claude-opus-4-8`. Repairing maestro's own
+# code is implementer work, so the model now comes from `roles.implementer`'s table.
+#: Thirty minutes, matching `/redo`: a self-fix is real work, not a judgment.
+SELF_FIX_TIMEOUT = 1800
 LIMIT_HINT = ("hit your limit", "usage limit", "rate limit", "too many requests")
 
 
@@ -248,15 +258,20 @@ def main() -> int:
         f"- Do NOT push, do NOT merge, do NOT restart anything."
     )
     log = wt / "selffix_impl.log"
-    try:
-        with open(log, "w", encoding="utf-8") as fh:
-            subprocess.run(["claude", "-p", "--model", SELF_FIX_MODEL, brief],
-                           cwd=str(wt), stdout=fh, stderr=subprocess.STDOUT, timeout=1800)
-        out = log.read_text(encoding="utf-8", errors="replace")
-    except subprocess.TimeoutExpired:
+    # The transcript, not just the answer: the usage-limit check below only has anything
+    # to read on a run that did not simply succeed, and `Completion.text` is empty there
+    # by design. The driver writes the run's combined stdout+stderr to `log`.
+    answer = agentcall.ask(
+        ROLE_IMPLEMENTER, brief,
+        timeout=SELF_FIX_TIMEOUT, cwd=wt, log_file=log, writable=True,
+    )
+    if answer.timed_out:
         out = "(timed out)"
-    except Exception as exc:
-        out = f"(error: {exc})"
+    else:
+        try:
+            out = log.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            out = f"(error: {exc})"
 
     if any(h in out.lower() for h in LIMIT_HINT) and "commit" not in out.lower():
         notify_telegram(f"⏳ Maestro self-fix {task} aborted — Claude usage limit. Will retry on a future failure.")

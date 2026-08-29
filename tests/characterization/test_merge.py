@@ -479,8 +479,12 @@ def test_risky_reviewer_prompt_contract(subject, repo, monkeypatch):
     subject.sonnet_risky_reviewer("b", "T77")
     assert len(judge.calls) == 1
     call = judge.calls[0]
-    assert set(call) == {"system", "user", "model"}
-    assert call["model"] == "claude-sonnet-5"
+    # Was `{"system", "user", "model"}` with `model == "claude-sonnet-5"` until
+    # 2026-08-30. The gate still deliberately sits on the review tier rather than the
+    # diagnoser — that is what `role` now says — but naming the *role* instead of a model
+    # id is what lets the same reasoning hold on a backend that has no such model.
+    assert set(call) == {"system", "user", "role"}
+    assert call["role"] == subject.ROLE_JUDGE
     assert "JSON" in call["system"]
     assert '"pass"' in call["system"]
     assert "T77" in call["user"]

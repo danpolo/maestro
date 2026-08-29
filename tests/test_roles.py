@@ -369,16 +369,45 @@ def test_default_models_reproduce_the_call_sites_they_replace():
     assert roles.model_for(roles.ROLE_DIAGNOSER, config={}) == diagnose.JUDGE_MODEL
 
 
-def test_the_judge_default_is_the_model_its_call_sites_hardcode():
-    judge = roles.model_for(roles.ROLE_JUDGE, config={})
-    for module in (gates, merge):
-        source = Path(module.__file__).read_text(encoding="utf-8")
-        literals = {
-            node.value
-            for node in ast.walk(ast.parse(source))
-            if isinstance(node, ast.Constant) and isinstance(node.value, str)
-        }
-        assert judge in literals, f"{module.__name__} no longer hardcodes {judge!r}"
+#: The package root, for the source scan below.
+_PACKAGE_DIR = Path(roles.__file__).resolve().parent
+
+
+def test_no_call_site_pins_a_model_literal_when_it_asks_a_role():
+    """The inverse of what this used to assert, and the point of the whole exercise.
+
+    Until 2026-08-30 this test checked that `maestro.gates` and `maestro.merge` still
+    *hardcoded* the judge model, because they did and the table here only had to agree
+    with them. Now every bounded call goes through `maestro.agentcall.ask`, which resolves
+    the model from the role — so a `model=` literal at a call site is a regression: it
+    would hand one backend's model id to whichever backend actually answered, which is the
+    failure the routing work existed to remove.
+
+    A `model=` argument is still legitimate when it carries a value chosen at runtime
+    (`/redo` and self-fix pin a model per task), so what is refused is specifically a
+    *string constant*, not the keyword.
+    """
+    offenders = []
+    for path in sorted(_PACKAGE_DIR.rglob("*.py")):
+        if "__pycache__" in path.parts:
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.Call):
+                continue
+            target = node.func
+            name = target.attr if isinstance(target, ast.Attribute) else getattr(target, "id", "")
+            if name not in ("ask", "_judge_complete"):
+                continue
+            for keyword in node.keywords:
+                value = keyword.value
+                if (keyword.arg == "model" and isinstance(value, ast.Constant)
+                        and isinstance(value.value, str) and value.value):
+                    offenders.append(f"{path.name}:{node.lineno}")
+    assert not offenders, (
+        "these calls pin a model id instead of letting the role resolve one: "
+        + ", ".join(offenders)
+        + " — name the role and let `project.yaml`'s per-backend table choose the model"
+    )
 
 
 # ── resolve: the happy path ──

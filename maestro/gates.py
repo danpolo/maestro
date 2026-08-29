@@ -5,9 +5,11 @@ import block and the derivation of the module-level path globals differ. Behavio
 surprises are catalogued in `docs/FOUND_BUGS.md` and pinned by
 `tests/characterization/test_gates.py`; none of them is fixed here.
 
-The agent-CLI invocation in `sonnet_review_proofs` is a plain `subprocess.run` copied
-as-is; the characterisation tests swap this module's `subprocess` reference rather than
-letting anything reach a real CLI or the network.
+`sonnet_review_proofs` asks the **judge role** through `maestro.agentcall` rather than
+naming a CLI, so the review runs on whichever backend the project configured. It used to
+shell out to one binary directly, which meant a project on any other backend got a
+non-zero exit here — and, before the failure branch below was tightened, that read as a
+review that had happened.
 """
 from __future__ import annotations
 
@@ -17,9 +19,11 @@ import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 
+from maestro import agentcall
 from maestro import verifications  # M1: the checking engine itself — see run_verification_gate.
 from maestro.paths import Paths
 from maestro.pending import deferred
+from maestro.roles import ROLE_JUDGE
 from maestro.state import append_journal
 
 _PATHS = Paths.from_env()
@@ -35,6 +39,10 @@ VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
 # leaves margin for queue + reindex.
 AWAIT_VERIFY_TIMEOUT_SEC = 8 * 3600
 SMOKE_TIMEOUT = 2700
+
+#: Ceiling for the proof-review judgment. Unchanged from the value this gate used
+#: while it invoked a CLI directly.
+REVIEW_TIMEOUT = 120
 
 # Owned by `maestro.docs.roadmap`. Late-bound rather than imported: this module sits
 # upstream of the HITL layer that `maestro.docs.roadmap` pulls in, and binding it here
@@ -75,7 +83,12 @@ def run_verification_gate(task_id: str, workspace: Path, worktree: Path | None =
 
 def sonnet_review_proofs(task_id: str, verifications: list[dict],
                          impl_verifs: dict) -> tuple[bool, str]:
-    """Use Sonnet to review manual verification proofs. Returns (all_pass, feedback)."""
+    """Have the judge role review manual verification proofs. Returns (all_pass, feedback).
+
+    Named for Sonnet historically, when that was the only model this could reach. Which
+    model actually answers is now `project.yaml`'s `roles.judge`, so the messages below say
+    "proof review" rather than naming one.
+    """
     manual_items = [(v["id"], v) for v in verifications if v.get("kind") == "manual"]
     if not manual_items:
         return True, ""
@@ -101,7 +114,7 @@ def sonnet_review_proofs(task_id: str, verifications: list[dict],
                 f"got {nonws_len!r} non-ws chars, text={stripped[:60]!r}"
             )
     if pre_failures:
-        return False, "Sonnet proof review failed:\n" + "\n".join(
+        return False, "proof review failed:\n" + "\n".join(
             f"  ✗ {f}" for f in pre_failures
         )
 
@@ -117,28 +130,31 @@ def sonnet_review_proofs(task_id: str, verifications: list[dict],
         f'{{\"V1\": {{\"pass\": true, \"reason\": \"...\"}}, ...}}\n\n'
         f"Verifications:\n{json.dumps(review_input, indent=2, ensure_ascii=False)}"
     )
-    try:
-        r = subprocess.run(
-            ["claude", "-p", "--model", "claude-sonnet-5", prompt],
-            capture_output=True, text=True, timeout=120, cwd=str(REPO)
+    # The judge role, not a named CLI: this gate is a judgment, and which backend renders
+    # it is the project's configuration to make. `ask()` never raises, so the only failure
+    # shapes left to handle are "said nothing" and "did not parse".
+    answer = agentcall.ask(ROLE_JUDGE, prompt, timeout=REVIEW_TIMEOUT)
+    if answer.timed_out:
+        return False, f"proof review timed out ({REVIEW_TIMEOUT} s)"
+    if not answer.text:
+        return False, (
+            f"proof review produced no answer (exit {answer.returncode}) — a review that "
+            "did not happen is not a review that passed"
         )
-        if r.returncode != 0:
-            return False, f"Sonnet review failed (exit {r.returncode}): {r.stderr[:200]}"
-        m = re.search(r"\{.*\}", r.stdout.strip(), re.DOTALL)
+    try:
+        m = re.search(r"\{.*\}", answer.text, re.DOTALL)
         if not m:
-            return False, f"Sonnet returned non-JSON: {r.stdout[:200]}"
+            return False, f"proof review returned non-JSON: {answer.text[:200]}"
         review   = json.loads(m.group())
         failures = [f"{vid}: {res.get('reason','')}"
                     for vid, res in review.items() if not res.get("pass")]
         if failures:
-            return False, "Sonnet proof review failed:\n" + "\n".join(f"  ✗ {f}" for f in failures)
+            return False, "proof review failed:\n" + "\n".join(f"  ✗ {f}" for f in failures)
         return True, ""
     except json.JSONDecodeError as exc:
-        return False, f"Sonnet returned invalid JSON: {exc}"
-    except subprocess.TimeoutExpired:
-        return False, "Sonnet review timed out (120 s)"
+        return False, f"proof review returned invalid JSON: {exc}"
     except Exception as exc:
-        return False, f"Sonnet review error: {exc}"
+        return False, f"proof review error: {exc}"
 
 
 # ── Smoke eval ──

@@ -1,23 +1,26 @@
-"""The one-shot agent call is not backend-agnostic. This pins how far the gap reaches.
+"""No module may reach an agent CLI by name. The gap this file tracked is closed.
 
 `AgentBackend` describes a *session*: `launch` starts an agent in a tmux window, `resume`
-continues it, `parse_exit` classifies how it died. It has no method for the other thing
-maestro does constantly — ask a model one bounded question and read stdout. So every such
-call site shells out to one CLI by name instead of going through the driver it was
-configured to use.
+continues it, `parse_exit` classifies how it died. It had no method for the other thing
+maestro does constantly — ask a model one bounded question and read its output — so every
+such call site shelled out to one CLI by name instead of going through the driver the
+project had configured. Six of them did: `gates.sonnet_review_proofs`,
+`docs/upcoming._opus_complete`, `selfheal/diagnose._judge_complete` (and `merge.py`
+through it), the `/redo` runner, the self-fix runner, and the `/ask` handler. A project
+configured `fallback_chain: [codex]` therefore had no working `--refresh-explanations`,
+no `/redo`, no `/ask`, no self-fix and no failure diagnosis — each silently degrading to
+`""` or a non-zero exit rather than failing loudly.
 
-That answers the M4 open question ("should `upcoming.py` explanation generation be
-backend-agnostic or pinned to one role?"). Backend-agnostic: `upcoming.py`'s
-`_opus_complete` is not a documentation quirk, it is one instance of a systemic gap, and
-pinning it to a role would not help because the *role* already resolves to a backend that
-the call then ignores. A project configured `fallback_chain: [codex]` has no working
-`--refresh-explanations`, no `/redo`, no `/ask`, no self-fix and no failure diagnosis —
-each one silently degrades to "" or a non-zero exit rather than failing loudly.
+That answered the M4 open question ("should `upcoming.py` explanation generation be
+backend-agnostic or pinned to one role?"). Backend-agnostic: `_opus_complete` was not a
+documentation quirk but one instance of a systemic gap, and pinning it to a role would not
+have helped, because the *role* already resolved to a backend that the call then ignored.
 
-**The capability landed on 2026-08-26**: `AgentBackend.complete(CompletionSpec) ->
-Completion`, implemented by both drivers. What remains is routing the sites below through
-it — each one resolving its driver from its role instead of naming a binary. This file
-tracks that migration: the list shrinks by one every time a site is converted.
+Both halves have landed. `AgentBackend.complete(CompletionSpec) -> Completion` arrived on
+2026-08-26 and both drivers implement it; `maestro.agentcall.ask` routes a role to a driver;
+and on 2026-08-30 the last of the six call sites was converted. `KNOWN_DIRECT_CALL_SITES`
+is now empty and must stay that way — the assertion below is what keeps it closed, since
+nothing else would notice a new hand-built argv until a non-claude project lost a feature.
 
 `tests/test_no_name_branching.py` does not catch these: a backend name in an argv list is
 explicitly allowed there, and correctly so — the argv *is* how you spell a CLI invocation.
@@ -37,18 +40,11 @@ PACKAGE_DIR = REPO / "maestro"
 #: the moment it is registered.
 BACKEND_NAMES = frozenset(BACKENDS)
 
-#: Call sites that invoke an agent CLI directly instead of through a driver, as
-#: `module: what it is for`. Every entry is a place a non-claude project loses a feature.
-#: The list is meant to shrink; removing an entry is the acceptance test for routing that
-#: site through the protocol's one-shot capability.
-KNOWN_DIRECT_CALL_SITES = {
-    "maestro/gates.py",              # sonnet_review_proofs — manual-verification proof review
-    "maestro/docs/upcoming.py",      # _opus_complete — refresh_explanations (the M4 question)
-    "maestro/selfheal/diagnose.py",  # _judge_complete — failure diagnosis, and merge.py via it
-    "maestro/selfheal/redo.py",      # the /redo runner
-    "maestro/selfheal/selffix.py",   # the self-fix runner
-    "maestro/hitl/ask.py",           # the /ask handler
-}
+#: Call sites that invoke an agent CLI directly instead of through a driver. Every entry
+#: would be a place a non-claude project loses a feature. Empty since 2026-08-30, when the
+#: last of the original six was converted — an entry added back here is a regression being
+#: recorded, not a to-do being filed.
+KNOWN_DIRECT_CALL_SITES: set = set()
 
 
 def _direct_agent_cli_calls(tree: ast.AST) -> list[int]:
@@ -88,26 +84,53 @@ def _scan() -> dict[str, list[int]]:
     return found
 
 
-def test_no_new_module_shells_out_to_an_agent_cli_directly():
+def test_no_module_shells_out_to_an_agent_cli_directly():
     """A new one is a new feature that silently does nothing on a non-claude project."""
     unexpected = set(_scan()) - KNOWN_DIRECT_CALL_SITES
     assert not unexpected, (
         "these modules invoke an agent CLI by name instead of through its driver: "
         + ", ".join(sorted(unexpected))
-        + " — resolve the backend from the role and go through the driver, so the call "
-          "works on whichever backend the project actually configured"
+        + " — ask the role through `maestro.agentcall`, so the call works on whichever "
+          "backend the project actually configured"
     )
 
 
 def test_the_known_direct_call_sites_still_exist_where_recorded():
     """Keeps the list honest in the other direction: a site that got fixed (or moved)
-    must be struck off, so this file never overstates the remaining work."""
+    must be struck off, so this file never overstates the remaining work. With the list
+    empty this is a statement about the *file*, not about the package — it fails if
+    someone records a site here without one actually being there."""
     stale = KNOWN_DIRECT_CALL_SITES - set(_scan())
     assert not stale, (
         "recorded as shelling out to an agent CLI, but no longer does: "
         + ", ".join(sorted(stale))
         + " — remove it from KNOWN_DIRECT_CALL_SITES"
     )
+
+
+def test_every_ex_call_site_now_asks_a_role_instead():
+    """The positive half: each converted module reaches an agent through `agentcall`.
+
+    `test_no_module_shells_out_to_an_agent_cli_directly` only proves nobody spells an
+    argv by hand — a module that dropped its agent call entirely would pass it just as
+    happily. These six are the features that were silently dead on a non-claude project,
+    so what matters is that they still make the call, through the seam.
+    """
+    converted = {
+        "maestro/gates.py",
+        "maestro/docs/upcoming.py",
+        "maestro/selfheal/diagnose.py",
+        "maestro/selfheal/redo.py",
+        "maestro/selfheal/selffix.py",
+        "maestro/hitl/ask.py",
+    }
+    for relative in sorted(converted):
+        source = (REPO / relative).read_text(encoding="utf-8")
+        assert "agentcall.ask(" in source, (
+            f"{relative} no longer asks a role through maestro.agentcall — the feature it "
+            "provides is dead on every backend if the call was dropped, and dead on all "
+            "but one if it was hand-built again"
+        )
 
 
 def test_the_driver_protocol_offers_a_one_shot_completion():

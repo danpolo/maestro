@@ -1223,7 +1223,7 @@ def main() -> int:
             impl_verifs   = impl.get("verifications", {})
             sonnet_ok, sonnet_msg = sonnet_review_proofs(task_id, verifications, impl_verifs)
             if not sonnet_ok:
-                print(f"  [verify] {task_id}: Sonnet proof review failed — re-briefing")
+                print(f"  [verify] {task_id}: proof review failed — re-briefing")
                 (workspace / "DONE").unlink(missing_ok=True)
                 reason = f"Sonnet proof review: {sonnet_msg}"
                 append_journal("sonnet_review_failed",

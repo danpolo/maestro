@@ -7,31 +7,33 @@ surprises are catalogued in `docs/found_bugs_inbox/selfheal.md` and pinned by
 `{.*}` DOTALL scrape that loses both objects when the judge prints two, and the
 `.get(k, "")` defaults that let an explicit `null` through.
 
-`_judge_complete` is the only function here that reaches an agent CLI, and it does so
-through this module's `subprocess` reference; the characterisation tests swap that rather
-than letting anything spawn a process.
+`_judge_complete` is the only function here that reaches an agent, and since 2026-08-26 it
+does so through `maestro.agentcall` rather than by naming a CLI — so diagnosis works on
+whichever backend the project configured instead of being a silent no-op anywhere else.
+Tests stub `agentcall.ask`; `tests/conftest.py` makes reaching a real CLI impossible from
+any direction.
 """
 from __future__ import annotations
 
 import json
 import os
 import re
-import subprocess
 
+from maestro import agentcall
 from maestro.paths import Paths
+from maestro.roles import ROLE_DIAGNOSER
 from maestro.state import now_iso
 
 _PATHS = Paths.from_env()
 
 REPO                  = _PATHS.repo
 
-# Judgment-layer model for the orchestrator's own reasoning calls (proposal
-# generation, failure diagnosis). Routed through the `claude -p` CLI so it bills
-# against the Max subscription, never the metered API. Fable 5 is the preferred
-# judge but is currently unavailable in the CLI (checked 2026-06-13:
-# `claude -p --model claude-fable-5` returns an "unavailable" notice with rc=0),
-# so Opus 4.8 is the active judge. Restore Fable by setting JUDGE_MODEL =
-# "claude-fable-5" once Anthropic re-enables CLI access.
+# Historical default for the orchestrator's own reasoning calls (proposal generation,
+# failure diagnosis). No longer passed to the call: the model belongs to the resolved
+# role's per-backend table in `project.yaml`, and pinning a claude id here would hand it
+# to whichever backend actually answered. Kept as the documented fallback for a project
+# that configures no model for the role at all — `roles.DEFAULT_MODELS` carries the same
+# value for `ROLE_DIAGNOSER`, and `tests/test_roles.py` pins the two together.
 JUDGE_MODEL = "claude-opus-5"
 
 # Skeptic guard (#2): before an UNATTENDED self-fix edits Maestro's own code, run a
@@ -48,27 +50,29 @@ SELF_FIX_SKEPTIC_MIN_CONF = float(os.environ.get("ORCH_SELF_FIX_SKEPTIC_MIN_CONF
 DIAGNOSES_DIR = REPO / ".orchestrator" / "diagnoses"
 
 
-def _judge_complete(system: str, user: str, model: str = JUDGE_MODEL,
-                    timeout: int = 240) -> str:
-    """One bounded judgment call via the Claude CLI (Max subscription, never the
-    metered API). `claude -p` takes a single positional prompt, so the system
-    guidance is folded into the prompt — same pattern as sonnet_review_proofs.
-    Returns the model's stdout, or "" on any failure; all callers are
-    best-effort and fail safe on an empty result.
+def _judge_complete(system: str, user: str, model: str = "", timeout: int = 240,
+                    role: object = ROLE_DIAGNOSER) -> str:
+    """One bounded judgment call, asked of `role`. Returns the answer, or "" on any
+    failure; all callers are best-effort and fail safe on an empty result.
+
+    A one-shot call takes a single prompt, so the system guidance is folded into it —
+    the same shape `gates.sonnet_review_proofs` uses.
+
+    `role` is a parameter rather than a constant because this helper serves two different
+    judgments: failure diagnosis (this module, `ROLE_DIAGNOSER`) and `merge.py`'s risky-
+    diff review (`ROLE_JUDGE`). That caller used to pin a claude model id instead, which
+    on any other backend named a model that backend does not have. Naming the *role* lets
+    each keep its own model table while neither one names a CLI.
+
+    An explicit `model` still wins over the role's table, for the callers that pin one per
+    task; `""` means "whatever the role resolves to".
     """
-    prompt = f"{system}\n\n{user}"
-    try:
-        r = subprocess.run(
-            ["claude", "-p", "--model", model, prompt],
-            cwd=str(REPO), capture_output=True, text=True, timeout=timeout,
-        )
-        out = (r.stdout or "").strip()
-        if r.returncode == 0 and out:
-            return out
-        print(f"  [judge] {model} rc={r.returncode} stderr={(r.stderr or '')[:160]}")
-    except Exception as exc:
-        print(f"  [judge] {model} call failed: {exc}")
-    return ""
+    answer = agentcall.ask(role, f"{system}\n\n{user}", model=model, timeout=timeout,
+                           cwd=REPO)
+    if not answer.text:
+        detail = "timed out" if answer.timed_out else f"rc={answer.returncode}"
+        print(f"  [judge] {role} produced no answer ({detail})")
+    return answer.text
 
 
 def _diagnose_failure(task_id: str, reason: str, impl_tail: str,

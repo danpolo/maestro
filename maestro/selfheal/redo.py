@@ -18,6 +18,11 @@ suspenders re-uploads to Drive, and drops the `.ready.json` this module's own
 `apply_ready_redo` picks up. The only non-verbatim change is the `/tmp` scratch prefix,
 which named the consuming project in the reference — neutralised the same way
 `SELFFIX_WORKTREE_PREFIX` neutralised its sibling in `maestro/selfheal/selffix.py`.
+
+Since 2026-08-26 the rewrite itself goes through `maestro.agentcall` rather than naming a
+CLI, so `/redo` runs on whichever backend the project configured. It is one of the two
+*agentic* one-shot calls (`writable=True`): unlike a judgment, it is expected to edit files
+and commit inside its worktree, and a driver that can enforce that boundary is asked to.
 """
 from __future__ import annotations
 
@@ -27,10 +32,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from maestro import agentcall
 from maestro.docs.roadmap import run_dep_map
 from maestro.hitl.telegram import notify_telegram
 from maestro.merge import _merge_redo_branch
 from maestro.paths import Paths
+from maestro.roles import ROLE_IMPLEMENTER
 from maestro.state import append_journal
 
 _PATHS = Paths.from_env()
@@ -99,7 +106,11 @@ def apply_ready_redo() -> None:
 # ── RUNNER (R9): resume/seed the rewrite, gate it, hand a passed branch to the merge
 # loop above. Ported verbatim from the reference's standalone scripts/maestro_redo.py. ──
 
-REDO_MODEL = "claude-sonnet-4-6"
+# `REDO_MODEL` used to live here, pinning `claude-sonnet-4-6`. The rewrite is implementer
+# work, so the model now comes from `roles.implementer`'s per-backend table.
+#: Thirty minutes. A rewrite is real work, not a judgment, so it gets its own budget
+#: rather than `agentcall.DEFAULT_TIMEOUT`.
+REDO_TIMEOUT = 1800
 LIMIT_HINT = ("hit your limit", "usage limit", "rate limit", "too many requests")
 RESUME_MISS = "no conversation found with session id"
 
@@ -188,15 +199,25 @@ def main() -> int:
         f"unchanged), and changelog (1-3 lines on what you fixed)."
     )
 
-    def run(extra_args: list[str], prompt: str) -> str:
-        try:
-            with open(log_path, "w", encoding="utf-8") as fh:
-                subprocess.run(["claude", "-p", "--model", REDO_MODEL, *extra_args, prompt],
-                               cwd=str(wt), stdout=fh, stderr=subprocess.STDOUT, timeout=1800)
-            return log_path.read_text(encoding="utf-8", errors="replace")
-        except subprocess.TimeoutExpired:
+    def run(resume_id: str, prompt: str) -> str:
+        """One agentic rewrite pass. Returns the run's whole transcript.
+
+        The transcript, not the answer: the caller scans it for the resume-miss notice and
+        for usage-limit wording, both of which only appear on a run that did not simply
+        succeed. The driver writes stdout+stderr to `log_path` — a sidecar deliberately
+        outside the worktree, so `git add -A` cannot commit it into the gated diff — and
+        that file is the transcript.
+        """
+        answer = agentcall.ask(
+            ROLE_IMPLEMENTER, prompt,
+            timeout=REDO_TIMEOUT, cwd=wt, resume_id=resume_id,
+            log_file=log_path, writable=True,
+        )
+        if answer.timed_out:
             return "(timed out after 30 min)"
-        except Exception as exc:
+        try:
+            return log_path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
             return f"(error: {exc})"
 
     brief_path = req.get("brief", "")
@@ -208,16 +229,16 @@ def main() -> int:
             brief_ctx = ""
 
     if uuid:
-        out = run(["--resume", uuid], framed)
+        out = run(uuid, framed)
         if not out or RESUME_MISS in out.lower():
             print(f"[redo] resume of {uuid} unusable — falling back to brief.", file=sys.stderr)
             seeded = (f"CONTEXT — the task brief you worked from:\n{brief_ctx}\n\n" + framed
                       if brief_ctx else framed)
-            out = run([], seeded)
+            out = run("", seeded)
     else:
         seeded = (f"CONTEXT — the task brief you worked from:\n{brief_ctx}\n\n" + framed
                   if brief_ctx else framed)
-        out = run([], seeded)
+        out = run("", seeded)
 
     if any(h in out.lower() for h in LIMIT_HINT) and "commit" not in out.lower():
         notify_telegram(f"⏳ Maestro /redo {task} aborted — Claude usage limit. Try /redo {dan_id or task} "

@@ -1402,6 +1402,40 @@ def test_apply_redo_journals_and_notifies_a_failed_merge(subject, sandbox, redo_
 
 
 @REDO
+def test_apply_redo_failed_merge_note_is_notebook_neutral_without_check_nb(
+    subject, sandbox, redo_env
+):
+    """B3: the merge-failure notify used to unconditionally claim 'The notebook was
+    re-uploaded' even on a project that ships no notebook at all. `sandbox` rebases
+    `CHECK_NB` under the sandbox repo, where nothing has created it — so
+    `confinement.available(CHECK_NB)` is False here, and the message must say nothing
+    about a notebook."""
+    assert not subject.CHECK_NB.exists()
+    redo_env.verdict = (False, "merge-time path gate failed: denied path touched: .env")
+    _ready(subject.REDO_DIR, "T1", task="T1", branch="redo-T1", worktree="/tmp/w")
+    subject.apply_ready_redo()
+    assert len(redo_env.notes) == 1
+    note = redo_env.notes[0]
+    assert "notebook" not in note.lower()
+    assert "manual review" in note
+
+
+@REDO
+def test_apply_redo_failed_merge_note_keeps_notebook_wording_when_check_nb_exists(
+    subject, sandbox, redo_env
+):
+    """Same gate, the other side: a project that DOES ship `scripts/check_notebook.py`
+    keeps the existing notebook-reupload wording unchanged."""
+    subject.CHECK_NB.parent.mkdir(parents=True, exist_ok=True)
+    subject.CHECK_NB.write_text("", encoding="utf-8")
+    redo_env.verdict = (False, "merge-time path gate failed: denied path touched: .env")
+    _ready(subject.REDO_DIR, "T1", task="T1", branch="redo-T1", worktree="/tmp/w")
+    subject.apply_ready_redo()
+    assert len(redo_env.notes) == 1
+    assert "notebook was re-uploaded" in redo_env.notes[0]
+
+
+@REDO
 def test_apply_redo_processes_every_ready_file_in_sorted_order(subject, sandbox, redo_env):
     _ready(subject.REDO_DIR, "b", task="T2", branch="redo-b")
     _ready(subject.REDO_DIR, "a", task="T1", branch="redo-a")
@@ -1681,7 +1715,8 @@ def test_main_skips_the_notebook_gate_when_the_manifest_and_fallback_both_miss(r
     rc = redo_case.run(req_path)
     assert rc == 0
     # The gate's own rejection text never fires — distinct from the success notify's
-    # unconditional "syntax-gated" phrasing, which says nothing about whether it ran.
+    # "syntax-gated" phrasing (on a CHECK_NB project), which says nothing about whether
+    # the gate actually ran.
     assert not any("still has syntax errors" in n for n in redo_case.notes)
     assert redo_case.ready_dir.exists()
     assert (redo_case.ready_dir / f"{payload['redo_id']}.ready.json").exists()
@@ -1752,6 +1787,55 @@ def test_main_notifies_on_a_successful_redo(redo_case):
     assert len(redo_case.notes) == 1
     assert "reworked" in redo_case.notes[0]
     assert "P1" in redo_case.notes[0]
+
+
+@REDO
+def test_main_success_notify_is_notebook_neutral_without_check_nb(redo_case):
+    """B3: the success notify used to unconditionally say '(syntax-gated, re-uploaded)'
+    and 'Re-run the Colab' on every project, notebook or not. `redo_runner_subject` never
+    rebases `CHECK_NB` off the real worktree repo, which ships no `scripts/check_notebook.py`
+    — so `confinement.available(CHECK_NB)` is False here, and the notify must read like a
+    plain reship with no notebook/Colab/Drive wording."""
+    assert not redo_case.subject.CHECK_NB.exists()
+    req_path, payload, _, _ = redo_case.write_request(task="P1")
+    redo_case.state["commits"] = "abc1234 redo(P1): fix"
+    redo_case.state["changed"] = ["docs/notes.md"]
+    rc = redo_case.run(req_path)
+    assert rc == 0
+    assert len(redo_case.notes) == 1
+    note = redo_case.notes[0]
+    assert "reworked" in note
+    for word in ("notebook", "colab", "drive"):
+        assert word not in note.lower()
+    assert "Review it, then /approve" in note
+
+
+@REDO
+def test_main_success_notify_keeps_notebook_wording_when_check_nb_exists(
+    redo_case, monkeypatch, tmp_path
+):
+    """Same gate, the other side: a project that DOES ship `scripts/check_notebook.py`
+    keeps the existing syntax-gated/re-uploaded/Colab wording unchanged."""
+    check_nb = tmp_path / "check_notebook.py"
+    check_nb.write_text("", encoding="utf-8")
+    monkeypatch.setattr(redo_case.subject, "CHECK_NB", check_nb)
+    req_path, payload, _, result_path = redo_case.write_request(task="P1")
+    redo_case.state["commits"] = "abc1234 redo(P1): fix"
+    redo_case.state["changed"] = ["colab/p1_train.ipynb"]
+    result_path.parent.mkdir(parents=True, exist_ok=True)
+    result_path.write_text(json.dumps({
+        "notebook_path": "colab/p1_train.ipynb",
+        "gdrive_dest": "",
+        "colab_link": "https://colab.research.google.com/drive/xyz",
+        "changelog": "Fixed the KeyError on cell 5.",
+    }), encoding="utf-8")
+    rc = redo_case.run(req_path)
+    assert rc == 0
+    assert len(redo_case.notes) == 1
+    note = redo_case.notes[0]
+    assert "syntax-gated, re-uploaded" in note
+    assert "Re-run the Colab" in note
+    assert "https://colab.research.google.com/drive/xyz" in note
 
 
 @REDO

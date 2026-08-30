@@ -46,6 +46,13 @@ Step 1, and say so instead of asking.
    today? If there's no eval harness yet (the common case — D8), say plainly that the gate is
    test-only for now rather than implying more rigor than exists. This becomes
    `docs/PROJECT.md`'s "What good looks like here" section.
+
+   `gate.chain` is the machine-readable half of that answer, and it is load-bearing: the smoke
+   step runs **only** when the chain names it. A fresh scaffold ships `chain: [test]` and an
+   `adapters/smoke` stub that returns `pass: false` on purpose ("not implemented" is not
+   "succeeded"), so leaving the chain alone is what stops a new project reverting every task it
+   completes. Add `smoke` to the chain in the same change that replaces the stub with a real
+   check, never before.
 2. **What's risky.** What should an autonomous task hesitate on even if it isn't a hard deny —
    production data paths, anything customer-facing, anything expensive to get wrong. This
    becomes `docs/PROJECT.md`'s "What's risky" section and seeds `project.yaml`'s `risky_set`.
@@ -59,7 +66,19 @@ Step 1, and say so instead of asking.
    run autonomously (`mode: autonomous`) or needs the operator (`mode: needs-dan`), and any
    dependency ordering between them. A fresh `init` scaffold ships with **zero** tasks on
    purpose — this interview is what actually populates the roadmap.
-5. **The upcoming-work glossary.** Domain vocabulary, abbreviations, or project-specific terms
+5. **What the deliverables are, and where they live.** Which directories hold the things this
+   project actually ships — a notebook folder, an export folder, a docs tree? This becomes
+   `project.yaml`'s `confinement.redo_allow`: the surface a `/redo` rewrite may touch when Dan
+   reports a problem with something the project shipped. The default is `[docs/]` on purpose —
+   maestro cannot guess where a project keeps deliverables, and a default that guessed wide would
+   let `/redo` rewrite files nobody nominated. **A project that skips this question has a `/redo`
+   that can only edit docs**; say so rather than leaving the operator to discover it.
+6. **The headline number, if there is one.** Does this project measure something a passing change
+   should be quoted against — an accuracy score, a latency, an error rate? This becomes
+   `gate.primary_metric`, the metric named first whenever maestro reports a merge. If there is no
+   eval harness yet (the common case on day one) the honest answer is "none yet": leave it
+   `null`, and maestro reports "no metrics" rather than inventing one.
+7. **The upcoming-work glossary.** Domain vocabulary, abbreviations, or project-specific terms
    maestro's phase reports and upcoming-work summaries should use consistently, so a human
    reading a report doesn't have to guess. This becomes `docs/PROJECT.md`'s "Glossary" section.
 
@@ -120,14 +139,26 @@ After `init` completes:
 1. Fill in `docs/PROJECT.md`'s "What this project is", "What good looks like here", "What's
    risky", and "Glossary" sections with the Step 2 answers (or edit the `.new` file and diff it
    in by hand if `init` didn't overwrite an existing one).
-2. Add the Step 2 deny-list answer to `project.yaml`'s `deny_list_extra`.
-3. Append the Step 3/4 task blocks to `docs/ROADMAP.md`.
-4. Run `maestro doctor` and resolve anything it flags before considering setup done.
+2. Add the Step 2 deny-list answer to `project.yaml`'s `deny_list_extra`. Note what that key
+   *is*: a list of **regular expressions matched against diff text**, not paths. Path-shaped
+   answers belong in `confinement.deny`, `secrets` or `prod_stores`, all of which are matched
+   against filenames.
+3. Fill in `confinement.redo_allow` from the deliverables answer and `gate.primary_metric` from
+   the headline-number answer. Leave `confinement.self_fix_allow` at its default
+   (`[adapters/, profiles/, docs/]`) unless the operator asks otherwise — it is the surface an
+   unattended self-fix may repair, and widening it widens what maestro may change about this
+   project's setup without being asked.
+4. Append the Step 3/4 task blocks to `docs/ROADMAP.md`.
+5. Run `maestro doctor` and resolve anything it flags before considering setup done.
 
 ## Step 6 — Report back
 
 Summarize what was written (which files, whether any were `.new` siblings needing a manual merge
 because something already existed), how many roadmap tasks were added and their `mode`, and
-whether `maestro doctor` came back clean. If Telegram wasn't configured because no token file was
+whether `maestro doctor` came back clean. State plainly which of these the project is
+starting *without*, rather than letting the operator find out at the first failure: no eval
+harness (`gate.chain: [test]`, so the smoke is skipped and merges are reported with "no
+metrics"), a `/redo` limited to whatever `confinement.redo_allow` names, and a self-fix
+limited to the scaffolding. If Telegram wasn't configured because no token file was
 found, say that plainly rather than silently skipping it — DESIGN.md D7's per-project token in
 `.env` is expected to be missing on a fresh project, not an error.

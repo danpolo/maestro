@@ -38,6 +38,70 @@ reconcile-stale-retry backend-defaulting inconsistency found this session. None 
 part of any stage's Done-when. `abuali-nightly-eval.timer` re-enables itself automatically now that
 `PROGRAMME-STATUS` reaches `COMPLETE`, per the 2026-08-11 operator resolution recorded below.
 
+**Post-programme session, 2026-08-30 — the pre-pilot decoupling pass.** Operator direction:
+close every gap that would bite a first non-reference project, and do all machine-level
+preparation, before any pilot. Five commits, suite green after each (**3085 collected,
+exit 0, 0 failures**, from 2962 with 77 failing at the session's start — the working tree held
+a half-finished `agentcall` refactor).
+
+| Change | Commit | What it settles |
+|---|---|---|
+| All six one-shot calls routed through the driver protocol | `59d2e11` | The M4 finding, closed. `KNOWN_DIRECT_CALL_SITES` is now empty. |
+| Eval surface decoupled from the reference project | `b899cb3` | **The pilot blocker** — see below. Wires `gate.primary_metric`. |
+| Autonomous-change surface read from `project.yaml` | `6c66514` | Self-fix and `/redo` path gates. Wires `prod_stores`. |
+| `thresholds:` wired; a typo no longer breaks the import | `aef77ef` | Wires `concurrency_cap`, `five_h_pause_pct`. |
+| Setup skill updated + installed on this machine | (this commit) | The interview now asks about the knobs that were wired. |
+
+**The pilot blocker, found and fixed.** `gates.SMOKE_ADAPTER` was `REPO/"adapters"/"smoke.py"`
+while `init` scaffolds `adapters/smoke` with **no extension** (`adapters.adapter_path`). On
+AbuAliArchive both files exist — `adapters/smoke.py` is its real retrieval smoke from June,
+`adapters/smoke` the stub `init` added in August — so the mismatch was invisible there. On any
+project scaffolded from the template the file did not exist, python exited non-zero, the smoke
+read as *failed*, and `merge_and_eval` reverted the merge and escalated a regression **for every
+task**. A pilot would have looked like maestro breaking everything it touched. `_run_smoke` now
+goes through `adapters.run_adapter` and treats `absent` as a skip; `_smoke_for_task` also
+consults `gate.chain`, which `doctor` had been reporting on while the loop ignored it.
+
+**Action required on AbuAliArchive before its next run.** Its `gate.chain` is `[test]`, so its
+smoke now *skips* instead of running `adapters/smoke.py`. To keep it: point `adapters/smoke` at
+that script and add `smoke` to the chain. It has been running a gate its own config said was off.
+
+**Four bugs fixed rather than pinned**, each previously recorded as characterisation-only:
+`lstrip("./")` laundered `../etc/passwd` into `etc/passwd` past both self-heal path gates; a
+bare-string `target_files` was iterated character by character; `secrets: ["**/*.pem"]` was
+reduced to a `*.pem` substring that matches no real filename; and `phase_report` raised
+`AttributeError` on a malformed `metrics`, after the merge had landed, so the work shipped and
+the operator was told nothing.
+
+**Machine-level preparation done (not project-specific).** `pip install -e .` refreshed the venv
+from 0.1.0 to 0.2.0 — it had **no `maestro` console script at all**, which `launch.sh` invokes by
+absolute path, so any scaffolded project's systemd unit would have failed to start.
+`maestro install-skills` has been run: `~/.claude/skills/maestro-setup/SKILL.md` and
+`~/.codex/prompts/maestro-setup.md` are current. The two skill files had drifted; they are
+regenerated from one source and a test now keeps them identical.
+
+**Still open — the next session's queue, in priority order:**
+
+1. **`/redo` is still notebook/Colab/rclone-shaped.** `selfheal/redo.py`'s prompt instructs the
+   agent about `scripts/check_notebook.py`, a `gdrive:` rclone remote and Colab links
+   unconditionally; `CHECK_NB` points at a script no scaffolded project has. The path gate is
+   decoupled, the *deliverable pipeline* is not.
+2. **`upcoming.GLOSSARY`** is 18 hardcoded retrieval terms (dense/sparse/RRF/Recall@5) in a
+   generic package. The setup skill already collects a glossary into `docs/PROJECT.md`; this
+   should read it from there.
+3. **`merge.py` leftovers.** `bot_files` defaults to `["main_bot.py"]` **and is not declared in
+   the template** — the mirror image of a dead knob, a live reader with no documented key.
+   `CANARY_DEPLOY` points at `REPO/scripts/canary_deploy.py` (the `deploy` adapter is the proper
+   seam). `_HARD_DENY_PATTERNS` carries a `restart_bot\.sh` exception. `RESUMABLE_MERGE_PREFIXES`
+   is `("data/", "docs/")`.
+4. **`SWITCH_THRESHOLD_PCT = 70.0`** is still hardcoded and uncalibrated (one real switch of
+   data). PROGRESS's standing note applies: if it is made configurable it becomes **one
+   window-agnostic knob**, never the per-window block that was removed.
+5. **`gate.baseline_source` / `gate.bands`** are the last two known-dead template keys. They
+   describe how to *score* a run against a baseline, and nothing consumes them — the gate still
+   only runs the chain and journals `unevaluated`. Wiring them is the D8 eval story, which is a
+   stage of its own, not a cleanup.
+
 **Post-programme session, 2026-08-21 — decoupling and the hardening backlog.** Operator direction:
 maestro is the generic product and must stand alone, with no connection to any one consuming project
 until it is deliberately pointed at one. Four changes, each its own commit, suite green after every

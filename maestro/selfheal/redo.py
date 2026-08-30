@@ -33,6 +33,12 @@ the confinement line was worse — it named a surface `project.yaml`'s `confinem
 redo_allow` had already superseded, so the prompt and the gate could disagree about what
 the agent was allowed to touch. `_redo_rules` now reads the real configured surface and
 only mentions the notebook workflow when `CHECK_NB` exists.
+
+That same `confinement.available(CHECK_NB)` gate was originally only on the *prompt* and
+the upload (`nb_rel and gdrive_dest`) — the operator-facing Telegram notifies still fired
+notebook/Colab/Drive wording unconditionally, on every project. Both message sites (the
+merge-failure notice in `apply_ready_redo` and the success notice at the end of `main`)
+are now gated the same way, following `implementer._make_prep_brief`'s worked example.
 """
 from __future__ import annotations
 
@@ -118,9 +124,13 @@ def apply_ready_redo() -> None:
                            cwd=str(REPO), capture_output=True)
         else:
             append_journal("redo_merge_failed", f"{branch} {detail}")
+            # Same gate `_redo_rules` uses to decide whether the RUNNER's prompt was
+            # notebook-shaped: a project with no `scripts/check_notebook.py` never asked
+            # the agent to upload anything, so the operator text shouldn't claim one was.
+            nb_note = (" The notebook was re-uploaded but the commit needs manual review."
+                       if confinement.available(CHECK_NB) else " The commit needs manual review.")
             notify_telegram(f"⚠ *Maestro* /redo branch `{branch}` failed the merge gate: "
-                            f"{detail}. The notebook was re-uploaded but the commit needs "
-                            f"manual review.")
+                            f"{detail}.{nb_note}")
         ready.unlink(missing_ok=True)
 
 
@@ -382,13 +392,25 @@ def main() -> int:
         "changed": changed, "changelog": changelog, "colab_link": colab_link,
     }), encoding="utf-8")
 
-    link_line = f"\n\n🔗 {colab_link}" if colab_link else ""
-    notify_telegram(
-        f"🔧 *Maestro* reworked `{task}` and reshipped it (syntax-gated, re-uploaded):\n\n"
-        f"{changelog[:500]}{link_line}\n\n"
-        f"The orchestrator will merge the change. Re-run the Colab, then /approve {dan_id or task} "
-        f"when it works — or /redo {dan_id or task} <message> again if it still breaks."
-    )
+    # Same gate `_redo_rules` used to shape the RUNNER's prompt (`confinement.
+    # available(CHECK_NB)`, the pattern `implementer._make_prep_brief` already follows):
+    # a project with no notebook deliverable gets a plain reship notice, not a claim
+    # about a syntax gate or a Drive re-upload that never ran.
+    if confinement.available(CHECK_NB):
+        link_line = f"\n\n🔗 {colab_link}" if colab_link else ""
+        notify_telegram(
+            f"🔧 *Maestro* reworked `{task}` and reshipped it (syntax-gated, re-uploaded):\n\n"
+            f"{changelog[:500]}{link_line}\n\n"
+            f"The orchestrator will merge the change. Re-run the Colab, then /approve {dan_id or task} "
+            f"when it works — or /redo {dan_id or task} <message> again if it still breaks."
+        )
+    else:
+        notify_telegram(
+            f"🔧 *Maestro* reworked `{task}` and reshipped it:\n\n"
+            f"{changelog[:500]}\n\n"
+            f"The orchestrator will merge the change. Review it, then /approve {dan_id or task} "
+            f"when it works — or /redo {dan_id or task} <message> again if it still breaks."
+        )
     return 0
 
 

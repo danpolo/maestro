@@ -291,6 +291,65 @@ def test_doctor_telegram_check_skips_cleanly_with_no_token_configured(tmp_path):
     assert check.ok
 
 
+def test_check_backends_probes_the_full_fallback_chain(monkeypatch):
+    """All-claude `roles:` plus `fallback_chain: [claude, codex]` — the scaffolded
+    template's actual shape (C5/G8) — must report the missing `codex` binary. Before this
+    fix, `_check_backends` only looked at names written in `roles:`, so a machine with no
+    `codex` binary passed `doctor` cleanly and the gap only surfaced later as a backend
+    switch that silently didn't happen.
+
+    `_probe_version` and `find_binaries` are stubbed rather than left to scan the real
+    `PATH` — per `maestro/backends/registry.py`'s docstring, no test may execute a real
+    agent CLI, and this one is about binary probing specifically."""
+    from maestro import cli
+    from maestro import config as _config
+    from maestro.backends import registry as backend_registry
+
+    cfg = {
+        "roles": {
+            "implementer": {"backend": "claude"},
+            "judge": {"backend": "claude"},
+            "diagnoser": {"backend": "claude"},
+        },
+        "fallback_chain": ["claude", "codex"],
+    }
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+    backend_registry.clear_binary_cache()
+    monkeypatch.setattr(backend_registry, "_probe_version", lambda path: "1.0.0")
+    monkeypatch.setattr(
+        backend_registry, "find_binaries",
+        lambda tool, path_env=None: [Path(f"/fake/bin/{tool}")] if tool == "claude" else [],
+    )
+
+    check = cli._check_backends(Path("/unused"))
+    assert not check.ok
+    assert "codex" in check.detail
+
+
+def test_check_backends_passes_when_every_chain_backend_is_present(monkeypatch):
+    """The companion green path: once `codex` is also on `PATH`, the same all-claude
+    `roles:` plus `fallback_chain: [claude, codex]` passes cleanly."""
+    from maestro import cli
+    from maestro import config as _config
+    from maestro.backends import registry as backend_registry
+
+    cfg = {
+        "roles": {"implementer": {"backend": "claude"}},
+        "fallback_chain": ["claude", "codex"],
+    }
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+    backend_registry.clear_binary_cache()
+    monkeypatch.setattr(backend_registry, "_probe_version", lambda path: "1.0.0")
+    monkeypatch.setattr(
+        backend_registry, "find_binaries",
+        lambda tool, path_env=None: [Path(f"/fake/bin/{tool}")],
+    )
+
+    check = cli._check_backends(Path("/unused"))
+    assert check.ok
+    assert "claude" in check.detail and "codex" in check.detail
+
+
 # ── status ──
 
 

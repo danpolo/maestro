@@ -241,6 +241,12 @@ def main() -> int:
         notify_telegram(f"⚠ Maestro self-fix {task}: worktree add failed: {(r.stderr or '')[:160]}")
         return 1
 
+    # The confinement rule below used to hardcode the reference project's own allow/deny
+    # list, the same way `SELF_FIX_PATHS`/`SELF_FIX_DENY` once did above — not a live bug,
+    # since `_self_fix_path_ok` gates the diff regardless of what the prompt says, but a
+    # self-fix agent on any other project was told about a surface that was not its own.
+    # `confinement.rules_prose` (shared with `selfheal/diagnose.py` and `selfheal/redo.py`)
+    # reads the same configured surface the gate itself checks.
     brief = (
         f"You are Maestro repairing your OWN orchestration code after task {task} failed. "
         f"Work ONLY inside this worktree: {wt}\n\n"
@@ -252,9 +258,8 @@ def main() -> int:
         f"RULES:\n"
         f"- Understand the ROOT CAUSE and fix it so this class of failure cannot recur — "
         f"do NOT just patch one symptom.\n"
-        f"- Make the MINIMAL change. Touch ONLY files under scripts/, orchestrator/, docs/.\n"
-        f"- NEVER touch main_bot.py, .env, data/, models/, scripts/watchdog.py, "
-        f"scripts/restart_bot.sh, or any .service file — these are the RAG bot runtime.\n"
+        f"- Make the MINIMAL change.\n"
+        f"- {confinement.rules_prose(confinement.SELF_FIX)}\n"
         f"- After editing, byte-compile every changed .py (python -m py_compile <file>).\n"
         f"- Commit inside the worktree: git add -A && git commit -m 'selffix({task}): <summary>'.\n"
         f"- Do NOT push, do NOT merge, do NOT restart anything."

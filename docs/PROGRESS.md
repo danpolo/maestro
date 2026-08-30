@@ -38,6 +38,26 @@ reconcile-stale-retry backend-defaulting inconsistency found this session. None 
 part of any stage's Done-when. `abuali-nightly-eval.timer` re-enables itself automatically now that
 `PROGRAMME-STATUS` reaches `COMPLETE`, per the 2026-08-11 operator resolution recorded below.
 
+**Post-programme session, 2026-08-30 — selffix's stale prompt + two code-review follow-ups
+closed.** `handoffs/2026-08-30_selffix-prompt-and-confinement-dedup.md`, baseline `65479cf`
+(the prior session's own "found, not fixed" note plus its two deliberately-deferred DRY
+follow-ups from the final review pass). Two commits, suite green after each.
+
+| Change | Commit | What it settles |
+|---|---|---|
+| `selffix.py`'s runner brief no longer hardcodes `"Touch ONLY files under scripts/, orchestrator/, docs/"` / `"NEVER touch main_bot.py, ..."`; `confinement.rules_prose(kind)` renders the real allow/deny surface, and `diagnose.py` and `redo.py`'s `_redo_rules` now call it too instead of each assembling its own copy | `f370a79` | Items 1 + 3 together (fixing item 1 from scratch and extracting the shared renderer would have meant touching `selffix.py`'s prompt twice). `redo.py`'s prompt used to omit the deny list entirely — it's now spelled out there like the other two. |
+| `implementer.py`'s `CHECK_NB`, `redo.py`'s `CHECK_NB`, and `merge.py`'s `CANARY_DEPLOY` all guard through one `confinement.available(path) -> bool` instead of each retyping `.is_file()` | `10b2c6b` | Item 2 (follow-up A) — the thinner of the two options the handoff laid out. The three `REPO / "scripts" / "..."` constants themselves stay exactly where they are; `tests/test_no_reference_sidecars.py` scans for that literal shape, so centralising the constant would make it invisible to that gate. |
+
+**Verification.** Suite green throughout: **3101 collected, exit 0, 0 failures** — unchanged
+from baseline, since this was prompt-text and dedup work, not new behaviour, and no test
+pinned any of the hardcoded strings being removed (`tests/characterization/test_selfheal.py`
+checked that an out-of-scope path like `main_bot.py` gets *rejected*, never the prompt text
+itself). `tests/test_no_reference_sidecars.py` still passes unchanged.
+`grep -n "main_bot.py\|RAG bot runtime" maestro/selfheal/selffix.py` now matches only the
+two pre-existing module-level comments documenting `SELF_FIX_PATHS`/`SELF_FIX_DENY`'s own
+earlier fix (unrelated to this session, predates it) — the runner's actual prompt text no
+longer names either.
+
 **Post-programme session, 2026-08-30 (second session) — pre-pilot decoupling, queue items
 1–4 closed.** Continued from the handoff below (`handoffs/2026-08-30_finish-the-generic-
 product-decoupling.md`), baseline `7ab3904`. Four commits, suite green after each

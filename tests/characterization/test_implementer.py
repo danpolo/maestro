@@ -919,17 +919,38 @@ def test_prep_brief_forbids_the_human_step(subject, sandbox, tmp_path):
 
 
 def test_prep_brief_ignores_needs_dan_and_resumable_flags(subject, sandbox, tmp_path):
-    """Pinned: the prep brief has no HITL/RESUMABLE sections at all.
-
-    It does carry an unrelated "CHECKPOINT-RESUMABLE" paragraph about notebooks, which is
-    unconditional and has nothing to do with the task's `resumable` flag.
-    """
+    """Pinned: the prep brief has no HITL/RESUMABLE sections at all, regardless of the
+    task's `mode`/`resumable` flags — those two flags only affect `_make_brief`."""
     brief = subject._make_prep_brief({**TASK, "mode": "needs-dan", "resumable": True},
                                      tmp_path / "ws", tmp_path / "wt")
     assert "HITL NOTE" not in brief
     assert RESUMABLE_HEADING not in brief
-    assert "CHECKPOINT-RESUMABLE" in \
-        subject._make_prep_brief(TASK, tmp_path / "ws", tmp_path / "wt")
+
+
+def test_prep_brief_omits_the_notebook_workflow_when_check_notebook_py_is_absent(
+    subject, sandbox, tmp_path
+):
+    """Was pinned the other way: the Colab/Drive/checkpoint-resumability paragraph used to
+    be unconditional, so a project with no notebook infrastructure at all was still told to
+    generate a Colab notebook and upload it to Drive. It's now gated on `CHECK_NB`
+    (`scripts/check_notebook.py`) — absent here, since `sandbox` never creates it, matching
+    every freshly scaffolded project."""
+    brief = subject._make_prep_brief(TASK, tmp_path / "ws", tmp_path / "wt")
+    assert "CHECKPOINT-RESUMABLE" not in brief
+    assert "gdrive" not in brief.lower()
+    assert "colab" not in brief.lower()
+    assert "docs/PROJECT.md" in brief
+
+
+def test_prep_brief_includes_the_notebook_workflow_when_check_notebook_py_exists(
+    subject, sandbox, tmp_path
+):
+    subject.CHECK_NB.parent.mkdir(parents=True, exist_ok=True)
+    subject.CHECK_NB.write_text("", encoding="utf-8")
+    brief = subject._make_prep_brief(TASK, tmp_path / "ws", tmp_path / "wt")
+    assert "CHECKPOINT-RESUMABLE" in brief
+    assert "gdrive" in brief.lower()
+    assert "check_notebook.py" in brief
 
 
 def test_prep_brief_ignores_the_verifications_block(subject, sandbox, tmp_path):

@@ -69,11 +69,14 @@ _ALLOW_KEYS: dict[str, str] = {
 }
 
 #: How each gate names itself in generated prose (`rules_prose`, below). Never matched by
-#: code — a third gate adds a label here in the same place it adds an allow-key.
+#: code — a third gate adds a label here in the same place it adds an allow-key. Asserted
+#: in sync with `_ALLOW_KEYS` so a kind added to one and not the other fails at import
+#: time (loud) rather than as prose that silently falls back to the raw `kind` string.
 _LABELS: dict[str, str] = {
     SELF_FIX: "self-fix",
     REDO: "/redo rewrite",
 }
+assert set(_LABELS) == set(_ALLOW_KEYS), "_LABELS and _ALLOW_KEYS must name the same kinds"
 
 #: What each gate may touch when `project.yaml` says nothing.
 #:
@@ -222,11 +225,21 @@ def rules_prose(kind: str, config: Optional[Mapping] = None) -> str:
     itself was never wrong (`path_ok` always read the real surface), but a prompt
     describing a surface that is not the agent's own is exactly the kind of mismatch this
     module exists to prevent.
+
+    The empty-allow-list case names the actual `confinement:` key to fix, the same detail
+    `redo.py`'s own hand-written fallback used to carry before this shared it — an
+    operator or the agent reading the prompt should not have to guess which key controls
+    it. `_LABELS[kind]`, not `.get`: an unrecognised `kind` here is a caller bug, and
+    should raise loudly rather than render a prompt naming the raw internal string.
     """
     allowed = allow_prefixes(kind, config)
     denied = deny_fragments(config)
-    label = _LABELS.get(kind, kind)
-    allow_str = ", ".join(allowed) if allowed else f"(nothing — {label} is disabled here)"
+    label = _LABELS[kind]
+    if allowed:
+        allow_str = ", ".join(allowed)
+    else:
+        allow_str = (f"(nothing — {label} is disabled here: confinement.{_ALLOW_KEYS[kind]} "
+                     f"is empty in project.yaml)")
     return (f"A {label} may only change files under: {allow_str}. "
             f"It must NEVER change: {', '.join(denied)}.")
 

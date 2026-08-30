@@ -13,6 +13,8 @@ which is the same seam `maestro.metrics` uses and the reason both are testable a
 """
 from __future__ import annotations
 
+import pathlib
+
 import pytest
 
 from maestro import confinement as c
@@ -181,3 +183,64 @@ def test_path_ok_reads_project_yaml_when_no_config_is_passed(monkeypatch):
                         lambda: {"confinement": {"redo_allow": ["exports/"]}})
     assert c.path_ok(["exports/a.csv"], kind=c.REDO) == (True, "ok")
     assert c.path_ok(["docs/a.md"], kind=c.REDO)[0] is False
+
+
+# ── rules_prose ──
+
+
+def test_rules_prose_names_the_configured_allow_and_deny_surface():
+    config = {"confinement": {"self_fix_allow": ["src/"]}, "secrets": [".env"]}
+    prose = c.rules_prose(c.SELF_FIX, config)
+    assert prose == (
+        "A self-fix may only change files under: src/. "
+        "It must NEVER change: .git/, .orchestrator/, .env."
+    )
+
+
+def test_rules_prose_names_the_actual_config_key_when_the_allow_list_is_empty():
+    """`self_fix_allow: []` is a deliberate 'no self-fix at all' — the prose says so by
+    kind label (`tests/characterization/test_selfheal.py` pins the substring "self-fix is
+    disabled here" for this exact case) and, past that, names the real `confinement:` key
+    an operator would edit to change it."""
+    prose = c.rules_prose(c.SELF_FIX, {"confinement": {"self_fix_allow": []}})
+    assert "self-fix is disabled here" in prose
+    assert "confinement.self_fix_allow is empty in project.yaml" in prose
+
+
+def test_rules_prose_uses_the_redo_label_and_key():
+    prose = c.rules_prose(c.REDO, {"confinement": {"redo_allow": []}})
+    assert "A /redo rewrite may only change files under:" in prose
+    assert "/redo rewrite is disabled here" in prose
+    assert "confinement.redo_allow is empty in project.yaml" in prose
+
+
+def test_rules_prose_rejects_an_unrecognised_kind_loudly():
+    """A typo'd `kind` should raise, the same way `_ALLOW_KEYS`'s own docstring wants a
+    typo to be a `KeyError`/`AttributeError` rather than a prompt naming a raw string."""
+    with pytest.raises(KeyError):
+        c.rules_prose("not-a-real-kind", SCAFFOLD)
+
+
+def test_rules_prose_reads_project_yaml_when_no_config_is_passed(monkeypatch):
+    monkeypatch.setattr(c, "load_project_yaml",
+                        lambda: {"confinement": {"redo_allow": ["exports/"]}})
+    assert "exports/" in c.rules_prose(c.REDO)
+
+
+# ── available ──
+
+
+def test_available_true_for_an_existing_file(tmp_path):
+    f = tmp_path / "check_notebook.py"
+    f.write_text("", encoding="utf-8")
+    assert c.available(f) is True
+
+
+def test_available_false_for_a_missing_file(tmp_path):
+    assert c.available(tmp_path / "nope.py") is False
+
+
+def test_available_false_for_a_directory():
+    """`.is_file()`, not `.exists()` — a directory shadowing the script's name must not
+    read as "the script is here"."""
+    assert c.available(pathlib.Path(__file__).parent) is False

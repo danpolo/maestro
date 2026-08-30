@@ -1529,8 +1529,10 @@ def merge_stubs(subject, monkeypatch):
         accepted=True,
         smoke={"metrics": {"recall_at_5": 0.91}},
         touches_bot_files=False,
+        canary_ok=True,
         merged=[], removed_from_state=[], removed_worktrees=[], graduated=[],
         phase_reports=[], regressions=[], dep_maps=[], statuses=[], finalized=[],
+        canary_deploys=[],
     )
 
     def merge_and_eval(entry):
@@ -1546,6 +1548,12 @@ def merge_stubs(subject, monkeypatch):
                         lambda tid: recorded.graduated.append(tid))
     monkeypatch.setattr(subject, "_touches_bot_files",
                         lambda branch: recorded.touches_bot_files)
+
+    def run_canary_deploy(task_id):
+        recorded.canary_deploys.append(task_id)
+        return recorded.canary_ok
+
+    monkeypatch.setattr(subject, "run_canary_deploy", run_canary_deploy)
     monkeypatch.setattr(subject, "phase_report",
                         lambda tid, task, smoke: recorded.phase_reports.append(tid))
     monkeypatch.setattr(subject, "park_regression",
@@ -1639,28 +1647,39 @@ def test_process_approve_says_smoke_skipped_when_the_task_reports_no_metrics(
 
 
 def test_process_approve_aborts_the_finalize_when_a_bot_file_canary_deploy_fails(
-    subject, sandbox, notifier, merge_stubs, monkeypatch, tmp_path
+    subject, sandbox, notifier, merge_stubs, tmp_path
 ):
+    """`run_canary_deploy` (maestro.merge) is the seam now — was a raw `subprocess.run`
+    this test faked by sniffing "canary" out of the argv, which broke the moment the call
+    moved to a different module's `subprocess` reference (see the sibling fix in
+    maestro.orchestrator)."""
     _put_roadmap(subject, sandbox, "id: P8B2\ntitle: Rebuild\n")
     merge_stubs.touches_bot_files = True
-
-    def run(*args, **kwargs):
-        cmd = args[0]
-        rc = 1 if any("canary" in str(part) for part in cmd) else 0
-        return subprocess.CompletedProcess(cmd, rc, "", "")
-
-    monkeypatch.setattr(subject, "subprocess", SimpleNamespace(
-        run=run, TimeoutExpired=subprocess.TimeoutExpired,
-        CalledProcessError=subprocess.CalledProcessError,
-        PIPE=subprocess.PIPE, DEVNULL=subprocess.DEVNULL))
+    merge_stubs.canary_ok = False
     _put_state(subject, sandbox, waiting_on_dan={"7": _parked_entry(tmp_path)})
 
     subject._process_approve("7", [])
 
+    assert merge_stubs.canary_deploys == ["P8B2"]
     assert merge_stubs.phase_reports == []
     assert "canary_reverted" in [e["event"] for e in _journal_events(subject, sandbox)]
     assert merge_stubs.dep_maps == [True] and merge_stubs.statuses == [True]
     assert not any("merged & accepted" in m for m in notifier)
+
+
+def test_process_approve_runs_the_phase_report_when_the_canary_deploy_passes(
+    subject, sandbox, notifier, merge_stubs, tmp_path
+):
+    _put_roadmap(subject, sandbox, "id: P8B2\ntitle: Rebuild\n")
+    merge_stubs.touches_bot_files = True
+    merge_stubs.canary_ok = True
+    _put_state(subject, sandbox, waiting_on_dan={"7": _parked_entry(tmp_path)})
+
+    subject._process_approve("7", [])
+
+    assert merge_stubs.canary_deploys == ["P8B2"]
+    assert merge_stubs.phase_reports == ["P8B2"]
+    assert "canary_reverted" not in [e["event"] for e in _journal_events(subject, sandbox)]
 
 
 def test_process_approve_parks_a_regression_when_the_merge_is_not_accepted(

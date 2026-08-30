@@ -25,6 +25,12 @@ from maestro.state import append_journal
 _PATHS = Paths.from_env()
 
 REPO                  = _PATHS.repo
+VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
+# `canary_deploy.py` is correctly project-owned (docs/plans/2026-08-18-m4c-superseded-
+# sidecars.md §2b: "how to ship", not one of the M5-superseded scripts maestro extracts —
+# see the documented exception in tests/test_no_reference_sidecars.py). Nothing scaffolds
+# one, though, so `run_canary_deploy` below checks for it rather than assuming it exists.
+CANARY_DEPLOY         = REPO / "scripts" / "canary_deploy.py"
 
 # Every name below is owned by a module that sits *after* this one in the M1 extraction
 # order, so a top-level import would invert an edge those modules already depend on.
@@ -55,8 +61,11 @@ def _diff_files(branch: str) -> list[str]:
 
 # ── B6: Deny-list guard ──
 
+# The `sudo` pattern below used to also exempt `restart_bot.sh` by name — a reference
+# project's own script, so the carve-out could only ever fire on that one repo. The
+# `systemctl` exemption is generic (any project's service manager) and stays.
 _HARD_DENY_PATTERNS = [
-    r"\bsudo\b(?!.*restart_bot\.sh)(?!.*systemctl\b)",
+    r"\bsudo\b(?!.*systemctl\b)",
     r"git\s+push\s+.*--force",
     r"git\s+push\s+-f\b",
     r"DROP\s+TABLE",
@@ -158,11 +167,38 @@ def sonnet_risky_reviewer(branch: str, task_id: str) -> tuple[bool, str]:
 
 
 def _touches_bot_files(branch: str) -> bool:
-    """Return True if branch diff includes any bot_files from project.yaml."""
+    """Return True if branch diff includes any bot_files from project.yaml.
+
+    The inline default is `[]`, not a guess at a filename: `bot_files` names a live
+    process's source (canary-deployed on a merge, hard-stopped on the resumable path
+    below), and a project maestro has just been pointed at may not run a bot at all.
+    Guessing `main_bot.py` meant a project that never declared this key got it treated as
+    though it had — the same silently-widened-default class of bug `confinement.py`
+    documents for the self-fix/redo path gates.
+    """
     proj = _load_project_yaml()
-    bot_files = proj.get("bot_files", ["main_bot.py"])
+    bot_files = proj.get("bot_files", [])
     changed = _diff_files(branch)
     return any(any(bf in f for bf in bot_files) for f in changed)
+
+
+def run_canary_deploy(task_id: str) -> bool:
+    """Canary-deploy `task_id`'s just-merged change, for a project that has bot_files.
+
+    `absent is a skip, not a failure` — the same fix `gates._run_smoke` got this session
+    for the identical bug: nothing scaffolds `scripts/canary_deploy.py` (it is correctly
+    project-owned, not maestro's to template), so calling it unconditionally meant python
+    exited non-zero on any project that had not written one, which both call sites
+    (`orchestrator.py`'s completion handler and `hitl/commands.py`'s `/approve`) read as a
+    *failed* deploy — skipping the phase report and journaling `canary_reverted` for a
+    deploy that was never attempted, on a merge that had already landed. `bot_files`
+    defaulting to `[]` (see `_touches_bot_files`) kept this invisible until a project
+    actually declares one.
+    """
+    if not CANARY_DEPLOY.is_file():
+        return True
+    return subprocess.run([str(VENV_PYTHON), str(CANARY_DEPLOY), task_id],
+                          cwd=str(REPO), capture_output=True).returncode == 0
 
 
 def _git_head(short: bool = False) -> str:
@@ -395,7 +431,10 @@ def _merge_prep_branch(entry: dict) -> tuple[bool, str]:
 
 # ── INCOMPLETE / resumable (multi-day, quota-bound) task handling ──
 
-RESUMABLE_MERGE_PREFIXES  = ("data/", "docs/")  # paths a resumable sitting may auto-merge (no eval): data artifacts + docs (can't affect the pipeline)
+# Left as a constant rather than a project.yaml knob: unlike `bot_files` above, nothing
+# here names the reference project — "data/" and "docs/" are the two categories any
+# project's build can usually change without an eval (data artifacts; documentation).
+RESUMABLE_MERGE_PREFIXES  = ("data/", "docs/")  # paths a resumable sitting may auto-merge, no eval
 # Orchestrator runtime + prod-critical files that must NEVER auto-merge on the no-eval
 # resumable path, even with Opus approval — a bad change here can brick the loop or prod.
 # (risky_set / bot_files from project.yaml are added to this set at check time.)
@@ -545,7 +584,7 @@ def _resumable_code_change_escalation(entry: dict, task_id: str) -> tuple[bool, 
     # ── Deterministic hard-stop: these never reach Opus, always go to Dan ──
     proj  = _load_project_yaml()
     risky = proj.get("risky_set", [])
-    bot   = proj.get("bot_files", ["main_bot.py"])
+    bot   = proj.get("bot_files", [])
     blocked = [p for p in out
                if p in _RESUMABLE_HARD_STOP
                or any(r in p for r in risky)

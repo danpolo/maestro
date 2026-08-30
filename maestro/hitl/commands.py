@@ -46,7 +46,7 @@ from maestro.hitl.telegram import (
 )
 from maestro.implementer import _answer_choice, _question_req_id, _task_questions
 from maestro import metrics
-from maestro.merge import _touches_bot_files, merge_and_eval
+from maestro.merge import _touches_bot_files, merge_and_eval, run_canary_deploy
 from maestro.paths import Paths
 from maestro.pending import deferred
 from maestro.quota import _elapsed_min, _elapsed_str, _fmt_min, _parse_est_minutes
@@ -61,7 +61,8 @@ REPO                  = _PATHS.repo
 WORKSPACES            = _PATHS.workspaces
 HALT_FILE             = REPO / ".orchestrator" / "HALT"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
-CANARY_DEPLOY         = REPO / "scripts" / "canary_deploy.py"
+# `CANARY_DEPLOY` used to live here; `run_canary_deploy` (maestro.merge) now owns the
+# path and the absent-is-a-skip guard, shared with `orchestrator.py`'s identical call.
 DIAGNOSES_DIR         = REPO / ".orchestrator" / "diagnoses"
 REDO_DIR              = REPO / ".orchestrator" / "redo"
 
@@ -489,11 +490,7 @@ def _process_approve(dan_id_str: str, in_flight: list) -> None:
                        cwd=str(REPO), capture_output=True)
         branch = entry.get("branch", "")
         if branch and _touches_bot_files(branch):
-            canary_ok = subprocess.run(
-                [str(VENV_PYTHON), str(CANARY_DEPLOY), task_id],
-                cwd=str(REPO), capture_output=True,
-            ).returncode == 0
-            if not canary_ok:
+            if not run_canary_deploy(task_id):
                 append_journal("canary_reverted", f"{task_id} canary deploy failed")
                 run_dep_map(); run_status()
                 return

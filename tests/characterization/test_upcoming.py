@@ -345,6 +345,36 @@ def test_project_glossary_derives_aliases_from_a_parenthetical(up):
     assert set(entry["aliases"]) >= {"rrf", "reciprocal rank fusion"}
 
 
+def test_project_glossary_accepts_an_en_dash_separator(up):
+    up.PROJECT_DOC.parent.mkdir(parents=True, exist_ok=True)
+    up.PROJECT_DOC.write_text("## Glossary\n\n- **Term** – definition\n", encoding="utf-8")
+    [entry] = up._project_glossary()
+    assert entry["definition"] == "definition"
+
+
+def test_project_glossary_consumes_a_double_hyphen_separator_whole(up):
+    """A `--` ASCII em-dash substitute must not leave a stray leading "-" in the
+    captured definition."""
+    up.PROJECT_DOC.parent.mkdir(parents=True, exist_ok=True)
+    up.PROJECT_DOC.write_text("## Glossary\n\n- **Term** -- definition\n", encoding="utf-8")
+    [entry] = up._project_glossary()
+    assert entry["definition"] == "definition"
+
+
+def test_project_glossary_survives_undecodable_bytes(up):
+    up.PROJECT_DOC.parent.mkdir(parents=True, exist_ok=True)
+    up.PROJECT_DOC.write_bytes(b"\xff\xfe not valid utf-8")
+    assert up._project_glossary() == []
+
+
+def test_term_aliases_does_not_straddle_a_second_parenthetical(up):
+    """A second, unrelated parenthetical shouldn't garble the alias derived from the
+    first — `head` may still include it verbatim, but `paren` is just the last group."""
+    aliases = up._term_aliases("RRF (Reciprocal Rank Fusion) (retrieval)")
+    assert "reciprocal rank fusion) (retrieval" not in aliases
+    assert "retrieval" in aliases
+
+
 def test_detect_terms_matches_alias_case_insensitively(up):
     _write_glossary(up, ("RRF (Reciprocal Rank Fusion)", "Merges ranked lists."))
     terms = up.detect_terms("This task improves RRF fusion between legs.")
@@ -764,6 +794,27 @@ def test_render_omits_the_glossary_section_when_none_is_defined(up):
     all now, not an empty one."""
     text = up.render([], {}, set(), {}, {})
     assert "## Glossary" not in text
+
+
+def test_render_reads_the_project_glossary_exactly_once(up, monkeypatch):
+    """`render()` used to call `detect_terms()` (→ `_project_glossary()`, a fresh
+    docs/PROJECT.md read + reparse) once per pending task, plus once more for the central
+    glossary — N+1 reads per render() call for a file that never changes mid-call. It now
+    fetches once and threads the result through."""
+    _write_glossary(up, ("RRF (Reciprocal Rank Fusion)", "Merges ranked lists."))
+    calls = []
+    real = up._project_glossary()  # prime, then wrap the counted call
+
+    def counted():
+        calls.append(1)
+        return real
+
+    monkeypatch.setattr(up, "_project_glossary", counted)
+    tasks = [_task(id="T1", short_desc="Improve RRF fusion"),
+             _task(id="T2", short_desc="Improve RRF fusion again"),
+             _task(id="T3", short_desc="unrelated")]
+    up.render(tasks, {}, set(), {}, {})
+    assert len(calls) == 1
 
 
 def test_render_deep_brief_link_when_detail_path_known(up):

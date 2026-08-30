@@ -140,8 +140,13 @@ def test_the_setup_interview_covers_every_knob_a_project_must_choose():
     surface or a metric is exactly the kind of thing `init` cannot derive — which is what
     this skill exists for. `gate.chain` is here because leaving it alone is what keeps a
     new project from reverting every task it completes, and that has to be said out loud.
+    `bot_files` was added the same day, in the same session that changed its default from
+    a guessed `["main_bot.py"]` to an honest `[]`: unlike `self_fix_allow`'s default (a
+    genuinely safe narrow surface), an unset `bot_files` on a project that actually runs
+    one silently loses the canary-deploy and hard-stop protections keyed to it, so this
+    one needs an explicit ask, not a "leave at default" footnote.
     """
     text = _read(CLAUDE_SKILL)
     for knob in ("confinement.redo_allow", "gate.primary_metric", "gate.chain",
-                 "confinement.self_fix_allow"):
+                 "confinement.self_fix_allow", "bot_files"):
         assert knob in text, f"the setup interview never mentions {knob}"

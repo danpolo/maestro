@@ -161,6 +161,15 @@ def _cleanup(wt: Path, branch: str) -> None:
     _run_git(["branch", "-D", branch])
 
 
+def _and_join(items: list[str]) -> str:
+    """`", ".join` with "and" before the last item: `["a"]` -> "a",
+    `["a", "b", "c"]` -> "a, b, and c". Used to phrase the manifest's key list without
+    string-splicing a value onto its own prior contents."""
+    if len(items) < 2:
+        return items[0] if items else ""
+    return ", ".join(items[:-1]) + f", and {items[-1]}"
+
+
 def _redo_rules(task: str, result_path: Path, wt: Path) -> str:
     """The RULES block of the RUNNER's prompt, sized to what this project actually ships.
 
@@ -176,7 +185,9 @@ def _redo_rules(task: str, result_path: Path, wt: Path) -> str:
     allow_str = ", ".join(allow) if allow else (
         "(none — confinement.redo_allow is empty in project.yaml)"
     )
-    manifest_fields = "changelog (1-3 lines on what you fixed)"
+    # A list joined once at the end, not a string built up by splicing onto its own prior
+    # value — so a future field can be added or reordered without redoing string surgery.
+    manifest_field_descriptions = ["changelog (1-3 lines on what you fixed)"]
 
     rules = [
         "- Rewrite the deliverable PROPERLY. You are NOT limited to minimal diffs — if "
@@ -193,11 +204,12 @@ def _redo_rules(task: str, result_path: Path, wt: Path) -> str:
             "originally so Dan's existing Colab link keeps working (the `gdrive:` "
             "rclone remote works headlessly)."
         )
-        manifest_fields = (
-            f"notebook_path (repo-relative, e.g. colab/{task.lower()}_train.ipynb), "
-            "gdrive_dest (the full rclone dest you uploaded to), colab_link (the Colab "
-            "URL — same as before if unchanged), and " + manifest_fields
-        )
+        manifest_field_descriptions = [
+            f"notebook_path (repo-relative, e.g. colab/{task.lower()}_train.ipynb)",
+            "gdrive_dest (the full rclone dest you uploaded to)",
+            "colab_link (the Colab URL — same as before if unchanged)",
+            *manifest_field_descriptions,
+        ]
     else:
         rules.append(
             "- VALIDATE your fix using this project's normal verification process "
@@ -218,7 +230,7 @@ def _redo_rules(task: str, result_path: Path, wt: Path) -> str:
         "- Do NOT push, do NOT merge, do NOT restart anything.",
         f"- FINALLY, write the result manifest to {result_path} (an absolute path "
         f"OUTSIDE this worktree — do NOT create it inside {wt}) with keys: "
-        f"{manifest_fields}.",
+        f"{_and_join(manifest_field_descriptions)}.",
     ]
     return "\n".join(rules)
 

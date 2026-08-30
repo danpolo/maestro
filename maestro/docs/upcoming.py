@@ -107,7 +107,11 @@ REFRESH_TIMEOUT = 240
 
 _GLOSSARY_HEADING = re.compile(r"^##\s+Glossary\s*$", re.MULTILINE)
 _NEXT_HEADING = re.compile(r"^##\s+", re.MULTILINE)
-_GLOSSARY_BULLET = re.compile(r"^\s*-\s*\*\*(.+?)\*\*\s*[—-]\s*(\S.*)$")
+# The separator is one or more dash-like characters: an em dash (the render/template
+# convention), an en dash, or plain ASCII hyphen(s) — `+` so a `--` substitute (common
+# when an editor doesn't autocorrect to an em dash) is consumed whole rather than leaving
+# a stray leading "-" in the captured definition.
+_GLOSSARY_BULLET = re.compile(r"^\s*-\s*\*\*(.+?)\*\*\s*[—–-]+\s*(\S.*)$")
 
 
 def _term_aliases(term: str) -> list[str]:
@@ -116,11 +120,14 @@ def _term_aliases(term: str) -> list[str]:
     A human writing `docs/PROJECT.md`'s Glossary tends to spell an abbreviation out once,
     e.g. "RRF (Reciprocal Rank Fusion)" — so the whole term, the part before the
     parenthetical, and the part inside it all become aliases. A term with no parenthetical
-    (e.g. "MaxSim") just gets itself, lowercased.
+    (e.g. "MaxSim") just gets itself, lowercased. The parenthetical itself excludes further
+    parens (`[^()]*`), so a second, unrelated parenthetical later in the term (rare, but
+    "Term (A) (B)") is left out of `head` and `paren` don't straddle it — `head` simply
+    keeps whatever preceded the last one, `paren` is just that last group.
     """
     low = term.strip().lower()
     aliases = [low]
-    m = re.match(r"^(.*?)\s*\((.*)\)\s*$", term.strip())
+    m = re.match(r"^(.*?)\s*\(([^()]*)\)\s*$", term.strip())
     if m:
         head, paren = m.group(1).strip().lower(), m.group(2).strip().lower()
         aliases += [head, paren]
@@ -137,7 +144,7 @@ def _project_glossary() -> list[dict]:
     """
     try:
         text = PROJECT_DOC.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return []
     heading = _GLOSSARY_HEADING.search(text)
     if not heading:
@@ -297,11 +304,19 @@ def get_prose(task: dict, cache: dict) -> dict:
     }
 
 
-def detect_terms(text: str) -> list[dict]:
+def detect_terms(text: str, glossary: list[dict] | None = None) -> list[dict]:
     """Glossary entries whose aliases appear in `text` (case-insensitive),
-    preserving glossary order."""
+    preserving glossary order.
+
+    `glossary` lets a caller that iterates many texts (`render`'s per-task loop) fetch
+    `_project_glossary()` once and pass it through, rather than re-reading and re-parsing
+    `docs/PROJECT.md` for every task. Defaults to a fresh fetch so every other caller (and
+    every existing test) keeps working unchanged.
+    """
+    if glossary is None:
+        glossary = _project_glossary()
     low = text.lower()
-    return [g for g in _project_glossary() if any(a in low for a in g["aliases"])]
+    return [g for g in glossary if any(a in low for a in g["aliases"])]
 
 
 # ── Opus refresh path (--refresh-explanations) ──
@@ -425,6 +440,9 @@ def render(tasks: list[dict], state: dict, completed: set[str],
            detail_paths: dict[str, str], cache: dict) -> str:
     pending = [t for t in tasks if t["id"] not in completed]
     pending_ids = {t["id"] for t in pending}
+    # Fetched once: every task below calls detect_terms, and re-reading/re-parsing
+    # docs/PROJECT.md per task (instead of once per render() call) was pure overhead.
+    glossary = _project_glossary()
 
     lines: list[str] = []
     lines.append("# Upcoming Work — Plain-English Guide")
@@ -488,7 +506,7 @@ def render(tasks: list[dict], state: dict, completed: set[str],
             title, str(t.get("short_desc", "")),
             prose["what_why"], prose["pipeline_fit"],
         ])
-        terms = detect_terms(searchable)
+        terms = detect_terms(searchable, glossary)
         if terms:
             lines.append("<details><summary>📖 Terms in this task</summary>")
             lines.append("")
@@ -508,7 +526,6 @@ def render(tasks: list[dict], state: dict, completed: set[str],
 
     # Central glossary — omitted entirely for a project that hasn't filled in
     # docs/PROJECT.md's Glossary section yet, rather than an empty heading.
-    glossary = _project_glossary()
     if glossary:
         lines.append("## Glossary")
         lines.append("")

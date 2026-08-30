@@ -307,20 +307,61 @@ def test_get_prose_falls_back_when_there_is_no_cache_entry(up):
 
 
 # ===========================================================================================
-# detect_terms
+# _project_glossary / detect_terms
+#
+# 2026-08-30 (pre-pilot decoupling): GLOSSARY was a hardcoded module-level list of 18
+# reference-project retrieval terms (RRF, MaxSim, SigLIP-2, ...). It is now
+# `_project_glossary()`, parsed fresh from `docs/PROJECT.md`'s "## Glossary" section, so
+# every test below writes its own PROJECT.md instead of relying on the old fixed content —
+# the mechanism (alias derivation, order, substring matching) is what's pinned, not any
+# particular term.
 # ===========================================================================================
 
+def _write_glossary(up, *entries: tuple[str, str]) -> None:
+    """Write `docs/PROJECT.md` with a "## Glossary" section of `(term, definition)`
+    bullets — the shape `_project_glossary` parses."""
+    lines = ["## Glossary", ""]
+    for term, definition in entries:
+        lines.append(f"- **{term}** — {definition}")
+    up.PROJECT_DOC.parent.mkdir(parents=True, exist_ok=True)
+    up.PROJECT_DOC.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_project_glossary_is_empty_without_a_project_doc(up):
+    assert up._project_glossary() == []
+
+
+def test_project_glossary_is_empty_without_a_glossary_heading(up):
+    up.PROJECT_DOC.parent.mkdir(parents=True, exist_ok=True)
+    up.PROJECT_DOC.write_text("## What this project is\n\nSome prose.\n", encoding="utf-8")
+    assert up._project_glossary() == []
+
+
+def test_project_glossary_derives_aliases_from_a_parenthetical(up):
+    _write_glossary(up, ("RRF (Reciprocal Rank Fusion)", "Merges ranked lists."))
+    [entry] = up._project_glossary()
+    assert entry["term"] == "RRF (Reciprocal Rank Fusion)"
+    assert entry["definition"] == "Merges ranked lists."
+    assert set(entry["aliases"]) >= {"rrf", "reciprocal rank fusion"}
+
+
 def test_detect_terms_matches_alias_case_insensitively(up):
+    _write_glossary(up, ("RRF (Reciprocal Rank Fusion)", "Merges ranked lists."))
     terms = up.detect_terms("This task improves RRF fusion between legs.")
     assert any(g["term"] == "RRF (Reciprocal Rank Fusion)" for g in terms)
 
 
 def test_detect_terms_returns_empty_list_when_nothing_matches(up):
+    _write_glossary(up, ("RRF (Reciprocal Rank Fusion)", "Merges ranked lists."))
     assert up.detect_terms("Completely unrelated infrastructure cleanup.") == []
 
 
 def test_detect_terms_preserves_glossary_order_not_mention_order(up):
-    # MaxSim is mentioned first in the text but sits *after* RRF in GLOSSARY.
+    # MaxSim is mentioned first in the text but sits *after* RRF in the glossary.
+    _write_glossary(up,
+        ("RRF (Reciprocal Rank Fusion)", "Merges ranked lists."),
+        ("MaxSim", "ColBERT's scoring rule."),
+    )
     text = "Tune MaxSim scoring; also touches RRF."
     terms = [g["term"] for g in up.detect_terms(text)]
     assert terms == ["RRF (Reciprocal Rank Fusion)", "MaxSim"]
@@ -328,9 +369,12 @@ def test_detect_terms_preserves_glossary_order_not_mention_order(up):
 
 def test_detect_terms_false_positive_on_substring_of_an_unrelated_word(up):
     """FOUND_BUGS #183: alias matching is an unanchored substring test, not a word-boundary
-    match. "supervision" contains the SigLIP-2 alias "vision"."""
+    match — pinned here with a synthetic "Vision" term rather than the old hardcoded
+    "SigLIP-2 (image embeddings)" one, since "supervision" contains "vision" regardless of
+    which glossary defines it."""
+    _write_glossary(up, ("Vision", "A term whose alias collides with an unrelated word."))
     terms = up.detect_terms("Add supervision to the watchdog restart loop.")
-    assert any(g["term"] == "SigLIP-2 (image embeddings)" for g in terms)
+    assert any(g["term"] == "Vision" for g in terms)
 
 
 # ===========================================================================================
@@ -689,6 +733,7 @@ def test_render_your_move_callout_absent_when_no_action(up):
 
 
 def test_render_terms_box_present_when_terms_are_detected(up):
+    _write_glossary(up, ("RRF (Reciprocal Rank Fusion)", "Merges ranked lists."))
     tasks = [_task(id="T1", short_desc="Improve RRF fusion of the legs")]
     text = up.render(tasks, {}, set(), {}, {})
     assert "<details><summary>📖 Terms in this task</summary>" in text
@@ -696,15 +741,29 @@ def test_render_terms_box_present_when_terms_are_detected(up):
 
 
 def test_render_terms_box_absent_when_no_terms_detected(up):
+    _write_glossary(up, ("RRF (Reciprocal Rank Fusion)", "Merges ranked lists."))
     tasks = [_task(id="T1", short_desc="unrelated repo cleanup")]
     text = up.render(tasks, {}, set(), {}, {})
     assert "Terms in this task" not in text
 
 
 def test_render_glossary_lists_every_term_once_in_order(up):
+    _write_glossary(up,
+        ("RRF (Reciprocal Rank Fusion)", "Merges ranked lists."),
+        ("MaxSim", "ColBERT's scoring rule."),
+    )
     text = up.render([], {}, set(), {}, {})
-    for g in up.GLOSSARY:
+    for g in up._project_glossary():
         assert f"- **{g['term']}** — {g['definition']}" in text.splitlines()
+
+
+def test_render_omits_the_glossary_section_when_none_is_defined(up):
+    """Was pinned the other way: `## Glossary` used to render unconditionally, with 18
+    reference-project entries under it even for a task list that used none of them. A
+    project that hasn't filled in docs/PROJECT.md's Glossary section gets no section at
+    all now, not an empty one."""
+    text = up.render([], {}, set(), {}, {})
+    assert "## Glossary" not in text
 
 
 def test_render_deep_brief_link_when_detail_path_known(up):

@@ -58,7 +58,7 @@ from maestro import roles
 from maestro.backends import registry
 from maestro.backends.base import Handle, LaunchSpec, Usage
 from maestro.hitl.telegram import notify_telegram
-from maestro.implementer import SYS_PROMPT
+from maestro.implementer import SYS_PROMPT, brief_with_profile
 from maestro.paths import Paths
 from maestro.state import append_journal, now_iso, read_state, write_state
 from maestro.worktree import _kill_tmux_window, tmux_window_exists, worktree_path_for
@@ -857,7 +857,7 @@ def switch_task(
             task_id=task_id,
             session_id=new_session_id,
             model=roles.model_for(role_name, target, config=config) or "",
-            brief=brief,
+            brief=brief_with_profile(brief, capabilities.system_prompt_file, SYS_PROMPT),
             workspace=new_workspace,
             worktree=path,
             system_prompt_file=SYS_PROMPT if capabilities.system_prompt_file else None,

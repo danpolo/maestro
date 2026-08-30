@@ -695,6 +695,17 @@ def test_make_brief_declares_the_result_and_sentinel_contract(subject, sandbox, 
         assert token in brief
 
 
+def test_make_brief_always_carries_the_switch_sentinel_contract(subject, sandbox, tmp_path):
+    """A3 belt-and-braces: the SWITCH-sentinel/checkpoint contract must reach the
+    implementer even when no profile file exists at all — `profiles/implementer.md`
+    (SYS_PROMPT) is optional scaffold text, so it cannot be the only carrier of a safety
+    mechanism. `_make_brief` appends `SWITCH_SENTINEL_CONTRACT` unconditionally."""
+    assert not subject.SYS_PROMPT.exists()
+    brief = subject._make_brief(TASK, tmp_path / "ws", tmp_path / "wt")
+    assert subject.SWITCH_SENTINEL_CONTRACT in brief
+    assert "SWITCH" in subject.SWITCH_SENTINEL_CONTRACT
+
+
 def test_make_brief_defaults_the_title_to_the_task_id(subject, sandbox, tmp_path):
     brief = subject._make_brief({"id": "T9"}, tmp_path / "ws", tmp_path / "wt")
     assert "T9: T9" in brief
@@ -1187,6 +1198,71 @@ def test_launch_implementer_passes_the_system_prompt_when_present(
     argv = _agent_argv(out.workspace / "launch.py")
     assert argv[6:8] == ["--system-prompt-file", str(subject.SYS_PROMPT)]
     assert argv[-1] == "<brief>"
+
+
+def test_sys_prompt_matches_what_init_actually_scaffolds(subject, sandbox):
+    """A3: `cli.cmd_init` scaffolds every `templates/profiles/*.md` to
+    `<repo>/profiles/<name>.md` (cli.py's per-profile loop, ~398-406) — SYS_PROMPT must
+    resolve to that same relative path, not some other consuming project's own layout
+    (a previous bug pointed it at a path only one particular project happened to have).
+    Reads `maestro.cli` only for its `TEMPLATES_DIR` constant; never calls `cmd_init`."""
+    from maestro.cli import TEMPLATES_DIR
+
+    template = TEMPLATES_DIR / "profiles" / "implementer.md"
+    assert template.is_file(), "the scaffolded template itself must exist"
+    assert subject.SYS_PROMPT == subject.REPO / "profiles" / template.name
+
+
+def test_launch_implementer_folds_the_profile_into_the_brief_when_the_backend_cannot_take_a_file(
+    subject, sandbox, monkeypatch
+):
+    """A3: `codex`'s `capabilities().system_prompt_file` is False (backends/codex.py) — the
+    profile text must ride along inside the brief handed to the driver instead of silently
+    being dropped, the way it was before this fix (`--system-prompt-file` simply never
+    offered, and nothing carried the file's content anywhere else)."""
+    monkeypatch.setattr(registry, "resolve_binary", lambda *args, **kwargs: None)
+    _configure_backend(sandbox, "codex")
+    subject.SYS_PROMPT.parent.mkdir(parents=True, exist_ok=True)
+    subject.SYS_PROMPT.write_text("PROFILE-TEXT-MARKER\n", encoding="utf-8")
+
+    out = _launch(subject, sandbox, monkeypatch)
+    pure_brief = subject._make_brief(TASK, out.workspace, out.worktree)
+    argv = _agent_argv(out.workspace / "launch.py")
+
+    assert "--system-prompt-file" not in argv  # codex still never offered the file itself
+    sent_brief = argv[-1]
+    assert sent_brief.startswith("PROFILE-TEXT-MARKER")
+    assert pure_brief in sent_brief
+    assert sent_brief.index("PROFILE-TEXT-MARKER") < sent_brief.index(pure_brief)
+
+
+# ===================================================================================
+# brief_with_profile
+# ===================================================================================
+
+
+def test_brief_with_profile_passes_through_unchanged_when_the_capability_is_offered(
+    subject, sandbox
+):
+    subject.SYS_PROMPT.parent.mkdir(parents=True, exist_ok=True)
+    subject.SYS_PROMPT.write_text("a profile", encoding="utf-8")
+    assert subject.brief_with_profile("a brief", True, subject.SYS_PROMPT) == "a brief"
+
+
+def test_brief_with_profile_passes_through_unchanged_when_no_profile_file_exists(
+    subject, sandbox
+):
+    assert not subject.SYS_PROMPT.exists()
+    assert subject.brief_with_profile("a brief", False, subject.SYS_PROMPT) == "a brief"
+
+
+def test_brief_with_profile_prepends_the_profile_when_the_capability_is_not_offered(
+    subject, sandbox
+):
+    subject.SYS_PROMPT.parent.mkdir(parents=True, exist_ok=True)
+    subject.SYS_PROMPT.write_text("a profile", encoding="utf-8")
+    assert subject.brief_with_profile("a brief", False, subject.SYS_PROMPT) == \
+        "a profile\n\na brief"
 
 
 def test_launch_implementer_launcher_reads_the_brief_and_captures_output(

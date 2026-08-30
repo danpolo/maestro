@@ -25,7 +25,7 @@ from pathlib import Path
 
 import yaml  # PyYAML
 
-from maestro.backends.base import ExitVerdict
+from maestro.backends.base import ExitVerdict, Usage, to_usage_json
 from maestro.backends.registry import (
     backend_binary,
     get_backend,
@@ -117,6 +117,7 @@ _PATHS = Paths.from_env()
 
 REPO                  = _PATHS.repo
 WORKSPACES            = _PATHS.workspaces
+USAGE_JSON            = _PATHS.usage
 HALT_FILE             = REPO / ".orchestrator" / "HALT"
 ROADMAP_FILE          = REPO / "docs" / "ROADMAP.md"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
@@ -657,7 +658,35 @@ def _handover_ready(entry: dict) -> bool:
     return bool(worktree) and Path(worktree).is_dir()
 
 
-def _under_usage_pressure(backend: str, five_pct: float) -> bool:
+def _sampled_usage(backend: str, cache: dict | None = None) -> Usage | None:
+    """This poll's usage reading for `backend`, sampled through its driver at most once.
+
+    `cache`, when given, is a per-poll memo shared by every caller that needs this
+    backend's reading during the same poll — the switch-pressure check below and the
+    `usage.json` write (`_write_usage_sample`) both go through here, so a backend is
+    never sampled twice in one poll. That matters concretely for `CodexBackend`, whose
+    `usage()` spawns a short-lived `codex app-server` subprocess (bounded by
+    `APP_SERVER_TIMEOUT_SEC`, but still not something to pay for twice a poll).
+
+    Capability-gated, never name-gated: a driver that declares no usage telemetry, that
+    cannot be built, or that raises, answers `None` — the same "not measurable" `None`
+    a driver returns deliberately (G6).
+    """
+    if cache is not None and backend in cache:
+        return cache[backend]
+    sample = None
+    try:
+        driver = get_backend(backend)
+        if driver.capabilities().usage_telemetry:
+            sample = driver.usage()
+    except Exception:
+        sample = None
+    if cache is not None:
+        cache[backend] = sample
+    return sample
+
+
+def _under_usage_pressure(backend: str, five_pct: float, cache: dict | None = None) -> bool:
     """True when `backend` is the one this loop's usage reading is about.
 
     `get_effective_cap` returns a single number that says nothing about which backend
@@ -667,16 +696,84 @@ def _under_usage_pressure(backend: str, five_pct: float) -> bool:
     telemetry, or that has no sample to give, falls back to this loop's reading — "not
     measurable" is never evidence of no pressure (G6).
     """
-    sample = None
-    try:
-        driver = get_backend(backend)
-        if driver.capabilities().usage_telemetry:
-            sample = driver.usage()
-    except Exception:
-        sample = None
+    sample = _sampled_usage(backend, cache)
     if sample is None:
         return five_pct >= SWITCH_THRESHOLD_PCT
     return threshold_crossed(sample)
+
+
+def _most_pressured(samples: list[Usage]) -> Usage | None:
+    """The sample under the most quota pressure, or `None` when `samples` is empty.
+
+    Window-agnostic (G5), like `switch.threshold_crossed`: compares `Usage.max_used_pct`
+    rather than a named window, since an account whose only window is weekly has no
+    five-hour reading at all. A sample whose percentages are all unmeasurable (G6) has
+    `max_used_pct() is None` — it never wins the comparison by accident, and it never
+    loses it to a phantom `0` either; it simply cannot outrank a sample that *does* carry
+    a number. When every sample is unmeasurable, the first one is returned so a single
+    reporting backend still gets its (empty) reading written, matching this function's
+    behaviour before there was more than one backend to choose between.
+    """
+    best: Usage | None = None
+    best_pct: float | None = None
+    for sample in samples:
+        pct = sample.max_used_pct()
+        if pct is None:
+            continue
+        if best_pct is None or pct > best_pct:
+            best, best_pct = sample, pct
+    if best is not None:
+        return best
+    return samples[0] if samples else None
+
+
+def _write_usage_sample(in_flight: list, cache: dict) -> None:
+    """Persist this poll's usage reading to `.orchestrator/usage.json` (A2).
+
+    Before this, the file was written only by the operator's interactive Claude Code
+    statusline hook, so `quota.get_effective_cap` saw a missing file — and therefore
+    `five_pct = 0` — the moment no such session was attached to this project. On an
+    unattended loop that is always, so neither the concurrency throttle nor the
+    `PAUSE_PCT` pause could ever fire. This makes the loop sample its own usage instead
+    of depending on that hook, without disabling it — a project where both write the
+    file keeps working, since either write is just the freshest one on disk.
+
+    Every backend currently running work is sampled once — through `cache`, the same
+    per-poll memo `_under_usage_pressure` already populated for the switch decision, so
+    this never asks a driver twice for the same backend in one poll. A backend with
+    nothing to report this poll (G6: `None` is not zero) is simply excluded from the
+    choice below rather than overwriting real data with an empty document.
+
+    `usage.json` is one document, but `get_effective_cap` treats whatever `five_hour`
+    it finds there as the *global* cap and pause for every backend — genuinely
+    concurrent backends racing to write it every poll means whichever one happened to
+    land last could silently hide the other one's exhaustion. `_most_pressured` picks
+    the more-exhausted sample instead of the most-recently-sampled one, so the number
+    `quota.py` reads is always the conservative one: it can throttle early, never late.
+
+    A render or write failure is intentionally *not* swallowed blanket-wide: an
+    `OSError` (an unwritable `.orchestrator/`, a full disk) is the one failure mode this
+    is expected to survive, and it prints a breadcrumb rather than vanishing silently —
+    matching every other throttle/switch outcome this function's caller reports. Any
+    other exception (a bug in `to_usage_json`, e.g.) is deliberately loud: swallowing it
+    would hide a real programming error behind "usage.json didn't update".
+    """
+    seen: list[str] = []
+    for entry in in_flight:
+        name = _entry_backend(entry)
+        if name and name not in seen:
+            seen.append(name)
+    samples = [s for s in (_sampled_usage(name, cache) for name in seen) if s is not None]
+    sample = _most_pressured(samples)
+    if sample is None:
+        return
+    document = to_usage_json(sample)
+    try:
+        tmp = USAGE_JSON.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+        tmp.rename(USAGE_JSON)
+    except OSError as exc:
+        print(f"  [usage] failed to write usage.json: {exc}")
 
 
 def _switch_instead_of_waiting(entry: dict, reason: str,
@@ -729,12 +826,15 @@ def _switch_instead_of_waiting(entry: dict, reason: str,
     return new_entry
 
 
-def _threshold_switches(in_flight: list, launch_times: dict, five_pct: float) -> int:
+def _threshold_switches(in_flight: list, launch_times: dict, five_pct: float,
+                        cache: dict | None = None) -> int:
     """Move in-flight work off a backend under quota pressure. Returns how many moved.
 
     Zero — the common answer — means the caller throttles and pauses exactly as it did
     before M2. Below the switch threshold this costs one float comparison and reaches no
-    backend at all, so the ordinary poll is unaffected.
+    backend at all, so the ordinary poll is unaffected. `cache` is the per-poll usage
+    memo (A2's `_write_usage_sample` shares it too) so a backend already sampled this
+    poll is never sampled again.
     """
     if not in_flight or five_pct < SWITCH_THRESHOLD_PCT:
         return 0
@@ -742,7 +842,7 @@ def _threshold_switches(in_flight: list, launch_times: dict, five_pct: float) ->
     for entry in list(in_flight):
         if not _handover_ready(entry):
             continue
-        if not _under_usage_pressure(_entry_backend(entry), five_pct):
+        if not _under_usage_pressure(_entry_backend(entry), five_pct, cache):
             continue
         new_entry = _switch_instead_of_waiting(entry, REASON_THRESHOLD, launch_times)
         if new_entry is None:
@@ -1099,14 +1199,22 @@ def main() -> int:
         # taken *before* this poll's switching, keyed by session_id, so a successfully
         # switched entry (new session_id, new backend) never re-triggers the "no sample ==
         # treat as pressure" fallback (G6) on the fresh backend it just landed on.
+        # A2 — one usage sample per backend per poll, shared by the pressure check below
+        # and the `usage.json` write, so a backend is never asked twice in the same poll
+        # (CodexBackend.usage() spawns a short-lived `codex app-server` subprocess).
+        usage_cache: dict = {}
         stranded_before = {
             e.get("session_id") for e in in_flight
-            if _under_usage_pressure(_entry_backend(e), five_pct)
+            if _under_usage_pressure(_entry_backend(e), five_pct, usage_cache)
         }
-        switched = _threshold_switches(in_flight, launch_times, five_pct)
+        switched = _threshold_switches(in_flight, launch_times, five_pct, usage_cache)
         still_stranded = (not in_flight) or bool(
             stranded_before & {e.get("session_id") for e in in_flight}
         )
+        # A2 — sample+persist usage ourselves so `get_effective_cap` sees a real number
+        # even with no interactive Claude Code session open to run the statusline hook
+        # that used to be the only writer of this file (G1/G2).
+        _write_usage_sample(in_flight, usage_cache)
         if not switched:
             if cap != prev_cap:
                 if prev_cap >= 0 and cap < CONCURRENCY_CAP:

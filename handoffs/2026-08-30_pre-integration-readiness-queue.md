@@ -23,7 +23,7 @@ onboarding any new project. He wants "full generalized and no connection to it."
    pure, and its docstring explains why. Read it before changing any call site.
 3. `maestro/backends/base.py:81-88` (`Capabilities`) and `:172-190` (`ExitKind` / `ExitVerdict`).
    Phase A is entirely about routing core decisions through these instead of around them.
-4. `maestro/switch.py:1-45` (module docstring — three triggers, one path). Phase A item 3 adds a
+4. `maestro/switch.py:1-45` (module docstring — three triggers, one path). A4 adds a
    *fourth* trigger onto the same path; read why the existing three are shaped the way they are
    before adding to it.
 5. `tests/test_no_reference_sidecars.py` — the existing gate against reference-project coupling,
@@ -44,9 +44,11 @@ onboarding any new project. He wants "full generalized and no connection to it."
 
 ## Parallel-session coordination
 
-- Phases A–D below are **sequential, not parallel**: A and B both rewrite the implementer launch
-  path, C changes `roles.py` which A depends on, D adds gates over all of it. One session at a
-  time. If a session's context fills mid-phase, hand off at a phase boundary, not inside one.
+- Phases A–D below are **sequential, not parallel**, and so are the items inside Phase A. A3 is a
+  hard prerequisite for A4 — the rotation A4 adds is delivered through the `SWITCH` sentinel that
+  A3 is what makes reachable — so do not start A4 until A3 is green. C changes `roles.py`, which A
+  and B both build on; D gates all of it. One session at a time. If a session's context fills, hand
+  off at an item boundary, never inside one.
 - Nothing here touches `/home/dan/projects/AbuAliArchive`. If a change appears to require editing
   that repo, stop and ask Dan — the decoupling direction is "maestro stops assuming AbuAliArchive's
   layout", never "AbuAliArchive adopts maestro's".
@@ -82,7 +84,14 @@ wrong; striking it is part of B3 below.
 
 ## In scope
 
-### Phase A — make quota and context handling backend-agnostic
+**Execution order is A1 → A2 → A3 → A4 → B1 → B2 → B3 → C → D, and it is not
+arbitrary.** A3 (deliver the profile, and with it the `SWITCH` sentinel contract) comes before
+A4 (context-ceiling rotation) because A4's rotation is *carried* by that sentinel: run A4 first
+and every rotation degrades to a 120-second wait and a hard window kill, losing the uncommitted
+work the rotation exists to preserve. A3 was originally filed under Phase B as a decoupling
+item; it is here because A4 depends on it, not because it stopped being one.
+
+### Phase A — make the unattended loop correct on any backend and any project
 
 **A1. `driver.parse_exit` is dead code.** Both drivers implement it (`claude.py:523`,
 `codex.py:1081`) and **no module under `maestro/` calls it** — verify with a grep before you start,
@@ -126,7 +135,37 @@ write `.orchestrator/usage.json` via `to_usage_json`. Notes:
 - Leave the statusline hook working. This makes maestro independent of it, not incompatible with it;
   a project where both write the file should still behave.
 
-**A3. The D4 context ceiling is measured, reported and ignored.** `maestro/limits.py` parses the two
+**A3. The implementer profile is never delivered on any `init`'d project.** `implementer.py:54`
+sets `SYS_PROMPT = REPO / "orchestrator" / "profiles" / "implementer_sys.md"` — AbuAliArchive's
+layout, and that file does exist there (confirmed). `maestro init` scaffolds
+`<repo>/profiles/implementer.md` (`cli.py:403-406`) plus `operating_preamble.md` (`cli.py:398-401`),
+and **nothing in the package reads either one**. `claude.py:171-181` silently omits
+`--system-prompt-file` when the file is missing, so this fails as "the feature is quietly absent",
+never as an error.
+
+Three consequences, in increasing severity:
+
+1. Implementers on every freshly-onboarded project run with no profile at all.
+2. The `SWITCH` sentinel contract lives **only** in that profile
+   (`templates/profiles/implementer.md:9-12`) and `_make_brief` never mentions it
+   (`implementer.py:233-256`). So the cooperative-checkpoint half of the D2 threshold switch is
+   undelivered on any new project: every threshold switch degrades to a 120-second wait followed by
+   a hard `tmux kill-window`, losing everything since the last commit. **It is also the failure mode A4's
+   rotation would inherit**, which is why A3 is ordered ahead of it.
+3. `CodexBackend` declares `system_prompt_file=False` (`codex.py:707-713`) and nothing folds the
+   profile into the brief, so codex never receives it — on *any* project, AbuAliArchive included.
+
+*Fix (Dan's choice):* point `SYS_PROMPT` at the scaffolded `profiles/implementer.md`, and where
+`capabilities().system_prompt_file` is `False`, prepend the profile text to the brief instead of
+dropping it. Both launch sites need it: `implementer.py:490-499` and `switch.py:857-865`. Do **not**
+add a `project.yaml` profiles block — Dan explicitly rejected more config surface here, and this
+repo has a track record of declared-but-unread knobs (see G6).
+
+Belt and braces: regardless of profiles, move the SWITCH-sentinel/checkpoint contract into
+`_make_brief` itself so it is delivered unconditionally. A safety mechanism whose only carrier is an
+optional file is not a safety mechanism.
+
+**A4. The D4 context ceiling is measured, reported and ignored.** `maestro/limits.py` parses the two
 `model_context_limits.md` tables — the same files Dan's `CLAUDE.md` session-triage section points at,
 so the numbers are already the right source of truth — merges them, tolerates display-name vs. slug
 spelling, and caches to `.orchestrator/model_limits.json`. It has **exactly one consumer in the
@@ -160,46 +199,16 @@ Design constraints, all of which `switch.py` will fight you on if you ignore the
   (and `CLAUDE.md`) are that "prepare handoff" is where you act and the ceiling is where it is
   already too late.
 
-### Phase B — the agent must receive the right instructions
+### Phase B — remove reference-project assumptions from model- and operator-facing text
 
-**B1. The implementer profile is never delivered on any `init`'d project.** `implementer.py:54`
-sets `SYS_PROMPT = REPO / "orchestrator" / "profiles" / "implementer_sys.md"` — AbuAliArchive's
-layout, and that file does exist there (confirmed). `maestro init` scaffolds
-`<repo>/profiles/implementer.md` (`cli.py:403-406`) plus `operating_preamble.md` (`cli.py:398-401`),
-and **nothing in the package reads either one**. `claude.py:171-181` silently omits
-`--system-prompt-file` when the file is missing, so this fails as "the feature is quietly absent",
-never as an error.
-
-Three consequences, in increasing severity:
-
-1. Implementers on every freshly-onboarded project run with no profile at all.
-2. The `SWITCH` sentinel contract lives **only** in that profile
-   (`templates/profiles/implementer.md:9-12`) and `_make_brief` never mentions it
-   (`implementer.py:233-256`). So the cooperative-checkpoint half of the D2 threshold switch is
-   undelivered on any new project: every threshold switch degrades to a 120-second wait followed by
-   a hard `tmux kill-window`, losing everything since the last commit. **This also becomes the
-   failure mode of Phase A3's rotation** if B1 is not fixed first.
-3. `CodexBackend` declares `system_prompt_file=False` (`codex.py:707-713`) and nothing folds the
-   profile into the brief, so codex never receives it — on *any* project, AbuAliArchive included.
-
-*Fix (Dan's choice):* point `SYS_PROMPT` at the scaffolded `profiles/implementer.md`, and where
-`capabilities().system_prompt_file` is `False`, prepend the profile text to the brief instead of
-dropping it. Both launch sites need it: `implementer.py:490-499` and `switch.py:857-865`. Do **not**
-add a `project.yaml` profiles block — Dan explicitly rejected more config surface here, and this
-repo has a track record of declared-but-unread knobs (see G6).
-
-Belt and braces: regardless of profiles, move the SWITCH-sentinel/checkpoint contract into
-`_make_brief` itself so it is delivered unconditionally. A safety mechanism whose only carrier is an
-optional file is not a safety mechanism.
-
-**B2. Reference-project text in the briefs.** `implementer.py:234` opens every brief with
+**B1. Reference-project text in the briefs.** `implementer.py:234` opens every brief with
 `"You are a Sonnet implementer"` regardless of the model or backend actually resolved (and after
 Phase C's G5 fix, the model is genuinely variable). `implementer.py:250` says
 `"Do NOT restart the bot"` — AbuAliArchive's RAG bot. `_make_prep_brief` (`:315`) repeats
 `"You are a Sonnet PREP implementer"`. Replace with the resolved model/backend, and with a generic
 "do not restart or deploy any running service" guardrail.
 
-**B3. The proposal generator describes AbuAliArchive to the model.** `orchestrator.py:275`:
+**B2. The proposal generator describes AbuAliArchive to the model.** `orchestrator.py:275`:
 
 ```
 "You are the autonomous orchestrator for an Arabic/Hebrew Telegram RAG archive bot. "
@@ -215,7 +224,7 @@ otherwise it becomes another G6.
 Also strike the now-false comment at `orchestrator.py:271` (*"Opus now, Fable when CLI access
 returns"*) — per Dan's rule, Fable is never coming into this roster.
 
-**B4. `/redo` still ships a Colab/Google-Drive notebook pipeline.** `maestro/selfheal/redo.py`
+**B3. `/redo` still ships a Colab/Google-Drive notebook pipeline.** `maestro/selfheal/redo.py`
 carries an end-to-end notebook workflow: `_redo_rules` (`:181-209`) tells the agent to run
 `scripts/check_notebook.py`, re-upload to a `gdrive:` rclone remote, and report
 `notebook_path` / `gdrive_dest` / `colab_link`; the runner then re-runs the syntax gate (`:352-359`)
@@ -327,7 +336,7 @@ the spirit of `tests/test_no_unresolved_pending.py`. `parse_exit` was fully impl
 tested at the driver level, and never called by anything for two milestones; the driver-level tests
 all passed the whole time. That is the failure mode worth institutionalising against.
 
-**D3.** Update `docs/DESIGN.md` §8 once A3 lands, so the claim about replacing the hardcoded
+**D3.** Update `docs/DESIGN.md` §8 once A4 lands, so the claim about replacing the hardcoded
 constants becomes true rather than aspirational, and `docs/PROGRESS.md` with a session writeup in
 the existing style.
 
@@ -378,7 +387,7 @@ the existing style.
    the resolved model name, by dumping a generated brief — **not** by launching an agent.
 7. `maestro limits`-equivalent (`limits.resolve_all`) over the post-C6 roster → every configured
    model resolves, **and `claude-fable-5` is absent**.
-8. State plainly which of G1–G9 and B1–B4 are done, and for anything left open, why.
+8. State plainly which of G1–G9, A1–A4 and B1–B3 are done, and for anything left open, why.
 
 ## Suggested skills
 

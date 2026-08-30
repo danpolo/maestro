@@ -25,6 +25,7 @@ from pathlib import Path
 
 import yaml  # PyYAML
 
+from maestro.backends.base import ExitVerdict
 from maestro.backends.registry import (
     backend_binary,
     get_backend,
@@ -76,7 +77,6 @@ from maestro.quota import (
     CONCURRENCY_CAP,
     PAUSE_PCT,
     _paused_until_epoch,
-    _scan_impl_log_for_limit,
     _tail_text,
     get_effective_cap,
 )
@@ -583,6 +583,36 @@ def _entry_backend(entry: dict) -> str:
     return normalise_name(entry.get("backend")) or _launch_backend()
 
 
+def _reconcile_exit_verdict(entry: dict, log_tail: str) -> ExitVerdict | None:
+    """`entry`'s own driver's read of a vanished window's log, or `None` when the
+    driver cannot be resolved.
+
+    A1 (readiness queue): `reconcile_in_flight` used to scan `log_tail` with
+    `quota._LIMIT_RE` — the Claude CLI's own wording — no matter which backend the entry
+    ran on, so a codex implementer that died on quota was never classified as such. Every
+    driver already implements `parse_exit`; this resolves the one `_entry_backend` says
+    the entry ran on (`get_backend` is capability-gated elsewhere in this module and
+    imports no driver eagerly) and asks it instead.
+
+    The window is already gone by the time this runs, so there is no captured return code
+    to hand the driver — `launch_implementer` never captured one either (see
+    `ClaudeBackend`'s "Honesty note about `parse_exit`": the reference discards the return
+    code entirely). `1` stands in for "not a clean exit", the one fact this branch
+    actually knows: reconcile only reaches here when no DONE/PAUSED/FAILED sentinel and no
+    live window explain what happened. Every driver's quota reading is unaffected by that
+    choice — `ClaudeBackend.parse_exit` checks its wording ahead of the return code, and
+    `CodexBackend.parse_exit`'s explicit signal doesn't consult it either — the synthetic
+    code only satisfies `CodexBackend`'s `rc != 0` gate for its non-explicit ("token
+    window already at 100 %") reading, matching what this branch already assumed by being
+    here at all.
+    """
+    try:
+        driver = get_backend(_entry_backend(entry))
+        return driver.parse_exit(1, log_tail)
+    except Exception:
+        return None
+
+
 def _backends_tried(entry: dict) -> tuple[str, ...]:
     """Backends this task has already been switched away from, oldest first.
 
@@ -801,12 +831,14 @@ def reconcile_in_flight(state: dict, launch_times: dict) -> list:
         else:
             # Window gone, no sentinel. Before failing, read impl.log (Fix A capture).
             workspace.mkdir(parents=True, exist_ok=True)
-            # B — reactive net: if `claude -p` exited because Dan's Claude usage limit
-            # was hit, DON'T fail/retry/escalate (a retry just re-hits the same wall).
-            # Pause Maestro until the limit resets; the task is dropped from in_flight
-            # and relaunches fresh on resume, retry_counts untouched.
-            scan = _scan_impl_log_for_limit(workspace)
-            if scan["limit"]:
+            # B — reactive net: ask the entry's own driver whether its process died on a
+            # quota wall (A1: routed through `parse_exit`, not a Claude-worded scan — see
+            # `_reconcile_exit_verdict`). DON'T fail/retry/escalate on that verdict (a
+            # retry just re-hits the same wall). Pause Maestro until the limit resets; the
+            # task is dropped from in_flight and relaunches fresh on resume, retry_counts
+            # untouched.
+            verdict = _reconcile_exit_verdict(entry, _tail_text(workspace / "impl.log", 25))
+            if verdict is not None and verdict.kind == "quota_exhausted":
                 # M2/D3 — a limit on one backend is only a reason to pause everything if
                 # no other backend can take this task. When one can, the work moves
                 # instead of waiting for the reset: same worktree, uncommitted changes
@@ -819,9 +851,10 @@ def reconcile_in_flight(state: dict, launch_times: dict) -> list:
                           f"{moved.get('backend')} (no pause, no retry burned)")
                     surviving.append(moved)
                     continue
-                _pause_for_usage_limit(task_id, scan["reset_iso"], scan["evidence"], workspace)
+                _pause_for_usage_limit(task_id, verdict.reset_at or "", verdict.evidence,
+                                       workspace)
                 print(f"  [reconcile] {task_id}: usage limit on exit — paused until "
-                      f"{scan['reset_iso']} (no retry burned)")
+                      f"{verdict.reset_at} (no retry burned)")
                 continue  # drop from in_flight; do NOT mark FAILED
             # C — carry the real error forward so non-limit crashes are diagnosable by
             # Dan and by the ORCH_DIAGNOSE pass, instead of an opaque "window gone".

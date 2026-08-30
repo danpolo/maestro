@@ -101,3 +101,47 @@ def test_codex_prompt_has_no_yaml_frontmatter_block():
     # wasn't accidentally written with a Claude-style frontmatter block instead.
     text = _read(CODEX_PROMPT)
     assert not _FRONTMATTER_RE.match(text)
+
+
+# ── the two files are one document ──
+
+
+def test_the_codex_prompt_carries_the_same_instructions_as_the_claude_skill():
+    """They drifted on 2026-08-30 and nothing noticed.
+
+    The Claude skill gained three interview questions and a load-bearing warning about
+    `gate.chain`; the Codex prompt kept the old body, so an operator onboarding a project
+    through Codex would have been asked a strictly worse set of questions and told nothing
+    about the gate that decides whether their project reverts every task it completes.
+
+    The two are deliberately the *same document* with different headers — Claude Code
+    wants YAML frontmatter, `~/.codex/prompts/` wants plain markdown — so this compares
+    the instruction bodies and allows only the one wording difference that is genuinely
+    about the host ("this skill's job" / "this prompt's job").
+    """
+    def body(text: str) -> str:
+        marker = "Maestro's `init`/`doctor` scripts"
+        assert marker in text, "the shared instruction body has moved or been renamed"
+        return text[text.index(marker):]
+
+    claude = body(_read(CLAUDE_SKILL)).replace("this skill's job", "<HOST>'s job")
+    codex = body(_read(CODEX_PROMPT)).replace("this prompt's job", "<HOST>'s job")
+    assert claude == codex, (
+        "the Codex prompt and the Claude skill have drifted — they are the same "
+        "instructions for two hosts, and an operator should not get a different "
+        "interview depending on which agent they run setup through"
+    )
+
+
+def test_the_setup_interview_covers_every_knob_a_project_must_choose():
+    """A knob the interview never asks about is one every project leaves at its default.
+
+    `confinement.redo_allow` and `gate.primary_metric` were wired on 2026-08-30, and a
+    surface or a metric is exactly the kind of thing `init` cannot derive — which is what
+    this skill exists for. `gate.chain` is here because leaving it alone is what keeps a
+    new project from reverting every task it completes, and that has to be said out loud.
+    """
+    text = _read(CLAUDE_SKILL)
+    for knob in ("confinement.redo_allow", "gate.primary_metric", "gate.chain",
+                 "confinement.self_fix_allow"):
+        assert knob in text, f"the setup interview never mentions {knob}"

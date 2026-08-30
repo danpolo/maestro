@@ -171,6 +171,68 @@ def test_write_usage_sample_dedups_two_entries_on_the_same_backend(monkeypatch, 
     assert calls == [CLAUDE]
 
 
+def test_write_usage_sample_picks_the_most_pressured_backend_regardless_of_order(
+    monkeypatch, tmp_path
+):
+    """Fix round 1, finding 2: `usage.json` is one document, but `get_effective_cap`
+    applies whatever `five_hour` it finds there as the *global* cap/pause for every
+    backend. With two backends genuinely in flight, whichever one simply landed last in
+    `in_flight` must not decide that number — the more-exhausted backend must, so the
+    written reading is always the conservative one (throttle early, never late).
+
+    The heavily-pressured backend is placed *first* here and the lightly-pressured one
+    *last* — the opposite of what "last write wins" would need to get this right by
+    accident.
+    """
+    drivers = {CLAUDE: _FakeDriver(90.0), CODEX: _FakeDriver(20.0)}
+    monkeypatch.setattr(orchestrator, "get_backend", lambda name: drivers[name])
+    in_flight = [_entry(tmp_path, sid="impl-T1-1", backend=CLAUDE),
+                 _entry(tmp_path, sid="impl-T2-1", task_id="T2", backend=CODEX)]
+
+    orchestrator._write_usage_sample(in_flight, {})
+
+    doc = json.loads(orchestrator.USAGE_JSON.read_text())
+    assert doc["five_hour"]["used_pct"] == 90
+
+
+def test_write_usage_sample_an_unmeasurable_sample_never_outranks_a_measurable_one(
+    monkeypatch, tmp_path
+):
+    """G6 applied to the multi-backend choice: a sample with no measurable pressure must
+    not be treated as `0` pressure and must not win the comparison by accident — nor,
+    conversely, must it ever lose to a phantom `0` it never had. A real reading, however
+    small, always outranks "not measurable"."""
+    unmeasurable = Usage(windows={300: WindowUsage(used_pct=None)})
+    drivers = {
+        CLAUDE: SimpleNamespace(capabilities=lambda: Capabilities(usage_telemetry=True),
+                                usage=lambda: unmeasurable),
+        CODEX: _FakeDriver(55.0),
+    }
+    monkeypatch.setattr(orchestrator, "get_backend", lambda name: drivers[name])
+    in_flight = [_entry(tmp_path, sid="impl-T1-1", backend=CLAUDE),
+                 _entry(tmp_path, sid="impl-T2-1", task_id="T2", backend=CODEX)]
+
+    orchestrator._write_usage_sample(in_flight, {})
+
+    doc = json.loads(orchestrator.USAGE_JSON.read_text())
+    assert doc["five_hour"]["used_pct"] == 55
+
+
+def test_write_usage_sample_reports_a_write_failure_instead_of_swallowing_it(
+    monkeypatch, tmp_path, capsys
+):
+    """Fix round 1, finding 1: an unwritable `.orchestrator/` (or any other `OSError`)
+    must leave a breadcrumb, like every other throttle/switch outcome in this module —
+    not vanish with no operator signal, which would silently reintroduce "no quota
+    protection" (A2's own target bug)."""
+    monkeypatch.setattr(orchestrator, "get_backend", lambda name: _FakeDriver(70.0))
+    monkeypatch.setattr(orchestrator, "USAGE_JSON", tmp_path / "no-such-dir" / "usage.json")
+
+    orchestrator._write_usage_sample([_entry(tmp_path)], {})   # must not raise
+
+    assert "usage.json" in capsys.readouterr().out
+
+
 # =======================================================================================
 # The whole poll, through `main`
 # =======================================================================================

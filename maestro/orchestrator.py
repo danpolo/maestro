@@ -702,6 +702,31 @@ def _under_usage_pressure(backend: str, five_pct: float, cache: dict | None = No
     return threshold_crossed(sample)
 
 
+def _most_pressured(samples: list[Usage]) -> Usage | None:
+    """The sample under the most quota pressure, or `None` when `samples` is empty.
+
+    Window-agnostic (G5), like `switch.threshold_crossed`: compares `Usage.max_used_pct`
+    rather than a named window, since an account whose only window is weekly has no
+    five-hour reading at all. A sample whose percentages are all unmeasurable (G6) has
+    `max_used_pct() is None` — it never wins the comparison by accident, and it never
+    loses it to a phantom `0` either; it simply cannot outrank a sample that *does* carry
+    a number. When every sample is unmeasurable, the first one is returned so a single
+    reporting backend still gets its (empty) reading written, matching this function's
+    behaviour before there was more than one backend to choose between.
+    """
+    best: Usage | None = None
+    best_pct: float | None = None
+    for sample in samples:
+        pct = sample.max_used_pct()
+        if pct is None:
+            continue
+        if best_pct is None or pct > best_pct:
+            best, best_pct = sample, pct
+    if best is not None:
+        return best
+    return samples[0] if samples else None
+
+
 def _write_usage_sample(in_flight: list, cache: dict) -> None:
     """Persist this poll's usage reading to `.orchestrator/usage.json` (A2).
 
@@ -716,26 +741,39 @@ def _write_usage_sample(in_flight: list, cache: dict) -> None:
     Every backend currently running work is sampled once — through `cache`, the same
     per-poll memo `_under_usage_pressure` already populated for the switch decision, so
     this never asks a driver twice for the same backend in one poll. A backend with
-    nothing to report this poll (G6: `None` is not zero) leaves the file exactly as the
-    last good write — this loop's own, or the statusline hook's — left it, rather than
-    overwriting real data with an empty document.
+    nothing to report this poll (G6: `None` is not zero) is simply excluded from the
+    choice below rather than overwriting real data with an empty document.
+
+    `usage.json` is one document, but `get_effective_cap` treats whatever `five_hour`
+    it finds there as the *global* cap and pause for every backend — genuinely
+    concurrent backends racing to write it every poll means whichever one happened to
+    land last could silently hide the other one's exhaustion. `_most_pressured` picks
+    the more-exhausted sample instead of the most-recently-sampled one, so the number
+    `quota.py` reads is always the conservative one: it can throttle early, never late.
+
+    A render or write failure is intentionally *not* swallowed blanket-wide: an
+    `OSError` (an unwritable `.orchestrator/`, a full disk) is the one failure mode this
+    is expected to survive, and it prints a breadcrumb rather than vanishing silently —
+    matching every other throttle/switch outcome this function's caller reports. Any
+    other exception (a bug in `to_usage_json`, e.g.) is deliberately loud: swallowing it
+    would hide a real programming error behind "usage.json didn't update".
     """
     seen: list[str] = []
     for entry in in_flight:
         name = _entry_backend(entry)
         if name and name not in seen:
             seen.append(name)
-    for name in seen:
-        sample = _sampled_usage(name, cache)
-        if sample is None:
-            continue
-        document = to_usage_json(sample)
-        try:
-            tmp = USAGE_JSON.with_suffix(".json.tmp")
-            tmp.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
-            tmp.rename(USAGE_JSON)
-        except Exception:
-            pass
+    samples = [s for s in (_sampled_usage(name, cache) for name in seen) if s is not None]
+    sample = _most_pressured(samples)
+    if sample is None:
+        return
+    document = to_usage_json(sample)
+    try:
+        tmp = USAGE_JSON.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(document, indent=2, ensure_ascii=False) + "\n")
+        tmp.rename(USAGE_JSON)
+    except OSError as exc:
+        print(f"  [usage] failed to write usage.json: {exc}")
 
 
 def _switch_instead_of_waiting(entry: dict, reason: str,

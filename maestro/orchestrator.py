@@ -62,7 +62,7 @@ from maestro.implementer import (
     operator_backend,
 )
 from maestro import metrics
-from maestro.merge import _touches_bot_files, merge_and_eval
+from maestro.merge import _touches_bot_files, merge_and_eval, run_canary_deploy
 from maestro.parking import (
     _graduate_manual_action,
     handle_incomplete,
@@ -121,7 +121,8 @@ HALT_FILE             = REPO / ".orchestrator" / "HALT"
 ROADMAP_FILE          = REPO / "docs" / "ROADMAP.md"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
 QUESTIONS_DIR         = REPO / ".orchestrator" / "questions"
-CANARY_DEPLOY         = REPO / "scripts" / "canary_deploy.py"
+# `CANARY_DEPLOY` used to live here; `run_canary_deploy` (maestro.merge) now owns the
+# path and the absent-is-a-skip guard, shared with `hitl/commands.py`'s identical call.
 
 POLL_INTERVAL = 30
 TASK_TIMEOUT  = 10800
@@ -1267,11 +1268,7 @@ def main() -> int:
                 # B6: canary deploy if bot files were touched
                 branch = entry.get("branch", "")
                 if branch and _touches_bot_files(branch):
-                    canary_ok = subprocess.run(
-                        [str(VENV_PYTHON), str(CANARY_DEPLOY), task_id],
-                        cwd=str(REPO), capture_output=True,
-                    ).returncode == 0
-                    if not canary_ok:
+                    if not run_canary_deploy(task_id):
                         append_journal("canary_reverted", f"{task_id} canary deploy failed")
                         # canary_deploy.py already sent Telegram alert; skip phase_report
                         run_dep_map(); run_status()

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import sys
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -588,16 +589,18 @@ def test_risky_reviewer_announces_the_touched_files(subject, repo, monkeypatch, 
 # =====================================================================================
 
 
-def test_touches_bot_files_uses_an_inline_default_when_project_yaml_is_silent(
+def test_touches_bot_files_defaults_to_empty_when_project_yaml_is_silent(
     subject, repo, monkeypatch
 ):
+    """Was pinned the other way: the inline default used to be `["main_bot.py"]`, so a
+    project that never declared `bot_files` at all had one guessed for it — the same
+    silently-widened-default bug `confinement.py` fixed for the self-fix/redo path gates
+    (2026-08-30). `bot_files` is now a declared `project.yaml` key (template default
+    `[]`), and a project that runs no bot touches none by definition."""
     spy = _use_project(monkeypatch, subject, {})
-    _branch(repo, "b", {"src/app.py": "x\n"})
+    _branch(repo, "b", {"main_bot.py": "x\n"})
     assert subject._touches_bot_files("b") is False
-    default = spy.defaults["bot_files"]
-    assert isinstance(default, list) and default
-    _branch(repo, "c", {default[0]: "x\n"})
-    assert subject._touches_bot_files("c") is True
+    assert spy.defaults["bot_files"] == []
 
 
 def test_touches_bot_files_honours_a_configured_list(subject, repo, monkeypatch):
@@ -623,6 +626,40 @@ def test_touches_bot_files_no_changes_is_false(subject, repo, monkeypatch):
     _use_project(monkeypatch, subject, {"bot_files": ["svc/runner.py"]})
     _branch(repo, "b")
     assert subject._touches_bot_files("b") is False
+
+
+# =====================================================================================
+# run_canary_deploy
+# =====================================================================================
+
+
+def test_run_canary_deploy_skips_when_the_project_has_no_canary_script(subject, repo):
+    """Was the bug: the old inline call had no existence guard at all, so a project
+    without scripts/canary_deploy.py (every scaffolded project — nothing templates one)
+    had `python <a path that does not exist>` read as a *failed* canary on any merge that
+    touched a declared bot_files entry, skipping the phase report for a deploy that was
+    never attempted."""
+    assert subject.CANARY_DEPLOY.is_file() is False
+    assert subject.run_canary_deploy("T1") is True
+
+
+def test_run_canary_deploy_reports_the_scripts_exit_code(subject, repo, monkeypatch):
+    monkeypatch.setattr(subject, "VENV_PYTHON", sys.executable)
+    subject.CANARY_DEPLOY.parent.mkdir(parents=True, exist_ok=True)
+    subject.CANARY_DEPLOY.write_text("import sys; sys.exit(0)\n", encoding="utf-8")
+    assert subject.run_canary_deploy("T1") is True
+
+    subject.CANARY_DEPLOY.write_text("import sys; sys.exit(1)\n", encoding="utf-8")
+    assert subject.run_canary_deploy("T1") is False
+
+
+def test_run_canary_deploy_passes_the_task_id_as_the_sole_argument(subject, repo, monkeypatch):
+    monkeypatch.setattr(subject, "VENV_PYTHON", sys.executable)
+    subject.CANARY_DEPLOY.parent.mkdir(parents=True, exist_ok=True)
+    subject.CANARY_DEPLOY.write_text(
+        "import sys; sys.exit(0 if sys.argv[1:] == ['P8B2'] else 1)\n", encoding="utf-8"
+    )
+    assert subject.run_canary_deploy("P8B2") is True
 
 
 # =====================================================================================
@@ -1094,16 +1131,29 @@ def test_resumable_escalation_risky_set_is_a_hard_stop(subject, repo, monkeypatc
     assert judge.calls == []
 
 
-def test_resumable_escalation_bot_files_default_is_a_hard_stop(subject, repo, monkeypatch):
+def test_resumable_escalation_bot_files_default_is_empty_not_a_guess(
+    subject, repo, monkeypatch
+):
+    """Was pinned the other way: the inline default was `["main_bot.py"]`, so a project
+    that never declared `bot_files` still hard-stopped on a file literally named that.
+    See test_touches_bot_files_defaults_to_empty_when_project_yaml_is_silent for the
+    matching `_touches_bot_files` fix."""
     spy = _use_project(monkeypatch, subject, {})
     _use_judge(monkeypatch, subject, '{"pass": true}')
-    _branch(repo, "probe", {"src/app.py": "x\n"})
-    subject._resumable_code_change_escalation({"branch": "probe"}, "T1")
-    default = spy.defaults["bot_files"]
-    _branch(repo, "b", {default[0]: "x\n"})
+    _branch(repo, "b", {"main_bot.py": "x\n"})
+    ok, reason, status = subject._resumable_code_change_escalation({"branch": "b"}, "T1")
+    assert spy.defaults["bot_files"] == []
+    assert status != "code_change"
+
+
+def test_resumable_escalation_configured_bot_files_is_a_hard_stop(subject, repo, monkeypatch):
+    _use_project(monkeypatch, subject, {"bot_files": ["svc/runner.py"]})
+    judge = _use_judge(monkeypatch, subject, '{"pass": true}')
+    _branch(repo, "b", {"svc/runner.py": "x\n"})
     ok, reason, status = subject._resumable_code_change_escalation({"branch": "b"}, "T1")
     assert (ok, status) == (False, "code_change")
     assert reason.startswith("hard-stop files touched:")
+    assert judge.calls == []
 
 
 def test_resumable_escalation_judge_unavailable(subject, repo, monkeypatch):

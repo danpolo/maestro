@@ -50,6 +50,7 @@ __all__ = [
     "allow_prefixes",
     "deny_fragments",
     "path_ok",
+    "rules_prose",
 ]
 
 #: The two gates. Named rather than passed as strings so a typo is an `AttributeError`
@@ -64,6 +65,13 @@ REDO = "redo"
 _ALLOW_KEYS: dict[str, str] = {
     SELF_FIX: "self_fix_allow",
     REDO: "redo_allow",
+}
+
+#: How each gate names itself in generated prose (`rules_prose`, below). Never matched by
+#: code — a third gate adds a label here in the same place it adds an allow-key.
+_LABELS: dict[str, str] = {
+    SELF_FIX: "self-fix",
+    REDO: "/redo rewrite",
 }
 
 #: What each gate may touch when `project.yaml` says nothing.
@@ -197,3 +205,26 @@ def path_ok(files: object, *, kind: str,
         if not path.startswith(allowed):
             return False, f"out-of-scope path: {path}"
     return True, "ok"
+
+
+def rules_prose(kind: str, config: Optional[Mapping] = None) -> str:
+    """`kind`'s allow/deny surface as one prompt-ready sentence pair: "A <kind> may only
+    change files under: X. It must NEVER change: Y." Drop the result straight into a
+    system prompt or a RULES bullet.
+
+    The single place `selfheal/diagnose.py`, `selfheal/redo.py`'s `_redo_rules`, and
+    `selfheal/selffix.py`'s runner brief all render their confined surface. Each used to
+    hand-write its own version, and two of the three drifted: `selffix.py`'s runner
+    prompt kept naming `main_bot.py` and a `scripts/`/`orchestrator/` allow-list — the
+    reference project's layout, hardcoded — long after `path_ok` had moved on to reading
+    `project.yaml`, and `redo.py`'s version never mentioned the deny list at all. The gate
+    itself was never wrong (`path_ok` always read the real surface), but a prompt
+    describing a surface that is not the agent's own is exactly the kind of mismatch this
+    module exists to prevent.
+    """
+    allowed = allow_prefixes(kind, config)
+    denied = deny_fragments(config)
+    label = _LABELS.get(kind, kind)
+    allow_str = ", ".join(allowed) if allowed else f"(nothing — {label} is disabled here)"
+    return (f"A {label} may only change files under: {allow_str}. "
+            f"It must NEVER change: {', '.join(denied)}.")

@@ -173,18 +173,17 @@ def _and_join(items: list[str]) -> str:
 def _redo_rules(task: str, result_path: Path, wt: Path) -> str:
     """The RULES block of the RUNNER's prompt, sized to what this project actually ships.
 
-    The confined surface is read from `confinement.allow_prefixes` — the same source
-    `_redo_path_ok` gates against below — rather than restated as a hardcoded list that
-    could silently drift from it. The notebook/Drive-specific rules (and the matching
-    manifest fields) only appear when `CHECK_NB` exists: that file is this project's own
-    signal that its deliverable is a notebook maestro syntax-gates and re-uploads. A
-    project with no such script gets a generic validate-and-ship instruction instead of a
-    workflow it has no infrastructure for.
+    The confined surface is rendered by `confinement.rules_prose` — the same source
+    `_redo_path_ok` gates against below, and the same renderer `selfheal/diagnose.py` and
+    `selffix.py`'s runner brief use — rather than restated as a hardcoded list that could
+    silently drift from it. That shared rendering also means the deny list is now spelled
+    out here; it used to be a generic "secrets or production data stores" mention with no
+    actual paths named. The notebook/Drive-specific rules (and the matching manifest
+    fields) only appear when `CHECK_NB` exists: that file is this project's own signal
+    that its deliverable is a notebook maestro syntax-gates and re-uploads. A project with
+    no such script gets a generic validate-and-ship instruction instead of a workflow it
+    has no infrastructure for.
     """
-    allow = confinement.allow_prefixes(confinement.REDO)
-    allow_str = ", ".join(allow) if allow else (
-        "(none — confinement.redo_allow is empty in project.yaml)"
-    )
     # A list joined once at the end, not a string built up by splicing onto its own prior
     # value — so a future field can be added or reordered without redoing string surgery.
     manifest_field_descriptions = ["changelog (1-3 lines on what you fixed)"]
@@ -219,9 +218,7 @@ def _redo_rules(task: str, result_path: Path, wt: Path) -> str:
     rules += [
         f"- COMMIT in this worktree: git add -A && git commit -m 'redo({task}): "
         "<summary>'.",
-        f"- Touch ONLY files under: {allow_str}. Never touch this project's secrets "
-        "or production data stores (project.yaml), or anything under .git/ or "
-        ".orchestrator/.",
+        f"- {confinement.rules_prose(confinement.REDO)}",
         "- This is a CONFINED reship, NOT a normal dev session. Do NOT log a lesson to "
         "tasks/lessons.md and do NOT make any ancillary edits outside the deliverable "
         "surface, even if a CLAUDE.md / AGENTS.md convention tells you to after a "

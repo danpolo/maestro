@@ -87,16 +87,15 @@ def _diagnose_failure(task_id: str, reason: str, impl_tail: str,
     then chose `target_files` from it. Those paths are exactly what
     `selffix._self_fix_path_ok` gates, so a diagnosis that named them was rejected by the
     gate on every other project: the diagnoser was being asked to propose fixes it was
-    structurally forbidden from proposing.
+    structurally forbidden from proposing. The surface is rendered by
+    `confinement.rules_prose`, shared with `redo.py`'s `_redo_rules` and `selffix.py`'s
+    own runner brief so the three can't drift apart again.
     """
-    allowed = confinement.allow_prefixes(confinement.SELF_FIX)
-    denied = confinement.deny_fragments()
     raw = _judge_complete(
         system=(
             "You diagnose why an autonomous coding task (run by 'Maestro', an "
-            "orchestrated multi-agent system) failed after a retry. A self-fix may only "
-            f"change files under: {', '.join(allowed) or '(nothing — self-fix is disabled here)'}. "
-            f"It must NEVER change: {', '.join(denied)}. "
+            "orchestrated multi-agent system) failed after a retry. "
+            f"{confinement.rules_prose(confinement.SELF_FIX)} "
             "Name only files you would actually change, inside that surface. "
             "Reply with ONLY a JSON object, no prose:\n"
             '{"root_cause":"1-2 sentences",'

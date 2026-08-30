@@ -86,18 +86,26 @@ regenerated from one source and a test now keeps them identical.
    agent about `scripts/check_notebook.py`, a `gdrive:` rclone remote and Colab links
    unconditionally; `CHECK_NB` points at a script no scaffolded project has. The path gate is
    decoupled, the *deliverable pipeline* is not.
-2. **`upcoming.GLOSSARY`** is 18 hardcoded retrieval terms (dense/sparse/RRF/Recall@5) in a
+2. **`implementer.py`'s prep brief is Colab/Drive-shaped** (found while writing the handoff,
+   not in the original sweep). The brief handed to an implementer preparing any `needs-dan`
+   task instructs it about free-tier Colab checkpoint-resumability, the `gdrive:` rclone
+   remote, `scripts/check_notebook.py` and `docs/CLAUDE_TASK_CONTEXT.md` — 12 hits in
+   `maestro/implementer.py`, all unconditional. This affects **every manual task on every
+   project**, which makes it larger in blast radius than item 1 even though it is the same
+   defect. Do the two together: they are one question (how does a project declare what its
+   deliverables are and how they ship?) asked in two places.
+3. **`upcoming.GLOSSARY`** is 18 hardcoded retrieval terms (dense/sparse/RRF/Recall@5) in a
    generic package. The setup skill already collects a glossary into `docs/PROJECT.md`; this
    should read it from there.
-3. **`merge.py` leftovers.** `bot_files` defaults to `["main_bot.py"]` **and is not declared in
+4. **`merge.py` leftovers.** `bot_files` defaults to `["main_bot.py"]` **and is not declared in
    the template** — the mirror image of a dead knob, a live reader with no documented key.
    `CANARY_DEPLOY` points at `REPO/scripts/canary_deploy.py` (the `deploy` adapter is the proper
    seam). `_HARD_DENY_PATTERNS` carries a `restart_bot\.sh` exception. `RESUMABLE_MERGE_PREFIXES`
    is `("data/", "docs/")`.
-4. **`SWITCH_THRESHOLD_PCT = 70.0`** is still hardcoded and uncalibrated (one real switch of
+5. **`SWITCH_THRESHOLD_PCT = 70.0`** is still hardcoded and uncalibrated (one real switch of
    data). PROGRESS's standing note applies: if it is made configurable it becomes **one
    window-agnostic knob**, never the per-window block that was removed.
-5. **`gate.baseline_source` / `gate.bands`** are the last two known-dead template keys. They
+6. **`gate.baseline_source` / `gate.bands`** are the last two known-dead template keys. They
    describe how to *score* a run against a baseline, and nothing consumes them — the gate still
    only runs the chain and journals `unevaluated`. Wiring them is the D8 eval story, which is a
    stage of its own, not a cleanup.

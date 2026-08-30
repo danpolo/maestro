@@ -47,10 +47,10 @@ a half-finished `agentcall` refactor).
 | Change | Commit | What it settles |
 |---|---|---|
 | All six one-shot calls routed through the driver protocol | `59d2e11` | The M4 finding, closed. `KNOWN_DIRECT_CALL_SITES` is now empty. |
-| Eval surface decoupled from the reference project | `b899cb3` | **The pilot blocker** — see below. Wires `gate.primary_metric`. |
+| Eval surface decoupled from the reference project | `9473a56` | **The pilot blocker** — see below. Wires `gate.primary_metric`. |
 | Autonomous-change surface read from `project.yaml` | `6c66514` | Self-fix and `/redo` path gates. Wires `prod_stores`. |
-| `thresholds:` wired; a typo no longer breaks the import | `aef77ef` | Wires `concurrency_cap`, `five_h_pause_pct`. |
-| Setup skill updated + installed on this machine | (this commit) | The interview now asks about the knobs that were wired. |
+| `thresholds:` wired; a typo no longer breaks the import | `1b4b05a` | Wires `concurrency_cap`, `five_h_pause_pct`. |
+| Setup skill updated + installed on this machine | `371496d` | The interview now asks about the knobs that were wired. |
 
 **The pilot blocker, found and fixed.** `gates.SMOKE_ADAPTER` was `REPO/"adapters"/"smoke.py"`
 while `init` scaffolds `adapters/smoke` with **no extension** (`adapters.adapter_path`). On

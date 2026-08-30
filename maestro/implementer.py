@@ -51,7 +51,7 @@ _PATHS = Paths.from_env()
 REPO                  = _PATHS.repo
 WORKSPACES            = _PATHS.workspaces
 QUESTIONS_DIR         = REPO / ".orchestrator" / "questions"
-SYS_PROMPT            = REPO / "orchestrator" / "profiles" / "implementer_sys.md"
+SYS_PROMPT            = REPO / "profiles" / "implementer.md"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
 # `check_notebook.py` is a project-owned "how to ship" script (see
 # `tests/test_no_reference_sidecars.py`'s ALLOWED set) — its presence is this project's own
@@ -59,6 +59,64 @@ VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
 # the Colab/Drive workflow when this exists, the same condition `maestro.selfheal.redo`
 # gates its RUNNER prompt on.
 CHECK_NB              = REPO / "scripts" / "check_notebook.py"
+
+# ── A3: SWITCH sentinel / checkpoint contract ──
+#
+# LOAD-BEARING — keep this block's text verbatim and keep `_make_brief` appending it
+# unconditionally. It is the *only* carrier of the SWITCH-sentinel handoff contract that
+# cannot silently go missing: `profiles/implementer.md` says the same thing, but that file
+# is optional scaffold text an implementer can be launched without (SYS_PROMPT above, or a
+# project that never customised its profile), and `brief_with_profile` below only reaches
+# a backend that cannot take it as a separate file in the first place. `_make_brief` is
+# structured to append this exactly once, after both its `dispatch: manual` and ordinary
+# branches have produced their `body` — never inside either branch — so a dispatch:manual
+# task (a legitimate D2 usage-threshold switch target, per `orchestrator._threshold_switches`
+# iterating `in_flight` with no dispatch filter) gets the contract exactly like any other
+# task, regardless of profile, backend or capability. The cooperative-checkpoint half of a
+# threshold switch (DESIGN.md §7) is therefore always reachable. A later rewrite of
+# `_make_brief`'s opening line / guardrail wording (plan item B1) must preserve this text
+# unchanged.
+SWITCH_SENTINEL_CONTRACT = (
+    "SWITCH SENTINEL — MID-WORK HANDOFF (checkpoint-and-exit):\n"
+    "Maestro may need to move you to a different backend mid-task (a usage threshold "
+    "crossed, or an operator-issued switch). It signals this by writing a file named "
+    "SWITCH into your WORKSPACE directory (see above). Check for it at every tool "
+    "boundary — before/after each tool call, never mid-call. The moment you see it:\n"
+    "  1. Finish or abandon the in-flight tool call cleanly — do not start a new one.\n"
+    "  2. Commit whatever is safely committable on disk. Uncommitted work does not "
+    "survive a switch; committed work does.\n"
+    "  3. Write a short checkpoint note (what's done, what's left, anything the next "
+    "session needs to know).\n"
+    "  4. Exit immediately — do not keep working \"just to finish this one thing\".\n"
+    "If you miss the sentinel, maestro falls back to a hard kill after a grace period and "
+    "everything not committed is lost.\n"
+)
+
+
+def brief_with_profile(brief: str, offers_system_prompt: bool, profile_path: Path) -> str:
+    """Fold the role profile into `brief` when the driver can't take it as a separate file.
+
+    `capabilities().system_prompt_file` decides delivery, never dropping: a driver that
+    declares the capability gets the profile via `--system-prompt-file` and `brief` is
+    passed through unchanged (F4 handles the "file missing" degrade on that path); one that
+    doesn't (`CodexBackend`, `codex exec` has no system-prompt equivalent) gets the same
+    profile text prepended to the brief it already receives. No profile file on disk, or one
+    that can't be read or decoded as UTF-8, is the same "say nothing extra" degrade either
+    way.
+
+    `profile_path` is taken from the caller rather than read off this module's own
+    `SYS_PROMPT` global: `maestro.switch` imports that global under its own name and a test
+    (or a future caller) may rebind either copy independently, so the path actually in
+    force at each call site has to come in as a parameter, not be looked up again here.
+    """
+    if offers_system_prompt:
+        return brief
+    try:
+        profile_text = profile_path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return brief
+    return f"{profile_text}\n\n{brief}"
+
 
 # ── B12: pre-implementation question gating ──
 # A task may declare a `questions:` block in its ROADMAP yaml. Each question must
@@ -177,10 +235,20 @@ def _answers_section(task: dict) -> str:
 # ── Brief generation ──
 
 def _make_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "") -> str:
+    """Every brief-shaped return path, whichever branch built it, ends the same way:
+    `SWITCH_SENTINEL_CONTRACT` appended once, here, after both branches — not inside one of
+    them — so a future third branch inherits the guarantee structurally instead of needing
+    someone to remember to add the line again (see the constant's own docstring)."""
     # B14 auto-prep: a dispatch:manual task gets a PREP brief — do all automatable
     # prep, never the human step, and emit the single dan_action.
     if task.get("dispatch") == "manual":
-        return _make_prep_brief(task, workspace, worktree, retry_note)
+        body = _make_prep_brief(task, workspace, worktree, retry_note)
+    else:
+        body = _make_ordinary_brief(task, workspace, worktree, retry_note)
+    return f"{body}\n\n{SWITCH_SENTINEL_CONTRACT}"
+
+
+def _make_ordinary_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "") -> str:
     task_id = task["id"]
     title   = task.get("title", task_id)
     note    = f"\n\nNOTE FROM ORCHESTRATOR: {retry_note}" if retry_note else ""
@@ -492,7 +560,9 @@ def launch_implementer(task: dict, session_id: str, workspace: Path,
         task_id=task_id,
         session_id=session_id,
         model=model_id,
-        brief=brief_file.read_text(encoding="utf-8"),
+        brief=brief_with_profile(
+            brief_file.read_text(encoding="utf-8"), offers_system_prompt, SYS_PROMPT
+        ),
         workspace=workspace,
         worktree=worktree,
         system_prompt_file=SYS_PROMPT if offers_system_prompt else None,

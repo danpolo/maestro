@@ -873,6 +873,68 @@ def test_the_system_prompt_file_is_gated_on_the_capability(dirty_worktree, tmp_p
     assert specs["without"].system_prompt_file is None
 
 
+def test_the_profile_is_folded_into_the_brief_when_the_capability_is_false(
+    dirty_worktree, tmp_path
+):
+    """A3: a driver that can't take `--system-prompt-file` must not lose the profile
+    outright — the same text rides along inside the brief instead."""
+    profile = tmp_path / "implementer.md"
+    profile.write_text("PROFILE-TEXT-MARKER", encoding="utf-8")
+
+    import maestro.switch as module
+
+    original = module.SYS_PROMPT
+    module.SYS_PROMPT = profile
+    try:
+        recorder = Recorder()
+        driver = FakeDriver(capabilities=REBRIEFING)  # system_prompt_file=False
+        switch.switch_task(
+            TASK_ID,
+            reason=switch.REASON_QUOTA,
+            entry=_entry(dirty_worktree, backend=FROM),
+            to_backend=TO,
+            config={},
+            deps=_deps(recorder, driver),
+        )
+    finally:
+        module.SYS_PROMPT = original
+
+    spec = driver.launched[0]
+    assert spec.system_prompt_file is None
+    assert spec.brief.startswith("PROFILE-TEXT-MARKER")
+    assert "You are taking over task T7" in spec.brief
+
+
+def test_the_profile_is_not_duplicated_into_the_brief_when_the_capability_is_true(
+    dirty_worktree, tmp_path
+):
+    """A driver that *can* take the file gets it only that way — not both places."""
+    profile = tmp_path / "implementer.md"
+    profile.write_text("PROFILE-TEXT-MARKER", encoding="utf-8")
+
+    import maestro.switch as module
+
+    original = module.SYS_PROMPT
+    module.SYS_PROMPT = profile
+    try:
+        recorder = Recorder()
+        driver = FakeDriver(capabilities=PROFILED)  # system_prompt_file=True
+        switch.switch_task(
+            TASK_ID,
+            reason=switch.REASON_QUOTA,
+            entry=_entry(dirty_worktree, backend=FROM),
+            to_backend=TO,
+            config={},
+            deps=_deps(recorder, driver),
+        )
+    finally:
+        module.SYS_PROMPT = original
+
+    spec = driver.launched[0]
+    assert spec.system_prompt_file == profile
+    assert "PROFILE-TEXT-MARKER" not in spec.brief
+
+
 def test_capabilities_are_consulted_exactly_once_per_switch(dirty_worktree):
     recorder = Recorder()
     driver = FakeDriver()

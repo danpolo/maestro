@@ -23,6 +23,16 @@ Since 2026-08-26 the rewrite itself goes through `maestro.agentcall` rather than
 CLI, so `/redo` runs on whichever backend the project configured. It is one of the two
 *agentic* one-shot calls (`writable=True`): unlike a judgment, it is expected to edit files
 and commit inside its worktree, and a driver that can enforce that boundary is asked to.
+
+The RUNNER's prompt (`_redo_rules`) used to be unconditionally notebook/Colab/Drive-shaped
+— every `/redo`, on every project, was told to run `scripts/check_notebook.py`, re-upload
+to a `gdrive:` remote, and confine itself to a hardcoded `colab/`/`data_export/` surface
+that predates `maestro.confinement`. On a project that ships nothing of the kind (no
+`scripts/check_notebook.py`, which the RUNNER can actually check for) that was just noise;
+the confinement line was worse — it named a surface `project.yaml`'s `confinement.
+redo_allow` had already superseded, so the prompt and the gate could disagree about what
+the agent was allowed to touch. `_redo_rules` now reads the real configured surface and
+only mentions the notebook workflow when `CHECK_NB` exists.
 """
 from __future__ import annotations
 
@@ -151,6 +161,68 @@ def _cleanup(wt: Path, branch: str) -> None:
     _run_git(["branch", "-D", branch])
 
 
+def _redo_rules(task: str, result_path: Path, wt: Path) -> str:
+    """The RULES block of the RUNNER's prompt, sized to what this project actually ships.
+
+    The confined surface is read from `confinement.allow_prefixes` — the same source
+    `_redo_path_ok` gates against below — rather than restated as a hardcoded list that
+    could silently drift from it. The notebook/Drive-specific rules (and the matching
+    manifest fields) only appear when `CHECK_NB` exists: that file is this project's own
+    signal that its deliverable is a notebook maestro syntax-gates and re-uploads. A
+    project with no such script gets a generic validate-and-ship instruction instead of a
+    workflow it has no infrastructure for.
+    """
+    allow = confinement.allow_prefixes(confinement.REDO)
+    allow_str = ", ".join(allow) if allow else (
+        "(none — confinement.redo_allow is empty in project.yaml)"
+    )
+    manifest_fields = "changelog (1-3 lines on what you fixed)"
+
+    rules = [
+        "- Rewrite the deliverable PROPERLY. You are NOT limited to minimal diffs — if "
+        "the right fix is a large rewrite, do it. Optimize for correct, clean code.",
+    ]
+    if CHECK_NB.is_file():
+        rules.append(
+            "- VALIDATE: run `python scripts/check_notebook.py <notebook.ipynb>` and FIX "
+            "until it exits 0 (it byte-compiles every code cell). Loop: edit → check → "
+            "repeat."
+        )
+        rules.append(
+            "- RE-UPLOAD the fixed notebook to the SAME `gdrive:` path you used "
+            "originally so Dan's existing Colab link keeps working (the `gdrive:` "
+            "rclone remote works headlessly)."
+        )
+        manifest_fields = (
+            f"notebook_path (repo-relative, e.g. colab/{task.lower()}_train.ipynb), "
+            "gdrive_dest (the full rclone dest you uploaded to), colab_link (the Colab "
+            "URL — same as before if unchanged), and " + manifest_fields
+        )
+    else:
+        rules.append(
+            "- VALIDATE your fix using this project's normal verification process "
+            "(its tests, its adapters/, or docs/PROJECT.md's 'What good looks like "
+            "here') before committing."
+        )
+    rules += [
+        f"- COMMIT in this worktree: git add -A && git commit -m 'redo({task}): "
+        "<summary>'.",
+        f"- Touch ONLY files under: {allow_str}. Never touch this project's secrets "
+        "or production data stores (project.yaml), or anything under .git/ or "
+        ".orchestrator/.",
+        "- This is a CONFINED reship, NOT a normal dev session. Do NOT log a lesson to "
+        "tasks/lessons.md and do NOT make any ancillary edits outside the deliverable "
+        "surface, even if a CLAUDE.md / AGENTS.md convention tells you to after a "
+        "'correction'. That convention does NOT apply here — keep the diff to the fix "
+        "itself.",
+        "- Do NOT push, do NOT merge, do NOT restart anything.",
+        f"- FINALLY, write the result manifest to {result_path} (an absolute path "
+        f"OUTSIDE this worktree — do NOT create it inside {wt}) with keys: "
+        f"{manifest_fields}.",
+    ]
+    return "\n".join(rules)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("request")
@@ -187,27 +259,7 @@ def main() -> int:
         f"WORKTREE (your git sandbox — work ONLY here): {wt}\n\n"
         f"MANUAL ACTION HE WAS GIVEN:\n{action}\n\n"
         f"DAN'S PROBLEM REPORT:\n{message}\n\n"
-        f"RULES:\n"
-        f"- Rewrite the notebook/scripts PROPERLY. You are NOT limited to minimal diffs — "
-        f"if the right fix is a large rewrite, do it. Optimize for correct, clean code.\n"
-        f"- VALIDATE: run `python scripts/check_notebook.py <notebook.ipynb>` and FIX until "
-        f"it exits 0 (it byte-compiles every code cell). Loop: edit → check → repeat.\n"
-        f"- RE-UPLOAD the fixed notebook to the SAME `gdrive:` path you used originally so "
-        f"Dan's existing Colab link keeps working (see docs/colab_rclone_ops.md; the "
-        f"`gdrive:` rclone remote works headlessly).\n"
-        f"- COMMIT in this worktree: git add -A && git commit -m 'redo({task}): <summary>'.\n"
-        f"- Touch ONLY files under colab/, data_export/, scripts/, docs/. NEVER main_bot.py, "
-        f".env, data/, models/, scripts/watchdog.py, scripts/restart_bot.sh, or any .service.\n"
-        f"- This is a CONFINED reship, NOT a normal dev session. Do NOT log a lesson to "
-        f"tasks/lessons.md and do NOT make any ancillary edits outside the deliverable surface, "
-        f"even if a CLAUDE.md / AGENTS.md convention tells you to after a 'correction'. That "
-        f"convention does NOT apply here — keep the diff to the fix itself.\n"
-        f"- Do NOT push, do NOT merge, do NOT restart anything.\n"
-        f"- FINALLY, write the result manifest to {result_path} (an absolute path OUTSIDE "
-        f"this worktree — do NOT create it inside {wt}) with keys: notebook_path "
-        f"(repo-relative, e.g. colab/{task.lower()}_train.ipynb), gdrive_dest (the full "
-        f"rclone dest you uploaded to), colab_link (the Colab URL — same as before if "
-        f"unchanged), and changelog (1-3 lines on what you fixed)."
+        f"RULES:\n" + _redo_rules(task, result_path, wt)
     )
 
     def run(resume_id: str, prompt: str) -> str:

@@ -631,11 +631,14 @@ def _handle_ask(arg: str) -> None:
 
 
 def _handle_redo(arg: str) -> None:
-    """`/redo <id> <what's wrong>` — have Maestro REWRITE + re-upload the deliverable for a
+    """`/redo <id> <what's wrong>` — have Maestro REWRITE + reship the deliverable for a
     parked manual task (vs /ask, which only advises). Spawns scripts/maestro_redo.py in a
-    detached tmux window; it resumes the prep session, rewrites the notebook, runs the
-    syntax gate in a loop, re-uploads to Drive, and hands a gate-passed branch back here
-    to merge. Confined to colab/ + data_export/ + scripts/ + docs/ (minus the deny-list)."""
+    detached tmux window; it resumes the prep session, rewrites the deliverable, and hands
+    a gate-passed branch back here to merge. If this project ships notebooks
+    (`scripts/check_notebook.py` exists) that also means a syntax-gate loop and a Drive
+    re-upload — see `maestro.selfheal.redo._redo_rules`. Confined to whatever
+    `project.yaml`'s `confinement.redo_allow` names (minus the deny-list), not a hardcoded
+    surface."""
     parts = arg.split(None, 1)
     if len(parts) < 2:
         notify_telegram("Usage: /redo <id> <what's wrong>\n"

@@ -52,6 +52,12 @@ WORKSPACES            = _PATHS.workspaces
 QUESTIONS_DIR         = REPO / ".orchestrator" / "questions"
 SYS_PROMPT            = REPO / "orchestrator" / "profiles" / "implementer_sys.md"
 VENV_PYTHON           = REPO / ".venv" / "bin" / "python3"
+# `check_notebook.py` is a project-owned "how to ship" script (see
+# `tests/test_no_reference_sidecars.py`'s ALLOWED set) — its presence is this project's own
+# signal that its manual-task deliverable is a notebook. `_make_prep_brief` only mentions
+# the Colab/Drive workflow when this exists, the same condition `maestro.selfheal.redo`
+# gates its RUNNER prompt on.
+CHECK_NB              = REPO / "scripts" / "check_notebook.py"
 
 # ── B12: pre-implementation question gating ──
 # A task may declare a `questions:` block in its ROADMAP yaml. Each question must
@@ -245,7 +251,7 @@ def _make_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "
         f"- Do NOT push to git. Do NOT restart the bot. Do NOT modify .env.\n"
         f"- Do NOT write to {REPO} directly (only read tooling from it).\n"
         f"- NEVER edit docs/ROADMAP.md status fields — task completion is owned by the orchestrator.\n"
-        f"- Read docs/ROADMAP.md and docs/CLAUDE_TASK_CONTEXT.md for full context.\n"
+        f"- Read docs/ROADMAP.md and docs/PROJECT.md for full context.\n"
         f"{verif_section}{note}{needs_dan_note}{resumable_note}{_answers_section(task)}"
     )
 
@@ -255,6 +261,13 @@ def _make_prep_brief(task: dict, workspace: Path, worktree: Path, retry_note: st
 
     The implementer does ALL automatable prep and emits the single `dan_action`; it must
     NOT perform the human step (GPU run, prod downtime, hardware/credential decision).
+
+    The Colab/Drive/checkpoint-resumability paragraph below used to be unconditional — every
+    dispatch:manual task, on every project, was told to generate a Colab notebook and upload
+    it to a `gdrive:` remote, whether or not that project ships notebooks at all. It is now
+    gated on `CHECK_NB` (the project's own `scripts/check_notebook.py`, absent on any freshly
+    scaffolded project): the same signal `maestro.selfheal.redo` uses to decide whether its
+    RUNNER prompt is notebook-shaped.
     """
     task_id = task["id"]
     title   = task.get("title", task_id)
@@ -273,38 +286,48 @@ def _make_prep_brief(task: dict, workspace: Path, worktree: Path, retry_note: st
         '"post_action_cmd":"<a single shell cmd to finalize AFTER Dan acts, or null>",'
         '"files_changed":[],"summary":"<=5 lines","ts":"ISO"}' % task_id
     )
+    if CHECK_NB.is_file():
+        deliverable_step = (
+            "- Write/finish any scripts, export/prepare data, generate a Colab notebook and "
+            "UPLOAD it to Dan's Drive (the rclone remote `gdrive:` works headlessly), run any "
+            "migration that does NOT need the downtime/human step.\n"
+            "- If you generated a Colab/Jupyter notebook, it MUST be CHECKPOINT-RESUMABLE "
+            "across daily sessions: Dan runs on FREE Colab, which cuts the GPU mid-job each "
+            "day, so the notebook is re-run over several days and must continue from where it "
+            "stopped — never restart from epoch 0 / row 0. Persist train_state.json (epoch, "
+            "step, optimizer/scheduler, best metric) + checkpoint to Drive after each epoch "
+            "(or every N rows for encode loops) and resume from the latest on startup. See "
+            "docs/PROJECT.md for this project's conventions.\n"
+            f"- If you generated a Colab/Jupyter notebook, SYNTAX-GATE it before uploading: run "
+            f"`{VENV_PYTHON} scripts/check_notebook.py <notebook.ipynb>` and fix until it exits 0 "
+            "(it byte-compiles every code cell). Don't hand Dan a notebook that fails this.\n"
+        )
+    else:
+        deliverable_step = (
+            "- Write/finish any scripts, export/prepare data, ship the deliverable the way "
+            "docs/PROJECT.md describes for this project, run any migration that does NOT need "
+            "the downtime/human step.\n"
+        )
     return (
         f"You are a Sonnet PREP implementer for {task_id}: {title}.\n\n"
         f"This is a dispatch:manual task: a human (Dan) must perform exactly ONE step that an "
-        f"agent cannot — a Colab/GPU run, an approved prod-downtime window, or a "
+        f"agent cannot — a GPU/compute run, an approved prod-downtime window, or a "
         f"hardware/credential decision. YOUR JOB is to do EVERYTHING ELSE so Dan's total "
         f"involvement is that single action.\n\n"
         f"WORKTREE (your git sandbox — work only here):\n  {worktree}\n\n"
         f"WORKSPACE (write result.json + DONE/FAILED here):\n  {workspace}\n\n"
         f"VENV Python: {VENV_PYTHON}\n\n"
         f"TASK DESCRIPTION:\n  {task.get('short_desc', '')}\n"
-        f"  Read docs/ROADMAP.md ({task_id} block) + docs/CLAUDE_TASK_CONTEXT.md for full context.{hint}\n\n"
+        f"  Read docs/ROADMAP.md ({task_id} block) + docs/PROJECT.md for full context.{hint}\n\n"
         f"DO (all automatable prep):\n"
-        f"- Write/finish any scripts, export/prepare data, generate a Colab notebook and UPLOAD it to "
-        f"Dan's Drive (the rclone remote `gdrive:` works headlessly), run any migration that does NOT "
-        f"need the downtime/human step.\n"
-        f"- If you generated a Colab/Jupyter notebook, it MUST be CHECKPOINT-RESUMABLE across daily "
-        f"sessions: Dan runs on FREE Colab, which cuts the GPU mid-job each day, so the notebook is "
-        f"re-run over several days and must continue from where it stopped — never restart from "
-        f"epoch 0 / row 0. Persist train_state.json (epoch, step, optimizer/scheduler, best metric) "
-        f"+ checkpoint to Drive after each epoch (or every N rows for encode loops) and resume from "
-        f"the latest on startup. Pattern: colab/phase8b_train.ipynb / scripts/backfill_media.py. "
-        f"See docs/CLAUDE_TASK_CONTEXT.md 'Colab free-tier conventions'.\n"
-        f"- If you generated a Colab/Jupyter notebook, SYNTAX-GATE it before uploading: run "
-        f"`{VENV_PYTHON} scripts/check_notebook.py <notebook.ipynb>` and fix until it exits 0 "
-        f"(it byte-compiles every code cell). Don't hand Dan a notebook that fails this.\n"
+        f"{deliverable_step}"
         f"- Commit your prep changes in the worktree:\n"
         f"     git add -A && git commit -m 'prep({task_id}): <one-line summary>'\n"
-        f"  (Skip only if prep produced no committable files — e.g. a pure Drive upload.)\n"
+        f"  (Skip only if prep produced no committable files — e.g. a pure upload.)\n"
         f"- Decide the SINGLE action Dan must take; write it as result.json `dan_action` (ONE line).\n"
-        f"- If a finalize step can be automated AFTER Dan acts (e.g. importing Colab output into the "
-        f"DB), put that one shell command in `post_action_cmd` — the orchestrator runs it when Dan "
-        f"approves, then runs the task's verification gate to graduate.\n\n"
+        f"- If a finalize step can be automated AFTER Dan acts (e.g. importing the deliverable's "
+        f"output into a store), put that one shell command in `post_action_cmd` — the orchestrator "
+        f"runs it when Dan approves, then runs the task's verification gate to graduate.\n\n"
         f"DO NOT:\n"
         f"- Perform the human step yourself (do NOT start the GPU run, do NOT restart the prod bot, "
         f"do NOT take prod downtime, do NOT spend money/credits that need Dan's ok).\n"

@@ -67,11 +67,15 @@ CHECK_NB              = REPO / "scripts" / "check_notebook.py"
 # cannot silently go missing: `profiles/implementer.md` says the same thing, but that file
 # is optional scaffold text an implementer can be launched without (SYS_PROMPT above, or a
 # project that never customised its profile), and `brief_with_profile` below only reaches
-# a backend that cannot take it as a separate file in the first place. `_make_brief`
-# appends this to every ordinary brief regardless of profile, backend or capability, so the
-# cooperative-checkpoint half of a threshold switch (DESIGN.md §7) is always reachable. A
-# later rewrite of `_make_brief`'s opening line / guardrail wording (plan item B1) must
-# preserve this text unchanged.
+# a backend that cannot take it as a separate file in the first place. `_make_brief` is
+# structured to append this exactly once, after both its `dispatch: manual` and ordinary
+# branches have produced their `body` — never inside either branch — so a dispatch:manual
+# task (a legitimate D2 usage-threshold switch target, per `orchestrator._threshold_switches`
+# iterating `in_flight` with no dispatch filter) gets the contract exactly like any other
+# task, regardless of profile, backend or capability. The cooperative-checkpoint half of a
+# threshold switch (DESIGN.md §7) is therefore always reachable. A later rewrite of
+# `_make_brief`'s opening line / guardrail wording (plan item B1) must preserve this text
+# unchanged.
 SWITCH_SENTINEL_CONTRACT = (
     "SWITCH SENTINEL — MID-WORK HANDOFF (checkpoint-and-exit):\n"
     "Maestro may need to move you to a different backend mid-task (a usage threshold "
@@ -96,8 +100,9 @@ def brief_with_profile(brief: str, offers_system_prompt: bool, profile_path: Pat
     declares the capability gets the profile via `--system-prompt-file` and `brief` is
     passed through unchanged (F4 handles the "file missing" degrade on that path); one that
     doesn't (`CodexBackend`, `codex exec` has no system-prompt equivalent) gets the same
-    profile text prepended to the brief it already receives. No profile file on disk is the
-    same "say nothing extra" degrade either way.
+    profile text prepended to the brief it already receives. No profile file on disk, or one
+    that can't be read or decoded as UTF-8, is the same "say nothing extra" degrade either
+    way.
 
     `profile_path` is taken from the caller rather than read off this module's own
     `SYS_PROMPT` global: `maestro.switch` imports that global under its own name and a test
@@ -108,7 +113,7 @@ def brief_with_profile(brief: str, offers_system_prompt: bool, profile_path: Pat
         return brief
     try:
         profile_text = profile_path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return brief
     return f"{profile_text}\n\n{brief}"
 
@@ -230,10 +235,20 @@ def _answers_section(task: dict) -> str:
 # ── Brief generation ──
 
 def _make_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "") -> str:
+    """Every brief-shaped return path, whichever branch built it, ends the same way:
+    `SWITCH_SENTINEL_CONTRACT` appended once, here, after both branches — not inside one of
+    them — so a future third branch inherits the guarantee structurally instead of needing
+    someone to remember to add the line again (see the constant's own docstring)."""
     # B14 auto-prep: a dispatch:manual task gets a PREP brief — do all automatable
     # prep, never the human step, and emit the single dan_action.
     if task.get("dispatch") == "manual":
-        return _make_prep_brief(task, workspace, worktree, retry_note)
+        body = _make_prep_brief(task, workspace, worktree, retry_note)
+    else:
+        body = _make_ordinary_brief(task, workspace, worktree, retry_note)
+    return f"{body}\n\n{SWITCH_SENTINEL_CONTRACT}"
+
+
+def _make_ordinary_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "") -> str:
     task_id = task["id"]
     title   = task.get("title", task_id)
     note    = f"\n\nNOTE FROM ORCHESTRATOR: {retry_note}" if retry_note else ""
@@ -307,7 +322,6 @@ def _make_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "
         f"- NEVER edit docs/ROADMAP.md status fields — task completion is owned by the orchestrator.\n"
         f"- Read docs/ROADMAP.md and docs/PROJECT.md for full context.\n"
         f"{verif_section}{note}{needs_dan_note}{resumable_note}{_answers_section(task)}"
-        f"\n\n{SWITCH_SENTINEL_CONTRACT}"
     )
 
 

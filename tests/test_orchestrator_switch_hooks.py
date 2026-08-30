@@ -39,7 +39,8 @@ from maestro import config as config_module
 from maestro import implementer
 from maestro import orchestrator
 from maestro import state as state_module
-from maestro.backends.base import Capabilities, Usage, WindowUsage
+from maestro.backends.base import Capabilities, ExitVerdict, Usage, WindowUsage
+from maestro.backends.registry import get_backend as real_get_backend
 from maestro.hitl import commands
 from maestro.switch import REASON_QUOTA, REASON_THRESHOLD, SwitchOutcome
 
@@ -81,11 +82,19 @@ def _switched_entry(old: dict, to_backend=CODEX, sid="impl-T1-2") -> dict:
 
 
 class _FakeDriver:
-    """A driver that reports a usage sample without touching a binary."""
+    """A driver that reports a usage sample and/or an exit verdict without touching a
+    binary.
 
-    def __init__(self, used_pct: float | None, telemetry: bool = True):
+    `exit_verdict` defaults to a plain crash — never `quota_exhausted` — so tests that
+    only care about the threshold path are not accidentally exercising the reconcile
+    switch/pause branch through `parse_exit`.
+    """
+
+    def __init__(self, used_pct: float | None, telemetry: bool = True,
+                 exit_verdict: ExitVerdict | None = None):
         self._used_pct = used_pct
         self._telemetry = telemetry
+        self._exit_verdict = exit_verdict or ExitVerdict(kind="crashed")
 
     def capabilities(self) -> Capabilities:
         return Capabilities(usage_telemetry=self._telemetry)
@@ -94,6 +103,9 @@ class _FakeDriver:
         if self._used_pct is None:
             return None
         return Usage(windows={300: WindowUsage(used_pct=self._used_pct)})
+
+    def parse_exit(self, rc: int, log_tail: str) -> ExitVerdict:
+        return self._exit_verdict
 
 
 @pytest.fixture
@@ -578,16 +590,21 @@ def test_threshold_switch_skips_a_script_task_and_a_lost_worktree(hooks, tmp_pat
 
 @pytest.fixture
 def reconcile_env(hooks, monkeypatch, tmp_path):
-    """A window-gone entry whose impl.log looks like a usage-limit exit."""
+    """A window-gone entry whose driver classifies the exit as quota-exhausted.
+
+    Re-baselined for A1 (readiness queue, 2026-08-30): this used to monkeypatch
+    `orchestrator._scan_impl_log_for_limit` directly, pinning the pre-fix shape where
+    core code scanned Claude's own wording regardless of which backend the entry ran
+    on. `reconcile_in_flight` now resolves the entry's driver (`_entry_backend`) and
+    calls its `parse_exit`, so the seam to drive here is `get_backend` returning a
+    fake whose `parse_exit` answers the same verdict the old stub answered.
+    """
     monkeypatch.setattr(orchestrator, "tmux_window_exists", lambda window: False)
+    verdict = ExitVerdict(kind="quota_exhausted", reset_at="2026-08-12T18:00:00Z",
+                          evidence="You've hit your usage limit")
     monkeypatch.setattr(
-        orchestrator,
-        "_scan_impl_log_for_limit",
-        lambda workspace: {
-            "limit": True,
-            "reset_iso": "2026-08-12T18:00:00Z",
-            "evidence": "You've hit your usage limit",
-        },
+        orchestrator, "get_backend",
+        lambda name: _FakeDriver(hooks.usage_pct, exit_verdict=verdict),
     )
     monkeypatch.setattr(
         orchestrator,
@@ -645,6 +662,44 @@ def test_reconcile_still_pauses_when_the_switch_fails(reconcile_env):
     assert surviving == []
     assert [p[0] for p in reconcile_env.pauses] == ["T1"]
     assert "backend_switch_failed" in [event for event, _, _ in reconcile_env.journal]
+
+
+def test_reconcile_classifies_a_codex_quota_exit_through_its_own_driver(
+    hooks, monkeypatch, tmp_path
+):
+    """A1: `reconcile_in_flight` must resolve the entry's own driver and read *its*
+    `parse_exit`, not scan the log for Claude's wording (`quota._LIMIT_RE`) regardless of
+    backend. A codex implementer's own exhaustion phrasing — unrelated to Claude's — must
+    be classified as `quota_exhausted` rather than falling through to "no window, no
+    sentinel — stale entry; marking FAILED".
+
+    `get_backend` is restored to the real registry function so this exercises the actual
+    `CodexBackend.parse_exit`, not a stand-in — construction and `parse_exit` are both
+    inert (no binary, no subprocess; see `CodexBackend`'s docstring), so this never risks
+    running a real agent CLI.
+    """
+    monkeypatch.setattr(orchestrator, "tmux_window_exists", lambda window: False)
+    monkeypatch.setattr(orchestrator, "get_backend", real_get_backend)
+    monkeypatch.setattr(
+        orchestrator, "_tail_text",
+        lambda path, n=15: "stream error: rate_limit_reached; giving up",
+    )
+    monkeypatch.setattr(
+        orchestrator, "_pause_for_usage_limit",
+        lambda task_id, reset_iso, evidence, workspace: hooks.pauses.append(
+            (task_id, reset_iso, evidence)
+        ),
+    )
+    hooks.available = (CODEX,)                 # only the entry's own backend — no fallback
+    entry = _entry(tmp_path, backend=CODEX)
+    (orchestrator.WORKSPACES / entry["session_id"]).mkdir(parents=True, exist_ok=True)
+
+    surviving = orchestrator.reconcile_in_flight({"in_flight": [entry]}, {})
+
+    assert surviving == []                     # dropped from in_flight, not marked FAILED
+    assert hooks.pauses and hooks.pauses[0][0] == "T1"
+    workspace = orchestrator.WORKSPACES / "impl-T1-1"
+    assert not (workspace / "FAILED").exists()
 
 
 # =======================================================================================

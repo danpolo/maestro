@@ -38,6 +38,7 @@ import subprocess
 import uuid
 from pathlib import Path
 
+from maestro import confinement
 from maestro import roles
 from maestro.backends import registry
 from maestro.backends.base import LaunchSpec
@@ -286,7 +287,7 @@ def _make_prep_brief(task: dict, workspace: Path, worktree: Path, retry_note: st
         '"post_action_cmd":"<a single shell cmd to finalize AFTER Dan acts, or null>",'
         '"files_changed":[],"summary":"<=5 lines","ts":"ISO"}' % task_id
     )
-    if CHECK_NB.is_file():
+    if confinement.available(CHECK_NB):
         deliverable_step = (
             "- Write/finish any scripts, export/prepare data, generate a Colab notebook and "
             "UPLOAD it to Dan's Drive (the rclone remote `gdrive:` works headlessly), run any "

@@ -15,6 +15,7 @@ import re
 import subprocess
 
 from maestro.config import _load_project_yaml
+from maestro import confinement
 from maestro import metrics
 from maestro.hitl.telegram import notify_telegram
 from maestro.paths import Paths
@@ -195,7 +196,7 @@ def run_canary_deploy(task_id: str) -> bool:
     defaulting to `[]` (see `_touches_bot_files`) kept this invisible until a project
     actually declares one.
     """
-    if not CANARY_DEPLOY.is_file():
+    if not confinement.available(CANARY_DEPLOY):
         return True
     return subprocess.run([str(VENV_PYTHON), str(CANARY_DEPLOY), task_id],
                           cwd=str(REPO), capture_output=True).returncode == 0

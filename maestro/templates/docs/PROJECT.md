@@ -3,7 +3,10 @@
 The **human-facing** companion to `docs/ROADMAP.md`. Where the roadmap is a machine-
 parsed task queue, this file is prose: what this project is, what good looks like,
 and the vocabulary maestro's reporting uses when it talks about upcoming work. It is
-not parsed by `maestro.docs.roadmap` — write it however reads best.
+not parsed by `maestro.docs.roadmap` — write most of it however reads best. The one
+exception is the "## Glossary" section below: `maestro.docs.upcoming` reads its bullets
+to detect jargon in task descriptions and render `docs/UPCOMING.md`'s glossary, so keep
+each entry to that section's one-line-per-term format.
 
 ## What this project is
 
@@ -25,7 +28,10 @@ readable version of this list; this section is the reasoning behind it.*
 ## Glossary
 
 *Terms maestro's phase reports and the upcoming-work summary should use consistently
-— domain vocabulary, abbreviations, anything a reader would otherwise have to guess.*
+— domain vocabulary, abbreviations, anything a reader would otherwise have to guess.
+One bullet per term, exactly `- **Term** — one-line definition` (spell out an
+abbreviation in parentheses, e.g. `RRF (Reciprocal Rank Fusion)`, so both forms are
+matched in task descriptions) — `maestro.docs.upcoming` parses this shape.*
 
 ## Repo pointers
 

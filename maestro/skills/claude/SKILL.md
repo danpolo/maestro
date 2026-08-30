@@ -80,7 +80,11 @@ Step 1, and say so instead of asking.
    `null`, and maestro reports "no metrics" rather than inventing one.
 7. **The upcoming-work glossary.** Domain vocabulary, abbreviations, or project-specific terms
    maestro's phase reports and upcoming-work summaries should use consistently, so a human
-   reading a report doesn't have to guess. This becomes `docs/PROJECT.md`'s "Glossary" section.
+   reading a report doesn't have to guess. This becomes `docs/PROJECT.md`'s "Glossary"
+   section — `maestro.docs.upcoming` parses it (unlike the rest of that file, which is free
+   prose), so write each entry as its own bullet, exactly `- **Term** — one-line definition`.
+   Spell an abbreviation out in parentheses on first mention (`RRF (Reciprocal Rank
+   Fusion)`) so task descriptions match on either form.
 
 Record answers as you go; don't rely on remembering them across the interview.
 

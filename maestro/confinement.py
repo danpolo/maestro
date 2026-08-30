@@ -51,6 +51,7 @@ __all__ = [
     "deny_fragments",
     "path_ok",
     "rules_prose",
+    "available",
 ]
 
 #: The two gates. Named rather than passed as strings so a typo is an `AttributeError`
@@ -228,3 +229,16 @@ def rules_prose(kind: str, config: Optional[Mapping] = None) -> str:
     allow_str = ", ".join(allowed) if allowed else f"(nothing — {label} is disabled here)"
     return (f"A {label} may only change files under: {allow_str}. "
             f"It must NEVER change: {', '.join(denied)}.")
+
+
+def available(path: Path) -> bool:
+    """Whether `path` — an optional, project-owned verification script (`CHECK_NB` in
+    `implementer.py`/`selfheal/redo.py`, `CANARY_DEPLOY` in `merge.py`) — actually exists.
+
+    Each of those constants stays exactly where it is declared, built the same literal
+    way it always was — `tests/test_no_reference_sidecars.py` scans source for that exact
+    shape, so centralising the constant itself would make it invisible to that gate — but
+    the `.is_file()` check guarding each one is genuine duplication, and goes through this
+    single predicate instead of being retyped at every call site.
+    """
+    return path.is_file()

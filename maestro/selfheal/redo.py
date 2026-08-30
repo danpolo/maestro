@@ -192,7 +192,7 @@ def _redo_rules(task: str, result_path: Path, wt: Path) -> str:
         "- Rewrite the deliverable PROPERLY. You are NOT limited to minimal diffs — if "
         "the right fix is a large rewrite, do it. Optimize for correct, clean code.",
     ]
-    if CHECK_NB.is_file():
+    if confinement.available(CHECK_NB):
         rules.append(
             "- VALIDATE: run `python scripts/check_notebook.py <notebook.ipynb>` and FIX "
             "until it exits 0 (it byte-compiles every code cell). Loop: edit → check → "

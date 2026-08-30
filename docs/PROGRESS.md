@@ -91,6 +91,26 @@ surface — the same stale-prompt-vs-real-gate mismatch item 1 fixed for `/redo`
 named in this session's queue. Not a live bug (the gate protects regardless of what the
 prompt says), so left alone rather than expanded into scope.
 
+**Final review pass, commit `09ead04`.** `/code-review high 7ab3904..HEAD` (7 finder
+agents + independent verification) found 9 issues against the four commits above; 5
+confirmed real and fixed, 1 confirmed-but-already-ruled-on (the CANARY_DEPLOY-via-
+adapters suggestion — the reviewer independently re-derived the same ruling this file
+already recorded and dropped it), 2 valid DRY observations deliberately left as follow-up
+rather than acted on (both noted in `09ead04`'s message: the "optional project-owned
+script guarded by `.is_file()`" pattern is now three independent implementations —
+`implementer.py`'s and `redo.py`'s `CHECK_NB`, `merge.py`'s new `CANARY_DEPLOY` — and
+`_redo_rules`'s confinement-to-prose rendering duplicates similar logic already in
+`selfheal/diagnose.py`'s diagnosis prompt). Fixed: `bot_files` had no operator-facing
+question anywhere (setup interview, `doctor`, or the PROJECT.md template) despite its
+default silently changing from a guessed `["main_bot.py"]` to an honest `[]` — added an
+interview question; `_project_glossary()` didn't catch `UnicodeDecodeError` (a
+non-UTF-8 PROJECT.md crashed docs generation instead of degrading to `[]`); the glossary
+bullet regex missed the en dash and mis-parsed a double-hyphen separator; `_term_aliases`'
+parenthetical regex was greedy across a second, unrelated parenthetical; `render()`
+re-read and re-parsed `docs/PROJECT.md` once per pending task instead of once per call.
+Suite green throughout — **3101 collected, exit 0, 0 failures** after this pass (5 more
+tests than the 3096 the four items above closed with).
+
 **Post-programme session, 2026-08-30 — the pre-pilot decoupling pass.** Operator direction:
 close every gap that would bite a first non-reference project, and do all machine-level
 preparation, before any pilot. Five commits, suite green after each (**3085 collected,

@@ -38,6 +38,59 @@ reconcile-stale-retry backend-defaulting inconsistency found this session. None 
 part of any stage's Done-when. `abuali-nightly-eval.timer` re-enables itself automatically now that
 `PROGRAMME-STATUS` reaches `COMPLETE`, per the 2026-08-11 operator resolution recorded below.
 
+**Post-programme session, 2026-08-30 (second session) — pre-pilot decoupling, queue items
+1–4 closed.** Continued from the handoff below (`handoffs/2026-08-30_finish-the-generic-
+product-decoupling.md`), baseline `7ab3904`. Four commits, suite green after each
+(**3096 collected, exit 0, 0 failures** — up from 3085 at the session start, 11 new tests
+added across the four changes; no test removed).
+
+| Change | Commit | What it settles |
+|---|---|---|
+| `/redo`'s RUNNER prompt reads the real confined surface, notebook rules gated on `CHECK_NB` | `1baf726` | Item 1. The deliverable pipeline was still Colab/Drive-shaped for every project. |
+| `implementer.py`'s prep brief: same fix, both briefs point at `docs/PROJECT.md` | `b99d023` | Item 2. Every `dispatch:manual` task on every project got the Colab/Drive framing. |
+| `upcoming.py`'s `GLOSSARY` reads `docs/PROJECT.md`'s "## Glossary" section | `a192ca0` | Item 3. Also fixed `_refresh_prompt`'s hardcoded "Hebrew RAG bot" / dense-BGE-M3 pipeline description, found while there — uncovered by any characterisation test. |
+| `bot_files` declared + defaults to `[]`; `run_canary_deploy` guards absence; a `restart_bot.sh`-specific regex carve-out removed | `9b231b5` | Item 4's four sub-items. See the ruling below on CANARY_DEPLOY. |
+
+**Ruling recorded: CANARY_DEPLOY stays a hardcoded `REPO/"scripts"/"canary_deploy.py"`
+path, not routed through `adapters.KNOWN_KINDS`'s `deploy` seam.** The handoff's item 4
+suggested the adapter seam as "the proper seam and already exists." That conflicts with a
+documented, deliberate M4c decision (`docs/plans/2026-08-18-m4c-superseded-sidecars.md`
+§2b, enforced by `tests/test_no_reference_sidecars.py`'s `ALLOWED` set): `canary_deploy.py`
+is correctly project-owned, the same class as `check_notebook.py`, not one of the scripts
+M5 superseded. Overriding that would have meant re-litigating a call the M4c session
+already made with the adapter protocol in view. The real defect — found while reading the
+ruling's evidence, not in the handoff — was narrower and still real: neither call site
+guarded for the script's absence, so `bot_files` becoming a real knob (item 4's own fix)
+would have made every bot-file-touching merge on a project without one read as a *failed*
+canary, the SMOKE_ADAPTER bug one seam over. Fixed via `merge.run_canary_deploy`
+(absent = skip), not by moving the seam.
+
+**`known_dead` template keys: 4, not 2 as the handoff's own "State at handoff" table
+said** (`switch.on_quota_exhausted`, `switch.manual`, `gate.baseline_source`,
+`gate.bands` — verified against `7ab3904` directly, not just HEAD). Apparently a
+miscount in the prior handoff, not a regression introduced since. Unchanged by this
+session: none of items 1–4 touch those four keys, and wiring them is explicitly out of
+scope (D8 eval scoring / `SWITCH_THRESHOLD_PCT` calibration, both standing notes above).
+
+**Reference-vocabulary hits in `maestro/*.py`: 45, up from 42** (`grep -rniE
+"recall@5|main_bot|colab|rclone|check_notebook" maestro/ --include="*.py"`). This is not a
+regression: every added hit is either a docstring explaining what was decoupled (the same
+`metrics.py`/`confinement.py` precedent the handoff's own verification note called
+"worth keeping") or code now gated behind `CHECK_NB.is_file()` — a project without
+notebook infrastructure never reaches it. Per-file: `redo.py` 20 (was 17),
+`implementer.py` 14 (was 12), `metrics.py` 2, `confinement.py` 2, `selffix.py` 2
+(untouched — out of scope, see below), `orchestrator.py` 1, `merge.py` 1 (new — a
+docstring), `parking.py` 1 (untouched, a comment), `hitl/commands.py` 1 (untouched),
+`docs/upcoming.py` 1 (new — a docstring; the 18 hardcoded terms are gone).
+
+**Found, not fixed — flagged for a future session, not this one's scope.**
+`selfheal/selffix.py`'s prep prompt still hardcodes `"NEVER touch main_bot.py, .env,
+data/, models/, scripts/watchdog.py..."` (line ~256) even though the actual gate
+(`confinement.path_ok` via `_self_fix_path_ok`) already reads the real configured
+surface — the same stale-prompt-vs-real-gate mismatch item 1 fixed for `/redo`, just not
+named in this session's queue. Not a live bug (the gate protects regardless of what the
+prompt says), so left alone rather than expanded into scope.
+
 **Post-programme session, 2026-08-30 — the pre-pilot decoupling pass.** Operator direction:
 close every gap that would bite a first non-reference project, and do all machine-level
 preparation, before any pilot. Five commits, suite green after each (**3085 collected,

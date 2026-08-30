@@ -696,7 +696,9 @@ def test_make_brief_declares_the_result_and_sentinel_contract(subject, sandbox, 
 
 
 def test_make_brief_always_carries_the_switch_sentinel_contract(subject, sandbox, tmp_path):
-    """A3 belt-and-braces: the SWITCH-sentinel/checkpoint contract must reach the
+    """A3 belt-and-braces (ordinary branch — see
+    `test_make_brief_carries_the_switch_sentinel_contract_for_a_dispatch_manual_task` for
+    the `dispatch: manual` branch): the SWITCH-sentinel/checkpoint contract must reach the
     implementer even when no profile file exists at all — `profiles/implementer.md`
     (SYS_PROMPT) is optional scaffold text, so it cannot be the only carrier of a safety
     mechanism. `_make_brief` appends `SWITCH_SENTINEL_CONTRACT` unconditionally."""
@@ -841,9 +843,34 @@ def test_make_brief_sections_appear_in_a_fixed_order(subject, sandbox, tmp_path)
 def test_make_brief_delegates_a_dispatch_manual_task_to_the_prep_brief(
     subject, sandbox, tmp_path
 ):
+    """A3 re-baseline: `_make_brief` used to return the prep brief completely unchanged
+    for a `dispatch: manual` task (a bare early return, before the SWITCH-sentinel append
+    existed at all). It now appends `SWITCH_SENTINEL_CONTRACT` to *every* branch's output,
+    prep brief included — a dispatch:manual task is a legitimate D2 usage-threshold switch
+    target with no filter excluding it (`orchestrator._threshold_switches` iterates
+    `in_flight` generically), so it needs the same checkpoint contract as any other task.
+    This pin now asserts the prep brief plus the contract, not the prep brief alone."""
     task = {**TASK, "dispatch": "manual"}
-    assert subject._make_brief(task, tmp_path / "ws", tmp_path / "wt") == \
-        subject._make_prep_brief(task, tmp_path / "ws", tmp_path / "wt")
+    ws, wt = tmp_path / "ws", tmp_path / "wt"
+    assert subject._make_brief(task, ws, wt) == \
+        subject._make_prep_brief(task, ws, wt) + f"\n\n{subject.SWITCH_SENTINEL_CONTRACT}"
+
+
+def test_make_brief_carries_the_switch_sentinel_contract_for_a_dispatch_manual_task(
+    subject, sandbox, tmp_path
+):
+    """The gap this pins: `_make_brief` used to early-return `_make_prep_brief(...)` before
+    ever reaching the contract append, so a dispatch:manual task — a legitimate D2
+    usage-threshold switch target, not a special case excluded from switching — got no
+    SWITCH-sentinel contract at all unless `profiles/implementer.md` happened to exist.
+    `_make_brief` now appends the contract once, after both its branches, so this must hold
+    for the manual-dispatch branch exactly like the ordinary one (see the sibling test
+    `test_make_brief_always_carries_the_switch_sentinel_contract` for that branch)."""
+    assert not subject.SYS_PROMPT.exists()
+    task = {**TASK, "dispatch": "manual"}
+    brief = subject._make_brief(task, tmp_path / "ws", tmp_path / "wt")
+    assert "PREP implementer" in brief  # still the prep brief, not the ordinary one
+    assert subject.SWITCH_SENTINEL_CONTRACT in brief
 
 
 def test_make_brief_dispatch_delegation_is_case_sensitive(subject, sandbox, tmp_path):
@@ -1263,6 +1290,17 @@ def test_brief_with_profile_prepends_the_profile_when_the_capability_is_not_offe
     subject.SYS_PROMPT.write_text("a profile", encoding="utf-8")
     assert subject.brief_with_profile("a brief", False, subject.SYS_PROMPT) == \
         "a profile\n\na brief"
+
+
+def test_brief_with_profile_passes_through_unchanged_on_undecodable_profile_bytes(
+    subject, sandbox
+):
+    """A profile file that isn't valid UTF-8 degrades the same way a missing one does —
+    say nothing extra — rather than raising UnicodeDecodeError out of a brief-generation
+    path that must never crash a launch."""
+    subject.SYS_PROMPT.parent.mkdir(parents=True, exist_ok=True)
+    subject.SYS_PROMPT.write_bytes(b"\xff\xfe\x00not valid utf-8")
+    assert subject.brief_with_profile("a brief", False, subject.SYS_PROMPT) == "a brief"
 
 
 def test_launch_implementer_launcher_reads_the_brief_and_captures_output(

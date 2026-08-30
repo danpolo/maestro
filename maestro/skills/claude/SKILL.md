@@ -85,6 +85,13 @@ Step 1, and say so instead of asking.
    prose), so write each entry as its own bullet, exactly `- **Term** — one-line definition`.
    Spell an abbreviation out in parentheses on first mention (`RRF (Reciprocal Rank
    Fusion)`) so task descriptions match on either form.
+8. **Does this project run a live process, and if so, which file(s) are it?** This becomes
+   `project.yaml`'s `bot_files` — deliberately not something `init` can guess. A merge that
+   touches one of these hard-stops the no-eval resumable auto-merge path (escalates to Dan,
+   never Opus) and, after landing, runs this project's own `scripts/canary_deploy.py` if it
+   has one. The default is `[]`, meaning **none of these protections fire for anything** —
+   if this project has a bot, service, or daemon whose source lives in the repo, ask which
+   file(s) and say so plainly; don't leave this at the default without asking.
 
 Record answers as you go; don't rely on remembering them across the interview.
 
@@ -147,11 +154,11 @@ After `init` completes:
    *is*: a list of **regular expressions matched against diff text**, not paths. Path-shaped
    answers belong in `confinement.deny`, `secrets` or `prod_stores`, all of which are matched
    against filenames.
-3. Fill in `confinement.redo_allow` from the deliverables answer and `gate.primary_metric` from
-   the headline-number answer. Leave `confinement.self_fix_allow` at its default
-   (`[adapters/, profiles/, docs/]`) unless the operator asks otherwise — it is the surface an
-   unattended self-fix may repair, and widening it widens what maestro may change about this
-   project's setup without being asked.
+3. Fill in `confinement.redo_allow` from the deliverables answer, `gate.primary_metric` from
+   the headline-number answer, and `bot_files` from the live-process answer. Leave
+   `confinement.self_fix_allow` at its default (`[adapters/, profiles/, docs/]`) unless the
+   operator asks otherwise — it is the surface an unattended self-fix may repair, and
+   widening it widens what maestro may change about this project's setup without being asked.
 4. Append the Step 3/4 task blocks to `docs/ROADMAP.md`.
 5. Run `maestro doctor` and resolve anything it flags before considering setup done.
 

@@ -274,6 +274,43 @@ def test_default_table_paths_model_limits_mapping_wins_over_legacy_key_when_both
     assert paths == [custom]
 
 
+def test_default_table_paths_warns_when_model_limits_reuses_the_deleted_list_shape(
+    monkeypatch, tmp_path
+):
+    """The single most plausible mistake here: an operator migrating off the deleted
+    `model_limits_paths` reuses *its* list shape under the *new* `model_limits` key
+    instead of switching to the `{<backend>: <path>}` mapping. That must not fall back to
+    the shipped defaults in silence — it's the same "knob set, no effect" defect this
+    module exists to close, just one key later."""
+    from maestro import config as _config
+
+    custom = tmp_path / "claude_limits.md"
+    monkeypatch.setattr(
+        _config, "load_project_yaml", lambda: {"model_limits": [str(custom)]}
+    )
+
+    with pytest.warns(UserWarning, match="model_limits"):
+        paths = limits.default_table_paths()
+
+    assert paths == [CLAUDE_TABLE, CODEX_TABLE]
+    assert custom not in paths
+
+
+def test_default_table_paths_warns_on_an_empty_model_limits_mapping(monkeypatch):
+    """An empty `model_limits: {}` is deliberately treated as unusable, not as "no
+    override": a project.yaml wanting the defaults simply omits the key, so an
+    explicit-but-empty mapping is far more likely an accidentally cleared value than an
+    intentional opt-in — and it must warn like every other unusable shape here."""
+    from maestro import config as _config
+
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: {"model_limits": {}})
+
+    with pytest.warns(UserWarning, match="model_limits"):
+        paths = limits.default_table_paths()
+
+    assert paths == [CLAUDE_TABLE, CODEX_TABLE]
+
+
 # ── resolve / resolve_all ──
 
 def test_resolve_returns_none_and_warns_for_an_unknown_model(tmp_path):

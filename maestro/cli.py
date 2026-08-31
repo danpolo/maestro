@@ -561,14 +561,23 @@ def _check_model_limits(repo_root: Path) -> Check:
 
 def _check_backends(repo_root: Path) -> Check:
     from maestro import config as _config
+    from maestro import roles as _roles
     from maestro.backends import registry as backend_registry
     cfg = _config.load_project_yaml()
     backend_names: set[str] = set()
     for role in (cfg.get("roles") or {}).values():
         if isinstance(role, dict) and role.get("backend"):
             backend_names.add(backend_registry.normalise_name(role["backend"]))
-    if not backend_names:
-        backend_names = {backend_registry.DEFAULT_BACKEND}
+    # A backend named only in `fallback_chain:`, never in `roles:`, still needs a working
+    # binary — that switch runs it directly. `fallback_chain` is project-wide, not
+    # per-role, so any role's resolved chain names the same backends; ROLE_IMPLEMENTER is
+    # just a stand-in for "ask the resolution layer what the chain actually is" rather
+    # than re-deriving it here.
+    # `role_config(...).chain` always includes at least `default_chain()`'s result,
+    # which is non-empty whenever the registry has a known backend (always true outside
+    # a test that deliberately empties it) — so `backend_names` is never empty here, and
+    # a separate "nothing configured" fallback would be unreachable dead code.
+    backend_names.update(_roles.role_config(_roles.ROLE_IMPLEMENTER, cfg).chain)
     missing = []
     for name in sorted(backend_names):
         info = backend_registry.backend_binary(name)

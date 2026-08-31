@@ -24,6 +24,7 @@ import re
 import warnings
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import Mapping
 
 from maestro import config as _config
 from maestro.paths import Paths
@@ -160,13 +161,32 @@ def parse_limits_table(text: str) -> dict:
 # ── path resolution ──
 
 def default_table_paths() -> list:
-    """`~/.claude/model_context_limits.md` and `~/.codex/model_context_limits.md`,
-    unless `project.yaml` sets `model_limits_paths: [...]`, in which case that list
-    (each entry `~`-expanded) replaces the two defaults entirely."""
+    """`~/.claude/model_context_limits.md` and `~/.codex/model_context_limits.md`, unless
+    `project.yaml` sets `model_limits: {<backend>: <path>, ...}` (DESIGN.md §8,
+    `project.yaml.tmpl`) — a mapping, not a flat list — in which case its values
+    (`~`-expanded, in declaration order) replace the two defaults entirely.
+
+    `model_limits_paths: [...]` — an earlier, flat-list spelling that predates the
+    documented mapping shape — is no longer read. A project.yaml that still carries it
+    would otherwise silently do nothing (the exact class of bug this reconciles), so its
+    presence raises a `UserWarning` naming the correct key and is then ignored, falling
+    through to `model_limits` (if also set) or the two defaults.
+    """
     cfg = _config.load_project_yaml()
-    override = cfg.get("model_limits_paths")
-    if override:
-        return [Path(p).expanduser() for p in override]
+    if "model_limits_paths" in cfg:
+        warnings.warn(
+            "project.yaml sets 'model_limits_paths' (a flat list), which maestro no "
+            "longer reads and has no effect — rename it to "
+            "'model_limits: {<backend>: <path>, ...}' (DESIGN.md §8)",
+            stacklevel=2,
+        )
+    override = cfg.get("model_limits")
+    if isinstance(override, Mapping):
+        paths = [
+            Path(p).expanduser() for p in override.values() if isinstance(p, str) and p.strip()
+        ]
+        if paths:
+            return paths
     return [
         Path.home() / ".claude" / "model_context_limits.md",
         Path.home() / ".codex" / "model_context_limits.md",

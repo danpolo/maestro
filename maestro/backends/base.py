@@ -13,6 +13,11 @@ Design authority is `docs/DESIGN.md` §6, as corrected by the M2 research pass r
 * **`context_used_pct` is best-effort and nullable** (finding G6). One backend can only
   compute it, and the exact formula is an open question. Nothing may treat `None` there
   as "no quota pressure" or let it disable switching.
+* **A context reading means nothing without a session to attribute it to.** `windows` is
+  about the account, so any sample can carry it; `context_used_pct` and
+  `context_total_input_tokens` are about one conversation, and `Usage.session_id` is
+  where a driver says which. No driver can say yet, so the field is `""` everywhere and
+  D4's rotation is inert by construction — see `Usage.session_id`.
 
 `to_usage_json` / `from_usage_json` normalise to the shape already written by the
 statusline sampler and already read by `maestro.quota`, so every driver and the existing
@@ -206,6 +211,20 @@ class Usage:
     model: Optional[str] = None
     updated_at: str = ""
     context_total_input_tokens: int = 0
+    #: The agent session this reading is *about*, when the driver can say — `""` when it
+    #: cannot, which is every driver today. A quota window is a property of the account
+    #: and needs no attribution; a context reading is a property of one conversation and
+    #: is meaningless without it. `maestro.orchestrator`'s D4 rotation therefore acts only
+    #: on a sample carrying this, so that a reading taken from somewhere else (the
+    #: operator's own interactive session, say) can never be mistaken for an
+    #: implementer's and cost it its conversation.
+    #:
+    #: Deliberately **not** part of the `usage.json` document. That file is one global
+    #: snapshot, merged across backends by `_most_pressured` and shared with the
+    #: operator's statusline; stamping a session id on it would assert an attribution the
+    #: file cannot honour. A driver that can attribute a reading must return it from
+    #: `usage()` directly.
+    session_id: str = ""
 
     def window(self, window_minutes: int) -> Optional[WindowUsage]:
         """The window of that exact duration, or `None` when the account has none."""

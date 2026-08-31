@@ -42,7 +42,13 @@ from maestro import state as state_module
 from maestro.backends.base import Capabilities, ExitVerdict, Usage, WindowUsage
 from maestro.backends.registry import get_backend as real_get_backend
 from maestro.hitl import commands
-from maestro.switch import REASON_QUOTA, REASON_THRESHOLD, SwitchOutcome
+from maestro.limits import ModelLimits
+from maestro.switch import (
+    REASON_CONTEXT,
+    REASON_QUOTA,
+    REASON_THRESHOLD,
+    SwitchOutcome,
+)
 
 #: Repo root. Named `REPO` to match the house convention for `Path`-valued globals.
 REPO = Path(__file__).resolve().parents[1]
@@ -91,10 +97,18 @@ class _FakeDriver:
     """
 
     def __init__(self, used_pct: float | None, telemetry: bool = True,
-                 exit_verdict: ExitVerdict | None = None):
+                 exit_verdict: ExitVerdict | None = None,
+                 context_tokens: int = 0, model: str | None = None,
+                 updated_at: str = "", session_id: str = ""):
         self._used_pct = used_pct
         self._telemetry = telemetry
         self._exit_verdict = exit_verdict or ExitVerdict(kind="crashed")
+        # A4: the context half of the same sample. Zero tokens and no model by default,
+        # so every test written before D4 keeps reporting a quota-only reading.
+        self._context_tokens = context_tokens
+        self._model = model
+        self._updated_at = updated_at
+        self._session_id = session_id
 
     def capabilities(self) -> Capabilities:
         return Capabilities(usage_telemetry=self._telemetry)
@@ -102,7 +116,13 @@ class _FakeDriver:
     def usage(self):
         if self._used_pct is None:
             return None
-        return Usage(windows={300: WindowUsage(used_pct=self._used_pct)})
+        return Usage(
+            windows={300: WindowUsage(used_pct=self._used_pct)},
+            context_total_input_tokens=self._context_tokens,
+            model=self._model,
+            updated_at=self._updated_at,
+            session_id=self._session_id,
+        )
 
     def parse_exit(self, rc: int, log_tail: str) -> ExitVerdict:
         return self._exit_verdict
@@ -830,3 +850,450 @@ def test_main_leaves_an_unthrottled_poll_untouched(loop_env):
     assert orchestrator.main() == 0
     assert loop_env.switches == []
     assert [event for event, _, _ in loop_env.journal] == ["halt_respected"]
+
+
+# =======================================================================================
+# A4 / D4 — the context ceiling as a same-backend session rotation
+# =======================================================================================
+#
+# The fourth trigger is not a fallback: nothing is wrong with the backend, the
+# conversation is simply full. It reuses A2's per-poll usage sample rather than taking a
+# third reading, and it must not mark the backend it stays on as exhausted.
+
+#: A stand-in limits row, injected everywhere below — no test here reads the operator's
+#: real `~/.claude/model_context_limits.md`.
+ROW = ModelLimits("Claude Opus 5", 100_000, 120_000, 150_000, 180_000, 240_000)
+
+#: The entry `_entry()` builds is launched at 00:00Z; a sample from 01:00Z therefore
+#: postdates it, and the replacement entry a rotation writes is stamped 02:00Z.
+SAMPLED_AT = "2026-08-12T01:00:00Z"
+ROTATED_AT = "2026-08-12T02:00:00Z"
+
+
+@pytest.fixture
+def rotation(hooks, monkeypatch):
+    """The rotation hook's seams: a limits row, a context-carrying sample, and a
+    `switch_task` that behaves the way a real rotation does (same backend, new session,
+    a fresh `started_at`)."""
+    box = hooks
+    box.rows = {"claude-opus-5": ROW}
+    box.resolved = []
+    box.context_tokens = 130_000
+    box.sampled_at = SAMPLED_AT
+    # The spelling production actually produces: `usage.json` carries the statusline's
+    # display name, which is in neither limits table. The launch model below is what the
+    # lookup must key on.
+    box.model = "Opus 5"
+    box.launch_model = "claude-opus-5"
+    # Attributed to the entry `_entry()` builds, i.e. a per-session reading of the kind
+    # no driver can produce yet (item A5). Every rotation test states its precondition.
+    box.attributed_to = "impl-T1-1"
+    orchestrator._rotation_notices.clear()
+
+    def _resolve(name):
+        box.resolved.append(name)
+        return box.rows.get(name)
+
+    def _rotate(task_id, **kwargs):
+        box.switches.append(SimpleNamespace(task_id=task_id, **kwargs))
+        if box.raise_on_switch is not None:
+            raise box.raise_on_switch
+        entry = dict(kwargs.get("entry") or {})
+        entry.update({"session_id": "impl-T1-2", "started_at": ROTATED_AT})
+        live = getattr(box, "in_flight", None)
+        if live is not None:
+            box.in_flight = [
+                entry if e.get("session_id") == (kwargs.get("entry") or {}).get("session_id")
+                else e for e in live
+            ]
+        return SwitchOutcome(
+            task_id=task_id,
+            reason=kwargs.get("reason", ""),
+            from_backend=kwargs.get("from_backend", CLAUDE),
+            to_backend=kwargs.get("from_backend", CLAUDE),
+            switched=True,
+            entry=entry,
+            new_session_id=entry["session_id"],
+        )
+
+    monkeypatch.setattr(orchestrator, "resolve_model_limits", _resolve)
+    monkeypatch.setattr(orchestrator, "switch_task", _rotate)
+    monkeypatch.setattr(
+        orchestrator, "model_for", lambda role, backend=None, **kw: box.launch_model
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "get_backend",
+        lambda name: _FakeDriver(
+            10.0,                                  # no quota pressure at all
+            context_tokens=box.context_tokens,
+            model=box.model,
+            updated_at=box.sampled_at,
+            session_id=box.attributed_to,
+        ),
+    )
+    yield box
+    orchestrator._rotation_notices.clear()
+
+
+def test_a_context_crossing_rotates_the_task_onto_its_own_backend(rotation, tmp_path):
+    entry = _entry(tmp_path)
+    in_flight = [entry]
+    rotation.in_flight = in_flight
+
+    assert orchestrator._context_rotations(in_flight, {}, {}) == 1
+
+    call = rotation.switches[0]
+    assert call.reason == REASON_CONTEXT
+    assert call.from_backend == CLAUDE
+    assert call.task_id == "T1"
+    # The entry was replaced in place, not appended alongside the one it replaced.
+    assert [e["session_id"] for e in in_flight] == ["impl-T1-2"]
+
+
+def test_a_rotation_does_not_mark_the_backend_it_stays_on_as_exhausted(rotation, tmp_path):
+    """`backends_tried` is the quota path's ping-pong guard. A rotation is not a reason
+    to rule out the backend the task is deliberately staying on — doing so would spend
+    the fallback chain on a problem the fallback chain cannot fix."""
+    entry = _entry(tmp_path)
+    orchestrator._context_rotations([entry], {}, {})
+
+    handed = rotation.switches[0].entry
+    assert "backends_tried" not in handed
+    # …and no target is named at all: a rotation's target is not chosen, it is where the
+    # task already is.
+    assert not hasattr(rotation.switches[0], "to_backend")
+
+
+def test_a_rotation_re_dates_the_launch_clock(rotation, tmp_path):
+    entry = _entry(tmp_path)
+    launch_times = {entry["session_id"]: 1.0}
+
+    orchestrator._context_rotations([entry], launch_times, {})
+
+    assert entry["session_id"] not in launch_times
+    assert "impl-T1-2" in launch_times
+    assert rotation.launch_times_persisted == ["impl-T1-2"]
+
+
+def test_a_sample_older_than_the_launch_never_rotates(rotation, tmp_path):
+    """The anti-loop guard. A rotation's whole effect is on the session, and the only
+    evidence it worked is a sample taken *after* it — acting on a pre-rotation reading
+    would rotate the same task once per poll forever, losing its progress each time."""
+    rotation.sampled_at = "2026-08-11T23:00:00Z"      # before the entry's started_at
+    assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
+    assert rotation.switches == []
+
+    rotation.sampled_at = "2026-08-12T00:00:00Z"      # exactly the launch: not newer
+    assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
+    assert rotation.switches == []
+
+    rotation.sampled_at = ""                          # undated: not evidence of anything
+    assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
+    assert rotation.switches == []
+
+
+def test_a_rotated_task_does_not_rotate_again_on_the_same_sample(rotation, tmp_path):
+    """The guard, exercised end to end: the same stale sample, two consecutive polls."""
+    in_flight = [_entry(tmp_path)]
+    rotation.in_flight = in_flight
+
+    assert orchestrator._context_rotations(in_flight, {}, {}) == 1
+    assert orchestrator._context_rotations(in_flight, {}, {}) == 0
+    assert len(rotation.switches) == 1
+
+
+def test_a_model_with_no_limits_row_never_rotates(rotation, tmp_path):
+    """C7 owns the normaliser defect that does this to a dated model slug; A4 only has
+    to degrade safely."""
+    rotation.rows = {}
+    rotation.context_tokens = 10_000_000
+
+    assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
+    assert rotation.switches == []
+    assert rotation.resolved == ["claude-opus-5"]   # the launch model, not "Opus 5"
+
+
+def test_a_context_below_the_handoff_mark_never_rotates(rotation, tmp_path):
+    rotation.context_tokens = ROW.prepare_handoff_high - 1
+    assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
+    assert rotation.switches == []
+
+
+def test_an_unmeasurable_context_never_rotates(rotation, tmp_path):
+    rotation.context_tokens = 0
+    assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
+
+    # No model id from either source — neither the role table nor the sample — leaves
+    # nothing to key the ceiling lookup on, however many tokens are reported.
+    rotation.context_tokens = 10_000_000
+    rotation.model = None
+    rotation.launch_model = ""
+    assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
+    assert rotation.switches == []
+
+
+def test_a_script_task_and_a_lost_worktree_are_never_rotated(rotation, tmp_path):
+    """`_handover_ready` again: a script task runs no agent, and a vanished worktree has
+    no uncommitted work left to preserve."""
+    script = _entry(tmp_path, sid="script-T2-1", task_id="T2", role="script")
+    lost = _entry(tmp_path, sid="impl-T3-1", task_id="T3",
+                  worktree=tmp_path / "gone-for-good")
+
+    assert orchestrator._context_rotations([script, lost], {}, {}) == 0
+    assert rotation.switches == []
+
+
+def test_a_failed_rotation_leaves_the_task_exactly_where_it_is(rotation, tmp_path):
+    """A rotation is an optimisation over letting a session fill up; failing at it must
+    cost the loop nothing it was not already going to have."""
+    rotation.raise_on_switch = RuntimeError("tmux refused the window")
+    entry = _entry(tmp_path)
+    in_flight = [entry]
+
+    assert orchestrator._context_rotations(in_flight, {}, {}) == 0
+    assert in_flight == [entry]
+    assert [event for event, _, _ in rotation.journal] == ["session_rotation_failed"]
+
+
+def test_the_rotation_reuses_this_polls_usage_sample(rotation, tmp_path):
+    """A2 already samples every in-flight backend once per poll and shares the memo. The
+    rotation reads it rather than asking the driver a third time — `CodexBackend.usage()`
+    spawns a subprocess."""
+    calls = []
+
+    def _get_backend(name):
+        calls.append(name)
+        return _FakeDriver(10.0, context_tokens=130_000, model="Opus 5",
+                           updated_at=SAMPLED_AT, session_id="impl-T1-1")
+
+    cache: dict = {}
+    entries = [_entry(tmp_path), _entry(tmp_path, sid="impl-T4-1", task_id="T4")]
+    orchestrator._sampled_usage(CLAUDE, cache)                # A2's own sampling
+
+    with pytest.MonkeyPatch.context() as mp:
+        # From here on, reaching a driver at all is a defect: the memo already holds
+        # this backend's reading for the poll.
+        mp.setattr(orchestrator, "get_backend", _get_backend)
+        # One rotation, not two: the single sample is attributed to T1's session, so T4
+        # is correctly left alone. Both entries still went through `_sampled_usage`,
+        # which is what this test is about.
+        assert orchestrator._context_rotations(entries, {}, cache) == 1
+        assert calls == []
+
+
+def test_the_limits_tables_are_parsed_once_per_poll(rotation, tmp_path):
+    """`limits.resolve` re-reads and re-merges both markdown tables on every call, and
+    rewrites `.orchestrator/model_limits.json` while it is there. Two entries on the same
+    model must not cost two parses."""
+    entries = [_entry(tmp_path), _entry(tmp_path, sid="impl-T4-1", task_id="T4")]
+
+    orchestrator._context_rotations(entries, {}, {})
+
+    assert rotation.resolved == ["claude-opus-5"]   # the launch model, not "Opus 5"
+
+
+def test_main_rotates_a_context_bound_task(loop_env, monkeypatch, tmp_path):
+    """The trigger is wired into the loop, not merely available to it — the exact way D4
+    was 'measured, reported and ignored' before A4."""
+    loop_env.cap = (orchestrator.CONCURRENCY_CAP, 10.0)   # no quota pressure anywhere
+    rotations = []
+
+    def _rotate(task_id, **kwargs):
+        rotations.append(kwargs.get("reason"))
+        entry = dict(kwargs.get("entry") or {})
+        entry.update({"session_id": "impl-T1-2", "started_at": ROTATED_AT})
+        loop_env.in_flight = [entry]
+        return SwitchOutcome(
+            task_id=task_id, reason=kwargs.get("reason", ""), from_backend=CLAUDE,
+            to_backend=CLAUDE, switched=True, entry=entry,
+            new_session_id=entry["session_id"],
+        )
+
+    monkeypatch.setattr(orchestrator, "switch_task", _rotate)
+    monkeypatch.setattr(orchestrator, "resolve_model_limits", lambda name: ROW)
+    monkeypatch.setattr(orchestrator, "model_for",
+                        lambda role, backend=None, **kw: "claude-opus-5")
+    monkeypatch.setattr(
+        orchestrator, "get_backend",
+        lambda name: _FakeDriver(10.0, context_tokens=130_000, model="Opus 5",
+                                 updated_at=SAMPLED_AT, session_id="impl-T1-1"),
+    )
+
+    assert orchestrator.main() == 0
+    # Once, on the first poll; the second poll reads the rotated entry, whose launch now
+    # postdates the sample.
+    assert rotations == [REASON_CONTEXT]
+
+
+def test_main_leaves_a_poll_with_room_to_spare_untouched(loop_env, monkeypatch):
+    """Below both marks the loop is byte-for-byte what it was: no switch, no rotation."""
+    loop_env.cap = (orchestrator.CONCURRENCY_CAP, 10.0)
+    monkeypatch.setattr(orchestrator, "resolve_model_limits", lambda name: ROW)
+    monkeypatch.setattr(orchestrator, "model_for",
+                        lambda role, backend=None, **kw: "claude-opus-5")
+    monkeypatch.setattr(
+        orchestrator, "get_backend",
+        lambda name: _FakeDriver(10.0, context_tokens=10_000, model="Opus 5",
+                                 updated_at=SAMPLED_AT, session_id="impl-T1-1"),
+    )
+
+    assert orchestrator.main() == 0
+    assert loop_env.switches == []
+    assert [event for event, _, _ in loop_env.journal] == ["halt_respected"]
+
+
+# ── A4 fix round 1: what makes the trigger correct rather than merely wired up ──
+
+
+def test_the_lookup_keys_on_the_launch_model_not_the_samples_display_name(rotation, tmp_path):
+    """The defect that made D4 dead on arrival.
+
+    `usage.json` carries the statusline's display name — `"Opus 5"` in this repo's live
+    file — which is in neither limits table, and `limits`' normaliser folds case and
+    whitespace, not a missing `"Claude "` prefix. Keying on it meant `context_crossed`
+    answered `False` on every claude task no matter how full the context was, and every
+    test that injected a slug agreed with it. The lookup must use the model the task was
+    *launched* with, which is the slug `--model` was given.
+    """
+    rotation.rows = {"claude-opus-5": ROW}       # keyed the way the tables key
+    entry = _entry(tmp_path)
+
+    assert orchestrator._context_rotations([entry], {}, {}) == 1
+    assert rotation.resolved == ["claude-opus-5"]
+    assert "Opus 5" not in rotation.resolved
+
+
+def test_the_display_name_alone_would_not_have_resolved(rotation, tmp_path):
+    """The other half of the same statement: with the launch model unavailable, the
+    sample's own name is all that is left and it resolves to nothing."""
+    rotation.launch_model = ""                   # no model configured for the role
+    rotation.rows = {"claude-opus-5": ROW}
+
+    assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
+    assert rotation.resolved == ["Opus 5"]
+    assert rotation.switches == []
+
+
+def test_an_unresolved_model_is_announced_once(rotation, tmp_path, capsys):
+    """The suppression that hid the defect is gone: the loop names the id it could not
+    place, once per process rather than once per poll."""
+    rotation.rows = {}
+    entries = [_entry(tmp_path), _entry(tmp_path, sid="impl-T4-1", task_id="T4")]
+
+    orchestrator._context_rotations(entries, {}, {})
+    orchestrator._context_rotations(entries, {}, {})
+
+    printed = capsys.readouterr().out
+    assert printed.count("no context-limit row for model") == 1
+    assert "'claude-opus-5'" in printed
+    assert rotation.switches == []
+
+
+# ── the attribution precondition ──
+
+
+def test_a_sample_that_names_no_session_never_rotates(rotation, tmp_path):
+    """Today's production reality, pinned. No driver can attribute a context reading, so
+    `Usage.session_id` is `""` everywhere and D4 is inert **by construction** — not
+    because a threshold happens not to be met, but because the evidence cannot be shown
+    to be about the implementer whose session would be thrown away."""
+    rotation.attributed_to = ""                  # every driver, today
+
+    assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
+    assert rotation.switches == []
+
+
+def test_a_sample_attributed_to_another_session_never_rotates(rotation, tmp_path):
+    """The failure this precondition exists to forbid: `usage.json` is written by the
+    operator's own interactive Claude Code session, whose context has nothing to do with
+    the implementer's. Acting on it would discard a healthy implementer's conversation on
+    evidence about a different agent entirely."""
+    rotation.attributed_to = "the-operators-own-session"
+
+    assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
+    assert rotation.switches == []
+
+
+def test_an_attributed_sample_above_the_mark_rotates(rotation, tmp_path):
+    """The other direction, pinned so the day a driver reports a per-session reading
+    (item A5) the trigger is already covered and flips on with no change here."""
+    entry = _entry(tmp_path)
+    rotation.attributed_to = entry["session_id"]
+
+    assert orchestrator._context_rotations([entry], {}, {}) == 1
+    assert rotation.switches[0].reason == REASON_CONTEXT
+
+
+def test_the_missing_attribution_is_announced_once(rotation, tmp_path, capsys):
+    """Inert, but self-announcing: a crossing that could not be justified says so, once
+    per backend per process. Silence is what let the first version look implemented."""
+    rotation.attributed_to = ""
+    entries = [_entry(tmp_path), _entry(tmp_path, sid="impl-T4-1", task_id="T4")]
+
+    orchestrator._context_rotations(entries, {}, {})
+    orchestrator._context_rotations(entries, {}, {})
+
+    printed = capsys.readouterr().out
+    assert printed.count("names no session") == 1
+    assert "Usage.session_id" in printed
+
+
+def test_nothing_is_announced_when_no_rotation_was_indicated(rotation, tmp_path, capsys):
+    """The breadcrumb is about a crossing that could not be acted on, not about every
+    poll of every task — a line per task per process saying "this one did not need
+    rotating" would be noise, and noise is how a real signal gets ignored."""
+    rotation.attributed_to = ""
+    rotation.context_tokens = 10_000             # nowhere near the mark
+
+    assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
+    assert capsys.readouterr().out == ""
+
+
+# ── the rotation bound ──
+
+
+def test_a_task_stops_rotating_once_it_hits_the_cap(rotation, tmp_path):
+    """The second half of the anti-loop guard. `_rotation_sample` certifies *when* a
+    reading was taken; it cannot certify that the reading came down, so a feed that
+    restamps itself every render while reporting a full context would rotate the same
+    task once per poll forever. The cap bounds that absolutely."""
+    entry = _entry(tmp_path, context_rotations=orchestrator.MAX_CONTEXT_ROTATIONS)
+
+    assert orchestrator._context_rotations([entry], {}, {}) == 0
+    assert rotation.switches == []
+
+
+def test_a_capped_task_is_announced_once(rotation, tmp_path, capsys):
+    entry = _entry(tmp_path, context_rotations=orchestrator.MAX_CONTEXT_ROTATIONS)
+
+    orchestrator._context_rotations([entry], {}, {})
+    orchestrator._context_rotations([entry], {}, {})
+
+    printed = capsys.readouterr().out
+    assert printed.count("already rotated") == 1
+    assert "T1" in printed
+
+
+def test_a_task_below_the_cap_still_rotates(rotation, tmp_path):
+    entry = _entry(tmp_path, context_rotations=orchestrator.MAX_CONTEXT_ROTATIONS - 1)
+    assert orchestrator._context_rotations([entry], {}, {}) == 1
+
+
+def test_each_rotation_records_itself_on_the_entry(rotation, tmp_path):
+    """Counted on the `in_flight` entry the way `backends_tried` is, so the record
+    survives the relaunch that resets everything else about the session — `switch_task`
+    copies keys it does not recognise onto the entry it returns."""
+    orchestrator._context_rotations([_entry(tmp_path)], {}, {})
+    assert rotation.switches[0].entry["context_rotations"] == 1
+
+    orchestrator._rotation_notices.clear()
+    orchestrator._context_rotations([_entry(tmp_path, context_rotations=2)], {}, {})
+    assert rotation.switches[1].entry["context_rotations"] == 3
+
+
+def test_a_nonsense_rotation_count_is_read_as_none(rotation, tmp_path):
+    """The entry is a JSON document an operator can hand-edit; a bad value must not stop
+    a rotation with a TypeError halfway through the poll."""
+    for value in ("lots", None, -4, [1]):
+        assert orchestrator._context_rotations_done({"context_rotations": value}) == 0

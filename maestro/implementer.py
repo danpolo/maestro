@@ -234,21 +234,41 @@ def _answers_section(task: dict) -> str:
 
 # ── Brief generation ──
 
-def _make_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "") -> str:
+def _implementer_identity(model: str, backend: str) -> str:
+    """Render the model/backend actually resolved for this launch, for a brief's opening
+    line (plan item B1: the opening line used to hardcode "Sonnet" regardless of what
+    model or backend really ran).
+
+    Either value can be unavailable — a caller that builds a brief without going through
+    `launch_implementer`'s resolution (a test, a future caller) has nothing to pass — and
+    that must never render as a bare "None"; it degrades to neutral wording instead.
+    """
+    model_text = model if model else "an unspecified model"
+    backend_text = backend if backend else "an unspecified backend"
+    return f"{model_text} (backend: {backend_text})"
+
+
+def _make_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "",
+                model: str = "", backend: str = "") -> str:
     """Every brief-shaped return path, whichever branch built it, ends the same way:
     `SWITCH_SENTINEL_CONTRACT` appended once, here, after both branches — not inside one of
     them — so a future third branch inherits the guarantee structurally instead of needing
-    someone to remember to add the line again (see the constant's own docstring)."""
+    someone to remember to add the line again (see the constant's own docstring).
+
+    `model`/`backend` are the values the launch site actually resolved (or "" when a
+    caller has none to give) — threaded straight through to whichever branch builds
+    `body` so the brief names what will really run instead of a hardcoded model name."""
     # B14 auto-prep: a dispatch:manual task gets a PREP brief — do all automatable
     # prep, never the human step, and emit the single dan_action.
     if task.get("dispatch") == "manual":
-        body = _make_prep_brief(task, workspace, worktree, retry_note)
+        body = _make_prep_brief(task, workspace, worktree, retry_note, model, backend)
     else:
-        body = _make_ordinary_brief(task, workspace, worktree, retry_note)
+        body = _make_ordinary_brief(task, workspace, worktree, retry_note, model, backend)
     return f"{body}\n\n{SWITCH_SENTINEL_CONTRACT}"
 
 
-def _make_ordinary_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "") -> str:
+def _make_ordinary_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "",
+                         model: str = "", backend: str = "") -> str:
     task_id = task["id"]
     title   = task.get("title", task_id)
     note    = f"\n\nNOTE FROM ORCHESTRATOR: {retry_note}" if retry_note else ""
@@ -301,7 +321,8 @@ def _make_ordinary_brief(task: dict, workspace: Path, worktree: Path, retry_note
     ) if task.get("resumable") else ""
 
     return (
-        f"You are a Sonnet implementer. Your task is {task_id}: {title}.\n\n"
+        f"You are an implementer running {_implementer_identity(model, backend)}. "
+        f"Your task is {task_id}: {title}.\n\n"
         f"WORKTREE (your git sandbox — work only within this directory):\n  {worktree}\n\n"
         f"WORKSPACE (write result.json + DONE/FAILED sentinel here):\n  {workspace}\n\n"
         f"TASK DESCRIPTION:\n  {task.get('short_desc', '')}\n\n"
@@ -317,7 +338,7 @@ def _make_ordinary_brief(task: dict, workspace: Path, worktree: Path, retry_note
         f"   or {workspace}/FAILED (reason text) if it failed.\n\n"
         f"GUARDRAILS:\n"
         f"- Stay inside {worktree} for all file writes.\n"
-        f"- Do NOT push to git. Do NOT restart the bot. Do NOT modify .env.\n"
+        f"- Do NOT push to git. Do NOT restart or deploy any running service. Do NOT modify .env.\n"
         f"- Do NOT write to {REPO} directly (only read tooling from it).\n"
         f"- NEVER edit docs/ROADMAP.md status fields — task completion is owned by the orchestrator.\n"
         f"- Read docs/ROADMAP.md and docs/PROJECT.md for full context.\n"
@@ -325,7 +346,8 @@ def _make_ordinary_brief(task: dict, workspace: Path, worktree: Path, retry_note
     )
 
 
-def _make_prep_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "") -> str:
+def _make_prep_brief(task: dict, workspace: Path, worktree: Path, retry_note: str = "",
+                     model: str = "", backend: str = "") -> str:
     """B14 auto-prep brief for a dispatch:manual task.
 
     The implementer does ALL automatable prep and emits the single `dan_action`; it must
@@ -378,7 +400,8 @@ def _make_prep_brief(task: dict, workspace: Path, worktree: Path, retry_note: st
             "the downtime/human step.\n"
         )
     return (
-        f"You are a Sonnet PREP implementer for {task_id}: {title}.\n\n"
+        f"You are a PREP implementer ({_implementer_identity(model, backend)}) "
+        f"for {task_id}: {title}.\n\n"
         f"This is a dispatch:manual task: a human (Dan) must perform exactly ONE step that an "
         f"agent cannot — a GPU/compute run, an approved prod-downtime window, or a "
         f"hardware/credential decision. YOUR JOB is to do EVERYTHING ELSE so Dan's total "
@@ -538,9 +561,9 @@ def launch_implementer(task: dict, session_id: str, workspace: Path,
     """
     task_id    = task["id"]
     window     = f"impl-{task_id}"
-    brief_file = workspace / "brief.txt"
-    brief_file.write_text(_make_brief(task, workspace, worktree, retry_note), encoding="utf-8")
 
+    # Resolved before the brief is written (not after) so the brief can name the model
+    # and backend that will actually run this launch, instead of a hardcoded guess.
     resolved, backend_models = _implementer_backend()
     pinned = registry.normalise_name(backend) if backend else ""
     backend = pinned if pinned in registry.known_backends() else resolved
@@ -550,6 +573,12 @@ def launch_implementer(task: dict, session_id: str, workspace: Path,
     model_key = raw_key.lower().strip() if isinstance(raw_key, str) else (raw_key or "")
     print(f"  [model] {task_id}: model_key={model_key!r} → {model_id} on {backend}")
     append_journal("implementer_model", f"{task_id} model={model_id}")
+
+    brief_file = workspace / "brief.txt"
+    brief_file.write_text(
+        _make_brief(task, workspace, worktree, retry_note, model_id, backend),
+        encoding="utf-8",
+    )
 
     sess_uuid = str(uuid.uuid4())
     (workspace / "session_uuid.txt").write_text(sess_uuid, encoding="utf-8")

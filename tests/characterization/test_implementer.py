@@ -891,6 +891,41 @@ def test_make_brief_is_pure_and_writes_nothing(subject, sandbox, tmp_path):
     assert not ws.exists() and not wt.exists()
 
 
+# ── B1: reference-project text ──
+# The opening line used to hardcode "You are a Sonnet implementer" regardless of what
+# model/backend actually ran, and the guardrail line named the reference project's own
+# running service ("Do NOT restart the bot"). Both are now generic: the opening line
+# names whatever model/backend the launch site resolved, and the guardrail is
+# service-agnostic.
+
+
+def test_make_brief_names_the_resolved_model_and_backend(subject, sandbox, tmp_path):
+    brief = subject._make_brief(TASK, tmp_path / "ws", tmp_path / "wt",
+                                model="claude-opus-5", backend="codex")
+    assert "claude-opus-5" in brief
+    assert "codex" in brief
+    assert "Sonnet implementer" not in brief
+
+
+def test_make_brief_guardrail_does_not_name_a_reference_project_service(
+    subject, sandbox, tmp_path
+):
+    brief = subject._make_brief(TASK, tmp_path / "ws", tmp_path / "wt")
+    assert "restart the bot" not in brief
+    assert "restart or deploy any running service" in brief
+
+
+def test_make_brief_unresolved_model_and_backend_never_render_as_none(
+    subject, sandbox, tmp_path
+):
+    """No model/backend given (the shape every other characterisation call in this file
+    uses) must still read as prose, never a bare 'None' where the model/backend belongs."""
+    brief = subject._make_brief(TASK, tmp_path / "ws", tmp_path / "wt")
+    assert "None" not in brief
+    assert "unspecified model" in brief
+    assert "unspecified backend" in brief
+
+
 # ===================================================================================
 # _make_prep_brief
 # ===================================================================================
@@ -1018,6 +1053,17 @@ def test_prep_brief_is_pure_and_writes_nothing(subject, sandbox, tmp_path):
     assert not ws.exists() and not wt.exists()
 
 
+def test_prep_brief_names_the_resolved_model_and_backend(subject, sandbox, tmp_path):
+    """B1: the same reference-project fingerprint ('Sonnet PREP implementer') repeated
+    here — the prep brief must name the real model/backend too, and keep the literal
+    'PREP implementer' phrase other tests key off of."""
+    brief = subject._make_prep_brief(TASK, tmp_path / "ws", tmp_path / "wt",
+                                     model="claude-haiku-4-5", backend="claude")
+    assert "claude-haiku-4-5" in brief
+    assert "PREP implementer" in brief
+    assert "Sonnet PREP implementer" not in brief
+
+
 # ===================================================================================
 # launch_implementer
 # ===================================================================================
@@ -1046,9 +1092,13 @@ def test_launch_implementer_returns_none_and_writes_three_artifacts(
 
 
 def test_launch_implementer_brief_file_matches_make_brief(subject, sandbox, monkeypatch):
+    """The brief `launch_implementer` writes to disk must match `_make_brief` called with
+    the same model/backend it actually resolved for this launch (the unconfigured sandbox
+    default: `claude-sonnet-5` on `claude` — see `_implementer_backend`/`roles.DEFAULT_MODELS`)."""
     out = _launch(subject, sandbox, monkeypatch, retry_note="note")
     assert (out.workspace / "brief.txt").read_text(encoding="utf-8") == \
-        subject._make_brief(TASK, out.workspace, out.worktree, "note")
+        subject._make_brief(TASK, out.workspace, out.worktree, "note",
+                            "claude-sonnet-5", "claude")
 
 
 def test_launch_implementer_writes_a_prep_brief_for_a_manual_task(
@@ -1253,7 +1303,10 @@ def test_launch_implementer_folds_the_profile_into_the_brief_when_the_backend_ca
     subject.SYS_PROMPT.write_text("PROFILE-TEXT-MARKER\n", encoding="utf-8")
 
     out = _launch(subject, sandbox, monkeypatch)
-    pure_brief = subject._make_brief(TASK, out.workspace, out.worktree)
+    # `_configure_backend(sandbox, "codex")` resolves the model `_CONFIGURED_MODELS["codex"]`
+    # for this launch — pass the same values so `pure_brief` matches what was actually sent.
+    pure_brief = subject._make_brief(TASK, out.workspace, out.worktree,
+                                     model=_CONFIGURED_MODELS["codex"], backend="codex")
     argv = _agent_argv(out.workspace / "launch.py")
 
     assert "--system-prompt-file" not in argv  # codex still never offered the file itself

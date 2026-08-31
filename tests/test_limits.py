@@ -201,12 +201,114 @@ def test_default_table_paths_is_the_two_global_config_locations():
 
 
 def test_default_table_paths_is_overridable_via_project_yaml(monkeypatch, tmp_path):
+    """`model_limits: {<backend>: <path>, ...}` is the DESIGN.md §8 / project.yaml.tmpl
+    shape — a mapping, keyed by backend, not a flat list. Declaration order is preserved
+    so a project that only overrides one backend still gets a deterministic path list."""
     from maestro import config as _config
 
     custom = tmp_path / "custom_limits.md"
-    monkeypatch.setattr(_config, "load_project_yaml", lambda: {"model_limits_paths": [str(custom)]})
+    monkeypatch.setattr(
+        _config, "load_project_yaml", lambda: {"model_limits": {"claude": str(custom)}}
+    )
 
     assert limits.default_table_paths() == [custom]
+
+
+def test_default_table_paths_mapping_keeps_declared_backend_order(monkeypatch, tmp_path):
+    from maestro import config as _config
+
+    codex_custom = tmp_path / "codex_limits.md"
+    claude_custom = tmp_path / "claude_limits.md"
+    monkeypatch.setattr(
+        _config,
+        "load_project_yaml",
+        lambda: {"model_limits": {"codex": str(codex_custom), "claude": str(claude_custom)}},
+    )
+
+    assert limits.default_table_paths() == [codex_custom, claude_custom]
+
+
+def test_default_table_paths_legacy_model_limits_paths_key_is_ignored_with_a_warning(
+    monkeypatch, tmp_path
+):
+    """The flat-list `model_limits_paths` spelling predates DESIGN.md's documented
+    `model_limits: {<backend>: <path>}` mapping and is no longer read. A project.yaml
+    still carrying it must not silently do nothing — it gets a warning and the shipped
+    defaults, not the path it named."""
+    from maestro import config as _config
+
+    custom = tmp_path / "legacy_only_list.md"
+    monkeypatch.setattr(
+        _config, "load_project_yaml", lambda: {"model_limits_paths": [str(custom)]}
+    )
+
+    with pytest.warns(UserWarning, match="model_limits_paths"):
+        paths = limits.default_table_paths()
+
+    assert paths == [CLAUDE_TABLE, CODEX_TABLE]
+    assert custom not in paths
+
+
+def test_default_table_paths_model_limits_mapping_wins_over_legacy_key_when_both_set(
+    monkeypatch, tmp_path
+):
+    """When a project.yaml carries both spellings (e.g. mid-migration), the documented
+    `model_limits` mapping is authoritative and the legacy list is still just a warning,
+    not a second source of paths."""
+    from maestro import config as _config
+
+    custom = tmp_path / "current.md"
+    legacy = tmp_path / "legacy.md"
+    monkeypatch.setattr(
+        _config,
+        "load_project_yaml",
+        lambda: {
+            "model_limits": {"claude": str(custom)},
+            "model_limits_paths": [str(legacy)],
+        },
+    )
+
+    with pytest.warns(UserWarning, match="model_limits_paths"):
+        paths = limits.default_table_paths()
+
+    assert paths == [custom]
+
+
+def test_default_table_paths_warns_when_model_limits_reuses_the_deleted_list_shape(
+    monkeypatch, tmp_path
+):
+    """The single most plausible mistake here: an operator migrating off the deleted
+    `model_limits_paths` reuses *its* list shape under the *new* `model_limits` key
+    instead of switching to the `{<backend>: <path>}` mapping. That must not fall back to
+    the shipped defaults in silence — it's the same "knob set, no effect" defect this
+    module exists to close, just one key later."""
+    from maestro import config as _config
+
+    custom = tmp_path / "claude_limits.md"
+    monkeypatch.setattr(
+        _config, "load_project_yaml", lambda: {"model_limits": [str(custom)]}
+    )
+
+    with pytest.warns(UserWarning, match="model_limits"):
+        paths = limits.default_table_paths()
+
+    assert paths == [CLAUDE_TABLE, CODEX_TABLE]
+    assert custom not in paths
+
+
+def test_default_table_paths_warns_on_an_empty_model_limits_mapping(monkeypatch):
+    """An empty `model_limits: {}` is deliberately treated as unusable, not as "no
+    override": a project.yaml wanting the defaults simply omits the key, so an
+    explicit-but-empty mapping is far more likely an accidentally cleared value than an
+    intentional opt-in — and it must warn like every other unusable shape here."""
+    from maestro import config as _config
+
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: {"model_limits": {}})
+
+    with pytest.warns(UserWarning, match="model_limits"):
+        paths = limits.default_table_paths()
+
+    assert paths == [CLAUDE_TABLE, CODEX_TABLE]
 
 
 # ── resolve / resolve_all ──

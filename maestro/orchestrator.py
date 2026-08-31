@@ -20,6 +20,7 @@ import os
 import re
 import subprocess
 import time
+import warnings
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -62,6 +63,7 @@ from maestro.implementer import (
     launch_implementer,
     operator_backend,
 )
+from maestro.limits import resolve as resolve_model_limits
 from maestro import metrics
 from maestro.merge import _touches_bot_files, merge_and_eval, run_canary_deploy
 from maestro.parking import (
@@ -84,6 +86,7 @@ from maestro.roles import (
     ROLE_IMPLEMENTER,
     backend_for,
     fallback_backend,
+    model_for,
     normalise_role,
 )
 from maestro.selfheal.diagnose import _judge_complete
@@ -98,9 +101,12 @@ from maestro.state import (
     write_state,
 )
 from maestro.switch import (
+    REASON_CONTEXT,
     REASON_QUOTA,
     REASON_THRESHOLD,
+    ROTATE_FAILED_EVENT,
     SWITCH_THRESHOLD_PCT,
+    context_crossed,
     switch_task,
     threshold_crossed,
 )
@@ -776,6 +782,24 @@ def _write_usage_sample(in_flight: list, cache: dict) -> None:
         print(f"  [usage] failed to write usage.json: {exc}")
 
 
+def _rebase_launch_time(old_session_id: str, new_entry: dict,
+                        launch_times: dict | None) -> None:
+    """Move the launch clock from the session that was stopped to the one replacing it.
+
+    Shared by both relaunching paths — a backend switch and D4's context rotation —
+    because both start a *new* agent from scratch in the same worktree. `TASK_TIMEOUT`
+    must therefore be measured from now; leaving the old epoch in place would time the
+    fresh agent out on the stopped one's clock, and in the rotation case that clock is
+    long by definition, since running out of context is what took so long.
+    """
+    new_sid = new_entry.get("session_id", "")
+    if launch_times is None or not new_sid:
+        return
+    launch_times.pop(old_session_id, None)
+    launch_times[new_sid] = time.time()
+    _persist_launch_time(new_sid, launch_times[new_sid])
+
+
 def _switch_instead_of_waiting(entry: dict, reason: str,
                                launch_times: dict | None = None) -> dict | None:
     """Hand one task to a fallback backend rather than wait for this one to recover.
@@ -816,11 +840,7 @@ def _switch_instead_of_waiting(entry: dict, reason: str,
         return None
 
     new_entry = outcome.entry
-    new_sid   = new_entry.get("session_id", "")
-    if launch_times is not None and new_sid:
-        launch_times.pop(sid, None)
-        launch_times[new_sid] = time.time()
-        _persist_launch_time(new_sid, launch_times[new_sid])
+    _rebase_launch_time(sid, new_entry, launch_times)
     print(f"  [switch] {task_id}: {current} → {outcome.to_backend} ({reason}) "
           f"in the same worktree {new_entry.get('worktree')}")
     return new_entry
@@ -845,6 +865,254 @@ def _threshold_switches(in_flight: list, launch_times: dict, five_pct: float,
         if not _under_usage_pressure(_entry_backend(entry), five_pct, cache):
             continue
         new_entry = _switch_instead_of_waiting(entry, REASON_THRESHOLD, launch_times)
+        if new_entry is None:
+            continue
+        in_flight[:] = [e for e in in_flight
+                        if e.get("session_id") not in (entry.get("session_id"),
+                                                       new_entry.get("session_id"))]
+        in_flight.append(new_entry)
+        moved += 1
+    return moved
+
+
+#: How many times one task may be rotated for context before the loop stops trying (D4).
+#:
+#: `_rotation_sample`'s "evidence must postdate the action" rule stops a task rotating on
+#: a reading taken *before* its last rotation, but it cannot stop a feed that keeps
+#: reporting a full context after one: the stamp advances, the number does not come down,
+#: and the task is rotated once per poll forever, losing a fresh agent's conversation each
+#: time. Only a count bounds that absolutely — "the token count must have moved" does not,
+#: because a live-but-wrong feed reports a slightly different number every poll and so
+#: satisfies it every poll.
+#:
+#: Reaching the cap degrades to exactly the pre-D4 behaviour: the task carries on in the
+#: session it has, and `TASK_TIMEOUT` and the ordinary failure paths still apply. A task
+#: that needs more than this many fresh sessions is one for Dan to look at, not one for
+#: the loop to keep restarting.
+MAX_CONTEXT_ROTATIONS = 3
+
+#: Breadcrumbs already printed, so a standing condition is reported once per process
+#: rather than once per poll. Keyed by "<kind>:<subject>".
+_rotation_notices: set[str] = set()
+
+
+def _rotation_notice(key: str, message: str) -> None:
+    """Print one rotation breadcrumb, at most once per process.
+
+    D4 is a trigger that can decline to fire for several unremarkable-looking reasons, and
+    the first version of it hid every one of them — a blanket warning filter turned "this
+    model id is in no table, so nothing on it can ever rotate" into silence, and the
+    feature looked implemented while being dead. `doctor` cannot cover the gap either: it
+    validates the `project.yaml` role slugs, which resolve fine, and never sees a name
+    that only appears inside a usage sample. So the loop says it itself, in the shape of
+    its existing `[usage]` / `[switch]` / `[rotate]` breadcrumbs.
+    """
+    if key in _rotation_notices:
+        return
+    _rotation_notices.add(key)
+    print(message)
+
+
+def _rotation_sample(entry: dict, cache: dict | None = None) -> Usage | None:
+    """This poll's usage reading for `entry`, but only if it postdates the entry's launch.
+
+    **The first half of D4's anti-loop guard.** A rotation's entire effect is on the
+    session, and the reading that would justify the next one comes from the same per-poll
+    sample that justified the last: a task that rotates, then re-reads the pre-rotation
+    context on the very next poll, rotates again, and keeps rotating — losing whatever the
+    fresh agent had done each time. Requiring evidence that *postdates the action* is the
+    smallest rule that forbids that.
+
+    It is only half, because it certifies *when* the reading was taken, not that the
+    reading moved: a feed that restamps itself every render while reporting the same full
+    context satisfies it every poll. `MAX_CONTEXT_ROTATIONS` is the other half.
+
+    Every unknown answers `None`, which the caller reads as "do not rotate": no sample at
+    all (G6), an undated one, or one taken at or before the launch. `switch_task` stamps
+    the replacement entry's `started_at` from the same `now_iso()` clock the samples use,
+    and both are fixed-width UTC ISO-8601 Z, so the string comparison is chronological.
+    """
+    sample = _sampled_usage(_entry_backend(entry), cache)
+    if sample is None:
+        return None
+    taken = str(getattr(sample, "updated_at", "") or "").strip()
+    launched = str(entry.get("started_at") or "").strip()
+    if not taken or not launched or taken <= launched:
+        return None
+    return sample
+
+
+def _attributed_to(sample: Usage, entry: dict) -> bool:
+    """True when `sample`'s context reading is about *this* entry's own session.
+
+    **The precondition that makes D4 correct rather than merely wired up.** A quota window
+    belongs to the account, so any sample may carry one; a context reading belongs to one
+    conversation, and acting on someone else's is not a smaller version of acting on the
+    right one — it is throwing away a healthy implementer's session on evidence about a
+    different agent entirely.
+
+    No driver can attribute a reading today, so `Usage.session_id` is `""` everywhere and
+    this returns `False` for every in-flight task: the trigger is inert **by construction**
+    rather than by accident, and the day a driver can attribute its sample it starts
+    firing with no change here. That is deliberately a precondition on the data and not a
+    switch in `project.yaml` — a knob declared and never read is the defect class this
+    whole queue exists to remove, and it would leave the operator able to turn on a
+    rotation driven by the wrong session's numbers.
+    """
+    attributed = str(getattr(sample, "session_id", "") or "").strip()
+    return bool(attributed) and attributed == str(entry.get("session_id") or "").strip()
+
+
+def _context_rotations_done(entry: dict) -> int:
+    """How many times this task has already been rotated for context.
+
+    Carried on the `in_flight` entry the way `backends_tried` is, and for the same reason:
+    `switch_task` copies keys it does not recognise onto the entry it returns, so the
+    record travels with the task across every relaunch instead of living in loop-local
+    state that a restart would forget.
+    """
+    try:
+        return max(0, int(entry.get("context_rotations") or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _rotate_session(entry: dict, launch_times: dict | None = None) -> dict | None:
+    """Restart one task on a fresh session of the backend it is already running on.
+
+    Returns the replacement `in_flight` entry, or `None` when nothing moved. Deliberately
+    *not* `_switch_instead_of_waiting` with a different reason, in two ways that matter:
+
+    * no fallback is looked for, because a rotation does not need one — the target is
+      where the task already is, and a project with a single configured backend must
+      still be able to rotate;
+    * `backends_tried` is not touched. That set is the quota path's ping-pong guard, and
+      adding the current backend to it here would rule out, for the rest of the task's
+      life, the backend the task is deliberately staying on — spending the fallback chain
+      on a problem the fallback chain cannot fix.
+
+    The relaunch is in the *same* worktree (`maestro.switch` never calls
+    `create_worktree`), so the uncommitted work the rotation exists to preserve survives.
+    """
+    task_id = entry.get("task_id", "")
+    sid     = entry.get("session_id", "")
+    current = _entry_backend(entry)
+    # The count goes on *before* the switch, and `switch_task` copies unknown keys onto
+    # the entry it returns, so the record survives the relaunch that resets everything
+    # else about the session.
+    handover = dict(entry)
+    handover["context_rotations"] = _context_rotations_done(entry) + 1
+    try:
+        outcome = switch_task(task_id, reason=REASON_CONTEXT, entry=handover,
+                              from_backend=current)
+    except Exception as exc:
+        # A rotation is an optimisation over letting a session fill up; failing at it
+        # must never cost the loop anything it was not already going to have.
+        print(f"  [rotate] {task_id}: rotation failed — {exc}")
+        append_journal(ROTATE_FAILED_EVENT,
+                       f"{task_id} from={current} to={current} "
+                       f"reason={REASON_CONTEXT} error={exc}"[:300],
+                       session_id=sid)
+        return None
+    if not outcome.switched or not outcome.entry:
+        return None
+    new_entry = outcome.entry
+    _rebase_launch_time(sid, new_entry, launch_times)
+    print(f"  [rotate] {task_id}: fresh {current} session ({REASON_CONTEXT}) "
+          f"in the same worktree {new_entry.get('worktree')}")
+    return new_entry
+
+
+def _context_rotations(in_flight: list, launch_times: dict,
+                       cache: dict | None = None) -> int:
+    """Rotate every in-flight task whose own context has filled up (D4). Returns how many.
+
+    The fourth switch trigger, and the only one that is not about quota: nothing is wrong
+    with the backend, the conversation is simply too long to keep working in. `cache` is
+    A2's per-poll usage memo, shared with the pressure check and the `usage.json` write,
+    so this takes no third reading of any driver.
+
+    The ceiling is looked up **by the model the task was launched with** —
+    `roles.model_for`, the same resolution `launch_implementer` passes to `--model` — and
+    not by the model name the sample reports. A sample's `model` is a display name written
+    for a human status line (`"Opus 5"`), which is in neither limits table and which no
+    amount of normalising turns into the table's `"Claude Opus 5"`; keying on it made this
+    trigger answer `False` on every claude task no matter how full the context was. The
+    sample's name stays as `context_crossed`'s fallback for a driver that reports a real
+    model id alongside an attributed reading.
+
+    The order of the checks below is deliberate. Attribution is tested *after* the
+    threshold even though it is the stronger precondition, because no action is taken
+    either way and testing it second is what lets the loop say "a rotation was indicated
+    here and could not be justified" instead of staying silent.
+
+    Both `limits.resolve` and `roles.model_for` re-read from disk on every call —
+    `resolve` re-parses and re-merges both markdown tables and rewrites
+    `.orchestrator/model_limits.json` while it is there — so both are memoised for the
+    length of one poll: several tasks on one model cost one parse, and a poll with nothing
+    measurable to compare costs none at all.
+    """
+    if not in_flight:
+        return 0
+
+    rows: dict = {}
+    models: dict = {}
+
+    def resolve(name: str):
+        if name not in rows:
+            # `resolve` raises a `UserWarning` for an id it cannot place. Captured rather
+            # than filtered, so it becomes a breadcrumb naming the id instead of the
+            # silence that hid this trigger being dead.
+            with warnings.catch_warnings(record=True):
+                warnings.simplefilter("always")
+                rows[name] = resolve_model_limits(name)
+            if rows[name] is None:
+                _rotation_notice(
+                    f"model:{name}",
+                    f"  [rotate] no context-limit row for model {name!r} — tasks running "
+                    f"on it cannot rotate on a full context (D4). Add a row to "
+                    f"model_context_limits.md, or check `maestro doctor`.",
+                )
+        return rows[name]
+
+    def launch_model(backend: str) -> str:
+        if backend not in models:
+            try:
+                models[backend] = model_for(ROLE_IMPLEMENTER, backend) or ""
+            except Exception:
+                models[backend] = ""
+        return models[backend]
+
+    moved = 0
+    for entry in list(in_flight):
+        if not _handover_ready(entry):
+            continue
+        sample = _rotation_sample(entry, cache)
+        if sample is None:
+            continue
+        backend = _entry_backend(entry)
+        if not context_crossed(sample, launch_model(backend), resolve=resolve):
+            continue
+        if not _attributed_to(sample, entry):
+            _rotation_notice(
+                f"unattributed:{backend}",
+                f"  [rotate] a {backend} context reading crossed the handoff mark but "
+                f"names no session, so it cannot be shown to be this implementer's — not "
+                f"rotating. D4 stays inert until a driver reports a per-session context "
+                f"reading (Usage.session_id).",
+            )
+            continue
+        task_id = entry.get("task_id", "")
+        done = _context_rotations_done(entry)
+        if done >= MAX_CONTEXT_ROTATIONS:
+            _rotation_notice(
+                f"capped:{task_id}",
+                f"  [rotate] {task_id}: already rotated {done} times "
+                f"(MAX_CONTEXT_ROTATIONS={MAX_CONTEXT_ROTATIONS}) — leaving it in the "
+                f"session it has.",
+            )
+            continue
+        new_entry = _rotate_session(entry, launch_times)
         if new_entry is None:
             continue
         in_flight[:] = [e for e in in_flight
@@ -1225,6 +1493,16 @@ def main() -> int:
             print(f"  [throttle] 5h={five_pct:.0f}% >= {PAUSE_PCT}% — pausing.")
             append_journal("rate_limit_pause", f"five_h={five_pct:.0f}%")
             break
+
+        # A4/D4 — a task whose own context has crossed its model's `prepare_handoff_high`
+        # is rotated onto a fresh session of the SAME backend, through the same
+        # `switch_task` path and the same SWITCH sentinel: checkpoint, then relaunch in
+        # the same worktree with a handoff brief. Deliberately *after* the quota block
+        # above and after its `break`: moving off an exhausted backend is the more urgent
+        # of the two, a task that just switched is already on a fresh session and cannot
+        # need rotating, and there is nothing to gain by rotating a task one line before
+        # pausing the whole loop. It reuses `usage_cache`, so no driver is sampled again.
+        _context_rotations(in_flight, launch_times, usage_cache)
 
         still_running: list[dict] = []
         newly_done:    list[dict] = []

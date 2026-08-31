@@ -275,11 +275,11 @@ def generate_proposals() -> None:
     try:
         # Roadmap-shaping is the highest-leverage judgment call in the loop — it
         # decides where the project goes and what future tokens get spent on — so
-        # it runs on the strong judge (Opus now, Fable when CLI access returns),
-        # never a cheap model. Low volume (queue-exhaustion only) keeps it cheap.
+        # it runs on the strong judge, never a cheap model. Low volume
+        # (queue-exhaustion only) keeps it cheap.
         raw = _judge_complete(
             system=(
-                "You are the autonomous orchestrator for an Arabic/Hebrew Telegram RAG archive bot. "
+                "You are the autonomous orchestrator for the project described below. "
                 "Generate up to 10 concrete improvement proposals based on the current project state. "
                 "Each proposal must be grounded in: eval weaknesses, latency hotspots, parked tasks, "
                 "or clear TODOs. Output JSON array of objects, each with fields: "

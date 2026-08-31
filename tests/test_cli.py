@@ -291,7 +291,21 @@ def test_doctor_telegram_check_skips_cleanly_with_no_token_configured(tmp_path):
     assert check.ok
 
 
-def test_check_backends_probes_the_full_fallback_chain(monkeypatch):
+@pytest.fixture
+def _clean_backend_binary_cache():
+    """Mirrors `tests/backends/test_registry.py`'s `_clean_cache`: "no test may see
+    another test's resolved binaries." Cleared both before and after, not only before —
+    otherwise the fabricated `claude`/`codex` `BinaryInfo` entries these tests install
+    would sit in the process-global `_BINARY_CACHE`, keyed on the real `PATH`, for every
+    later in-process test in the same pytest session (a latent trap for C7, which adds
+    another `doctor` check against this same registry)."""
+    from maestro.backends import registry as backend_registry
+    backend_registry.clear_binary_cache()
+    yield
+    backend_registry.clear_binary_cache()
+
+
+def test_check_backends_probes_the_full_fallback_chain(monkeypatch, _clean_backend_binary_cache):
     """All-claude `roles:` plus `fallback_chain: [claude, codex]` — the scaffolded
     template's actual shape (C5/G8) — must report the missing `codex` binary. Before this
     fix, `_check_backends` only looked at names written in `roles:`, so a machine with no
@@ -314,7 +328,6 @@ def test_check_backends_probes_the_full_fallback_chain(monkeypatch):
         "fallback_chain": ["claude", "codex"],
     }
     monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
-    backend_registry.clear_binary_cache()
     monkeypatch.setattr(backend_registry, "_probe_version", lambda path: "1.0.0")
     monkeypatch.setattr(
         backend_registry, "find_binaries",
@@ -326,7 +339,7 @@ def test_check_backends_probes_the_full_fallback_chain(monkeypatch):
     assert "codex" in check.detail
 
 
-def test_check_backends_passes_when_every_chain_backend_is_present(monkeypatch):
+def test_check_backends_passes_when_every_chain_backend_is_present(monkeypatch, _clean_backend_binary_cache):
     """The companion green path: once `codex` is also on `PATH`, the same all-claude
     `roles:` plus `fallback_chain: [claude, codex]` passes cleanly."""
     from maestro import cli
@@ -338,7 +351,6 @@ def test_check_backends_passes_when_every_chain_backend_is_present(monkeypatch):
         "fallback_chain": ["claude", "codex"],
     }
     monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
-    backend_registry.clear_binary_cache()
     monkeypatch.setattr(backend_registry, "_probe_version", lambda path: "1.0.0")
     monkeypatch.setattr(
         backend_registry, "find_binaries",

@@ -1,4 +1,4 @@
-"""Mid-work backend switching: three triggers, one path (D2, D3).
+"""Mid-work backend switching and session rotation: four triggers, one path (D2, D3, D4).
 
 Design authority is `docs/DESIGN.md` §7. An implementer that is running under one backend
 can be handed to another *while it is working*, and the thing that makes that worth doing
@@ -7,7 +7,7 @@ switch never touches that worktree. Conversation context does not survive — it
 re-summarised into a handoff brief built from the worktree itself, which is the same trade
 already accepted for context-ceiling handoffs.
 
-**Three triggers, one code path.** `switch_task` is the whole path; the trigger only
+**Four triggers, one code path.** `switch_task` is the whole path; the trigger only
 decides what it takes to stop the outgoing agent, and that decision is made from *window
 liveness*, never from the reason string:
 
@@ -21,6 +21,19 @@ liveness*, never from the reason string:
    checkpoint.
 3. **Manual.** `/backend <name> [task-id]` — same path, with the target named explicitly
    instead of resolved from the fallback chain.
+4. **Context ceiling reached** (D4). The implementer's own context has crossed its
+   model's `prepare_handoff_high` (`maestro.limits`), so it is *rotated onto a fresh
+   session of the backend it is already on* rather than handed to a different one:
+   nothing is wrong with the backend, the conversation is simply full. This is the one
+   trigger whose target is not chosen — `target_backend` is bypassed, because it answers
+   `None` for a target equal to the current backend and a rotation expressed through it
+   could never fire. It is also the one trigger that must never take the native-resume
+   path: resuming restores the very conversation the rotation exists to drop.
+
+The context trigger is *carried by the sentinel*. Without a checkpoint the rotation
+degrades to a 120-second wait and a hard kill, which loses exactly the uncommitted work
+it exists to preserve — so the sentinel/checkpoint contract in the implementer brief is
+load-bearing for D4 in a way it never was for a backend switch.
 
 Three rules this module exists to hold:
 
@@ -36,7 +49,10 @@ Three rules this module exists to hold:
 * **The journal record keeps its five fields.** `append_journal` writes
   `{ts, event, agent, session_id, detail}` and that shape is pinned by
   `tests/characterization/test_state.py`. A switch is therefore journalled by *flattening*
-  into `detail`: `"<task_id> from=<a> to=<b> reason=<r>"`. No sixth field is added.
+  into `detail`: `"<task_id> from=<a> to=<b> reason=<r>"`. No sixth field is added — a
+  rotation, whose `from` and `to` are necessarily the same backend, is distinguished by
+  its own event name (`session_rotation`) rather than by a sixth field, so that
+  `from=X to=X` under `backend_switch` never reads as a bug in the switch.
 
 Every seam that touches the world — the driver factory, the journal, Telegram, the state
 document, tmux, git, the clock — is injectable through `SwitchDeps`, whose fields all
@@ -54,7 +70,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Optional
 
-from maestro import roles
+from maestro import limits, roles
 from maestro.backends import registry
 from maestro.backends.base import Handle, LaunchSpec, Usage
 from maestro.hitl.telegram import notify_telegram
@@ -76,11 +92,14 @@ __all__ = [
     "REASON_QUOTA",
     "REASON_THRESHOLD",
     "REASON_MANUAL",
+    "REASON_CONTEXT",
     "STOPPED_GONE",
     "STOPPED_CHECKPOINTED",
     "STOPPED_KILLED",
     "SWITCH_EVENT",
     "SWITCH_FAILED_EVENT",
+    "ROTATE_EVENT",
+    "ROTATE_FAILED_EVENT",
     "SwitchDeps",
     "SwitchOutcome",
     "switch_sentinel_path",
@@ -99,6 +118,7 @@ __all__ = [
     "handoff_brief",
     "target_backend",
     "threshold_crossed",
+    "context_crossed",
     "switch_task",
 ]
 
@@ -148,6 +168,9 @@ SWITCH_THRESHOLD_PCT = 70.0
 REASON_QUOTA = "quota_exhausted"
 REASON_THRESHOLD = "usage_threshold"
 REASON_MANUAL = "manual"
+#: D4. The one reason that means "stay on this backend, start a new session on it" — the
+#: only reason `switch_task` reads to change what it does rather than only to record why.
+REASON_CONTEXT = "context_ceiling"
 
 #: What it took to stop the outgoing agent.
 STOPPED_GONE = "gone"                    # the process had already exited
@@ -156,6 +179,12 @@ STOPPED_KILLED = "killed"                # the window had to be killed
 
 SWITCH_EVENT = "backend_switch"
 SWITCH_FAILED_EVENT = "backend_switch_failed"
+
+#: D4's rotation, journalled under its own name. Same five fields, same flattened
+#: `detail`; a distinct event only because a rotation's `from` and `to` are the same
+#: backend by construction and would otherwise read as a switch that failed to switch.
+ROTATE_EVENT = "session_rotation"
+ROTATE_FAILED_EVENT = "session_rotation_failed"
 
 #: How many commits the handoff brief lists, and how long a git probe may take.
 COMMIT_LINES = 40
@@ -336,14 +365,27 @@ def sentinel_text(to_backend: str, reason: str, requested_at: str) -> str:
 
     The header is `key=value` lines so a reader (or `/progress`) can parse it without a
     JSON document; the prose below it is what the implementer actually acts on.
+
+    Only the opening sentence varies by reason, and only for D4's rotation: telling an
+    implementer it is being "moved to another agent backend" when it is being restarted
+    on the one it is already running on is a lie it could act on. Everything that makes
+    the sentinel work — commit, checkpoint, exit, do not write a terminal sentinel — is
+    identical for all four triggers, because it is the same handover either way.
     """
+    if reason == REASON_CONTEXT:
+        opening = (
+            "This session's context is nearly full, so the orchestrator is rotating the\n"
+            "task onto a FRESH session of the same agent backend.\n"
+        )
+    else:
+        opening = "The orchestrator is moving this task to another agent backend.\n"
     return (
         f"{SWITCH_SENTINEL}\n"
         f"to={to_backend}\n"
         f"reason={reason}\n"
         f"requested_at={requested_at}\n"
         "\n"
-        "The orchestrator is moving this task to another agent backend.\n"
+        f"{opening}"
         "At the NEXT tool boundary — never in the middle of a tool call:\n"
         f"  1. Commit whatever is worth keeping inside your worktree.\n"
         f"  2. Write {CHECKPOINT_FILE} in this workspace: what you did, what you were\n"
@@ -605,11 +647,19 @@ def handoff_brief(
     worktree = Path(worktree)
     workspace = Path(workspace)
 
+    # D4: a rotation's `to_backend` equals its `from_backend`, so "You are the claude
+    # backend" would tell the incoming agent nothing and imply the move was a switch. The
+    # fact it actually needs is that it is a new session with none of the old context.
+    taking_over = (
+        "You are a FRESH session on the SAME backend"
+        if reason == REASON_CONTEXT
+        else f"You are the {to_backend or 'new'} backend"
+    )
     header = (
         f"You are taking over task {task_id} MID-FLIGHT.\n\n"
         f"The previous implementer ran on the {from_backend or 'previous'} backend and was "
-        f"stopped (reason: {reason or 'unspecified'}). You are the {to_backend or 'new'} "
-        "backend, picking the same work up in the SAME worktree. Its files are exactly as "
+        f"stopped (reason: {reason or 'unspecified'}). {taking_over}, "
+        "picking the same work up in the SAME worktree. Its files are exactly as "
         "it left them, including uncommitted and untracked changes. That work is yours: "
         "build on it.\n\n"
         "GUARDRAILS FOR A HANDOVER:\n"
@@ -717,6 +767,53 @@ def threshold_crossed(
     return used >= limit
 
 
+def context_crossed(
+    usage: Optional[Usage],
+    model: str = "",
+    *,
+    resolve: Optional[Callable[[str], Any]] = None,
+) -> bool:
+    """True when a sample says this session's *own context* is time to rotate (D4).
+
+    The comparison is in **tokens**, against the running model's `prepare_handoff_high`
+    from `maestro.limits` — not against `context_used_pct`, and not against
+    `exception_ceiling`:
+
+    * tokens, because the limits tables are token counts and a percentage is a fraction
+      of a window the tables do not record. A session can sit at a comfortable-looking
+      15 % of a million-token window and still be far past the point where a fresh one
+      pays for itself, which is the whole reason D4 exists;
+    * `prepare_handoff_high` rather than `exception_ceiling`, because the tables' own
+      semantics (and the operator's session-triage rule they were written for) are that
+      "prepare handoff" is where you act and the ceiling is where it is already too late.
+
+    Every way of not knowing answers `False` — no sample, an unmeasurable or zero token
+    count (G6: `None`/`0` is "not measurable here", never "the context is empty"), no
+    model id to key the lookup on, no row for that id, or a lookup that raised. A
+    rotation throws away a live session; "we could not measure" is never enough reason.
+    A model id the table cannot resolve is reported by `doctor`'s `model_limits` check,
+    which is where an operator should learn about it — not by silently rotating.
+
+    `resolve` is the seam, defaulting to `limits.resolve`; callers that check several
+    entries in one pass memoise through it rather than re-parsing the tables per entry.
+    """
+    if usage is None:
+        return False
+    used = int(getattr(usage, "context_total_input_tokens", 0) or 0)
+    if used <= 0:
+        return False
+    name = _text(model) or _text(getattr(usage, "model", ""))
+    if not name:
+        return False
+    try:
+        row = (resolve or limits.resolve)(name)
+    except Exception:
+        return False
+    if row is None:
+        return False
+    return used >= int(row.prepare_handoff_high)
+
+
 # ── the one path ──
 
 
@@ -764,12 +861,15 @@ def switch_task(
     exhausted: Iterable[object] = (),
     deps: Optional[SwitchDeps] = None,
 ) -> SwitchOutcome:
-    """Move one task to another backend, keeping its worktree exactly as it is.
+    """Move one task to another backend — or, for `REASON_CONTEXT`, onto a fresh session
+    of its own backend — keeping its worktree exactly as it is.
 
     The order is deliberate:
 
     1. **Choose the target first.** If there is nowhere to go, nothing is stopped — an
-       implementer must never be killed for a switch that cannot happen.
+       implementer must never be killed for a switch that cannot happen. `REASON_CONTEXT`
+       is the one reason that skips the choice: a rotation's target is the backend the
+       task is already on, so it never has nowhere to go (D4).
     2. **Stop the outgoing agent** (sentinel, grace, kill-as-fallback — or nothing at all
        when it has already exited).
     3. **Build the handoff brief afterwards**, so the commits and checkpoint notes the
@@ -797,7 +897,13 @@ def switch_task(
         from_backend if from_backend is not None else entry.get("backend")
     ) or roles.backend_for(role_name, config=config)
 
-    target = target_backend(
+    # D4. A rotation is a same-backend move, and `target_backend` answers `None` for
+    # exactly that, so it is bypassed rather than coaxed: expressing "stay here, start
+    # fresh" as a degenerate switch to yourself would make every no-target guard in this
+    # module — and `SwitchOutcome.switched`, which means "the backend changed" — read
+    # backwards.
+    rotation = reason == REASON_CONTEXT
+    target = current if rotation else target_backend(
         role_name,
         current,
         to=to_backend,
@@ -866,8 +972,14 @@ def switch_task(
         # handed the brief as a continuation; one that cannot is re-briefed from scratch.
         # A handle for a *different* backend is not resumable by this driver — switching
         # back to a backend a task ran on earlier is the case this serves.
+        #
+        # D4 is the one exception, and it is not a name check: a rotation exists to shed
+        # the conversation, and a native resume is precisely the thing that would restore
+        # it. Rotating into a resumed session would relaunch the agent at the same context
+        # it just crossed the handoff mark on, and it would cross it again immediately.
         resumable = (
-            handle is not None
+            not rotation
+            and handle is not None
             and capabilities.native_resume
             and bool(handle.native_id)
             and registry.normalise_name(handle.backend) == target
@@ -875,7 +987,7 @@ def switch_task(
         new_handle = driver.resume(handle, brief) if resumable else driver.launch(spec)
     except Exception as exc:
         deps.record(
-            SWITCH_FAILED_EVENT,
+            ROTATE_FAILED_EVENT if rotation else SWITCH_FAILED_EVENT,
             f"{task_id} from={current} to={target} reason={reason} error={exc}"[:300],
             session_id,
         )
@@ -906,16 +1018,22 @@ def switch_task(
         }
     )
 
-    # Five fields, flattened into `detail` (F5). Do not add a sixth.
+    # Five fields, flattened into `detail` (F5). Do not add a sixth — a rotation is told
+    # apart by its event name, not by an extra column.
     deps.record(
-        SWITCH_EVENT,
+        ROTATE_EVENT if rotation else SWITCH_EVENT,
         f"{task_id} from={current} to={target} reason={reason}",
         session_id,
     )
     deps.announce(
-        f"Backend switch: {task_id} {current} -> {target} ({reason}). "
-        f"Same worktree {path}, uncommitted work preserved. "
-        f"New session {live_session_id}."
+        (
+            f"Session rotation: {task_id} restarted on {target} with a fresh session "
+            f"({reason})."
+            if rotation
+            else f"Backend switch: {task_id} {current} -> {target} ({reason})."
+        )
+        + f" Same worktree {path}, uncommitted work preserved."
+        + f" New session {live_session_id}."
     )
     note = _replace_in_flight(session_id, new_entry, deps)
 

@@ -29,6 +29,7 @@ import pytest
 from maestro import state, switch, worktree as worktree_module
 from maestro.backends import registry
 from maestro.backends.base import Capabilities, Handle, LaunchSpec, Usage, WindowUsage
+from maestro.limits import ModelLimits
 
 TASK_ID = "T7"
 OLD_SESSION = "impl-T7-20260812-090000"
@@ -1046,3 +1047,284 @@ def test_all_three_triggers_take_the_same_path(dirty_worktree, previous_workspac
     assert outcomes[switch.REASON_QUOTA].stopped == switch.STOPPED_GONE
     assert outcomes[switch.REASON_THRESHOLD].stopped == switch.STOPPED_CHECKPOINTED
     assert outcomes[switch.REASON_MANUAL].stopped == switch.STOPPED_CHECKPOINTED
+
+
+# ── the context-rotation trigger (trigger 4) ──
+#
+# D4's ceiling is measured per model by `maestro.limits`. Crossing `prepare_handoff_high`
+# does not send the task to another backend — there is nothing wrong with the backend —
+# it rotates the task onto a *fresh session of the same one*, which is exactly what the
+# operator's own session-triage rule does by hand.
+
+#: A stand-in limits row. Injected everywhere below, so no test reads the operator's
+#: real `~/.claude/model_context_limits.md`.
+ROW = ModelLimits("Claude Opus 5", 100_000, 120_000, 150_000, 180_000, 240_000)
+
+
+def test_context_crossed_fires_at_prepare_handoff_high_not_at_the_ceiling():
+    """The tables' own semantics: "prepare handoff" is where you act, the ceiling is
+    where it is already too late."""
+    at_mark = Usage(context_total_input_tokens=ROW.prepare_handoff_high, model="claude-opus-5")
+    below = Usage(context_total_input_tokens=ROW.prepare_handoff_high - 1, model="claude-opus-5")
+
+    assert switch.context_crossed(at_mark, resolve=lambda name: ROW) is True
+    assert switch.context_crossed(below, resolve=lambda name: ROW) is False
+    # …and it fires a long way below the point of no return.
+    assert at_mark.context_total_input_tokens < ROW.exception_ceiling
+
+
+def test_context_crossed_keys_the_lookup_on_the_running_model():
+    seen: list[str] = []
+
+    def resolve(name):
+        seen.append(name)
+        return ROW
+
+    sample = Usage(context_total_input_tokens=200_000, model="claude-opus-5")
+    assert switch.context_crossed(sample, resolve=resolve) is True
+    # An explicitly supplied id wins over the sample's own — the caller knows which
+    # model the *task* runs under; the sample only knows what it last saw.
+    assert switch.context_crossed(sample, "gpt-5.6-terra", resolve=resolve) is True
+    assert seen == ["claude-opus-5", "gpt-5.6-terra"]
+
+
+def test_a_model_with_no_limits_row_never_rotates():
+    """`limits.resolve` answers `None` for an id its normaliser cannot fold (C7 owns
+    that defect). A4 only has to degrade safely: no rotation, no crash."""
+    over = Usage(context_total_input_tokens=10_000_000, model="claude-haiku-4-5-20251001")
+
+    assert switch.context_crossed(over, resolve=lambda name: None) is False
+
+
+def test_a_resolver_that_raises_never_rotates():
+    def boom(name):
+        raise RuntimeError("the limits tables are unreadable")
+
+    over = Usage(context_total_input_tokens=999_999, model="claude-opus-5")
+    assert switch.context_crossed(over, resolve=boom) is False
+
+
+def test_an_unmeasurable_context_never_rotates():
+    """G6 again: `None`/`0` is "not measurable here", never "the context is empty" —
+    and never, on its own, a reason to throw away a live session."""
+    assert switch.context_crossed(None, resolve=_forbidden) is False
+    assert switch.context_crossed(Usage(), resolve=_forbidden) is False
+    assert switch.context_crossed(
+        Usage(context_total_input_tokens=0, model="claude-opus-5"), resolve=_forbidden
+    ) is False
+    # No model id anywhere is equally unmeasurable: there is no row to compare against.
+    assert switch.context_crossed(
+        Usage(context_total_input_tokens=999_999), resolve=_forbidden
+    ) is False
+
+
+def test_a_rotation_targets_its_own_backend_without_consulting_the_chain(
+    dirty_worktree, previous_workspace, monkeypatch
+):
+    """`target_backend` returns `None` when the target equals the current backend, so a
+    rotation expressed through it would always be a no-op. It is bypassed outright."""
+    monkeypatch.setattr(switch, "target_backend", _forbidden)
+    recorder = Recorder()
+    driver = FakeDriver(name=FROM)
+
+    outcome = switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM),
+        config={},
+        deps=_deps(recorder, driver),
+    )
+
+    assert outcome.switched is True
+    assert outcome.from_backend == FROM
+    assert outcome.to_backend == FROM
+    assert outcome.new_session_id == NEW_SESSION
+    assert driver.launched[0].worktree == dirty_worktree
+    assert outcome.entry["backend"] == FROM
+
+
+def test_a_rotation_is_journalled_distinctly_and_keeps_its_five_fields(
+    dirty_worktree, previous_workspace
+):
+    """`from=claude to=claude` under `backend_switch` would read as a bug in the switch.
+    A rotation gets its own event; the record still has exactly five fields."""
+    recorder = Recorder()
+    driver = FakeDriver(name=FROM)
+    state.JOURNAL.parent.mkdir(parents=True, exist_ok=True)
+
+    switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM),
+        config={},
+        deps=_deps(recorder, driver, journal=None),  # the real append_journal
+    )
+
+    records = [
+        json.loads(line)
+        for line in state.JOURNAL.read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    rotations = [r for r in records if r["event"] == switch.ROTATE_EVENT]
+    assert len(rotations) == 1
+    assert set(rotations[0]) == {"ts", "event", "agent", "session_id", "detail"}
+    assert rotations[0]["detail"] == (
+        f"{TASK_ID} from={FROM} to={FROM} reason={switch.REASON_CONTEXT}"
+    )
+    assert rotations[0]["session_id"] == OLD_SESSION
+    assert [r for r in records if r["event"] == switch.SWITCH_EVENT] == []
+
+
+def test_a_rotation_never_resumes_the_session_it_is_shedding(
+    dirty_worktree, previous_workspace
+):
+    """A native resume restores the conversation — i.e. exactly the context the
+    rotation exists to drop. The one case where `native_resume` must not be honoured."""
+    recorder = Recorder()
+    driver = FakeDriver(name=FROM, capabilities=RESUMING)
+    handle = Handle(
+        backend=FROM,
+        session_id=OLD_SESSION,
+        native_id="thread-abc",
+        workspace=previous_workspace,
+        window=WINDOW,
+    )
+
+    outcome = switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM),
+        handle=handle,
+        config={},
+        deps=_deps(recorder, driver),
+    )
+
+    assert outcome.resumed is False
+    assert driver.resumed == []
+    assert len(driver.launched) == 1
+    assert driver.launched[0].workspace == switch.WORKSPACES / NEW_SESSION
+
+
+def test_uncommitted_work_survives_a_rotation(dirty_worktree, previous_workspace):
+    """The same load-bearing property as a switch: `create_worktree` is an explosive
+    here (autouse fixture), and the dirty files are the point of the whole exercise."""
+    recorder = Recorder()
+    driver = FakeDriver(name=FROM)
+    tracked = dirty_worktree / "module.py"
+    untracked = dirty_worktree / "scratch.txt"
+
+    outcome = switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM),
+        config={},
+        deps=_deps(recorder, driver),
+    )
+
+    assert outcome.switched is True
+    assert tracked.read_text(encoding="utf-8") == DIRTY_TRACKED
+    assert untracked.read_text(encoding="utf-8") == DIRTY_UNTRACKED
+    assert "?? scratch.txt" in driver.launched[0].brief
+
+
+def test_a_rotation_tells_the_agent_it_is_a_fresh_session_of_the_same_backend(
+    dirty_worktree, previous_workspace
+):
+    """The sentinel is what carries the rotation (A3). Its checkpoint contract is
+    unchanged; only the sentence explaining *why* differs, because "moving this task to
+    another agent backend" is not what is happening."""
+    recorder = Recorder()
+    driver = FakeDriver(name=FROM)
+    liveness = iter([True, False])
+
+    switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM),
+        grace_sec=30,
+        config={},
+        deps=_deps(
+            recorder, driver, window_exists=lambda window: next(liveness, False)
+        ),
+    )
+
+    sentinel = (previous_workspace / switch.SWITCH_SENTINEL).read_text(encoding="utf-8")
+    assert f"reason={switch.REASON_CONTEXT}" in sentinel
+    assert "another agent backend" not in sentinel
+    assert "context" in sentinel.lower()
+    # The contract A3 made unconditional is untouched.
+    assert "Do NOT write DONE or FAILED" in sentinel
+    assert switch.CHECKPOINT_FILE in sentinel
+
+    brief = driver.launched[0].brief
+    assert "FRESH session on the SAME backend" in brief
+    assert "Do NOT reset, clean, stash, re-clone or re-create the worktree" in brief
+
+
+def test_the_operator_is_not_told_a_rotation_changed_backends(dirty_worktree):
+    recorder = Recorder()
+    driver = FakeDriver(name=FROM)
+
+    switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM),
+        config={},
+        deps=_deps(recorder, driver),
+    )
+
+    assert len(recorder.notices) == 1
+    message = recorder.notices[0]
+    assert "Backend switch" not in message
+    assert TASK_ID in message and str(dirty_worktree) in message
+
+
+def test_a_failed_rotation_is_journalled_as_a_failed_rotation(dirty_worktree):
+    recorder = Recorder()
+
+    class Broken(FakeDriver):
+        def launch(self, spec):
+            raise RuntimeError("tmux refused the window")
+
+    outcome = switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM),
+        config={},
+        deps=_deps(recorder, Broken(name=FROM)),
+    )
+
+    assert outcome.switched is False
+    assert recorder.events(switch.ROTATE_EVENT) == []
+    assert recorder.events(switch.SWITCH_FAILED_EVENT) == []
+    failures = recorder.events(switch.ROTATE_FAILED_EVENT)
+    assert len(failures) == 1
+    assert failures[0][1].startswith(f"{TASK_ID} from={FROM} to={FROM}")
+    # The work is still on disk, whatever happened to the relaunch.
+    assert (dirty_worktree / "module.py").read_text(encoding="utf-8") == DIRTY_TRACKED
+
+
+def test_the_rotation_is_a_fourth_trigger_on_the_one_path(dirty_worktree, previous_workspace):
+    """Same `switch_task`, same stop-by-liveness, same worktree reuse — only the target
+    and the reason differ."""
+    recorder = Recorder()
+    driver = FakeDriver(name=FROM)
+    liveness = iter([True, False])
+
+    outcome = switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM),
+        grace_sec=30,
+        config={},
+        deps=_deps(
+            recorder, driver, window_exists=lambda window: next(liveness, False)
+        ),
+    )
+
+    assert outcome.stopped == switch.STOPPED_CHECKPOINTED
+    assert outcome.switched is True
+    assert driver.launched[0].worktree == dirty_worktree
+    assert recorder.events(switch.ROTATE_EVENT)[0][1].endswith(
+        f"reason={switch.REASON_CONTEXT}"
+    )

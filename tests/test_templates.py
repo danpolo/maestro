@@ -68,6 +68,58 @@ def test_project_yaml_tmpl_has_the_three_placeholders():
     assert doc["project"]["main_branch"] == "{{ main_branch }}"
 
 
+# ── roles: block names exactly the roles maestro.roles resolves (G6) ──
+
+
+def test_project_yaml_tmpl_roles_are_exactly_the_known_roles():
+    """`project.yaml.tmpl`'s `roles:` block must declare exactly `roles.KNOWN_ROLES` — no
+    more (a role no code resolves, like the struck `orchestrator` entry) and no fewer (a
+    real role, like `diagnoser`, silently getting no configured model on every adopted
+    project)."""
+    from maestro import roles as roles_mod
+
+    doc = yaml.safe_load((TEMPLATES_DIR / "project.yaml.tmpl").read_text())
+    assert set(doc["roles"].keys()) == set(roles_mod.KNOWN_ROLES)
+
+
+def test_project_yaml_tmpl_diagnoser_role_is_actually_read_by_role_config():
+    """Observable effect, not just presence: the backend/model the template declares for
+    `diagnoser` is what `roles.role_config` resolves when handed this exact document —
+    proving the block is read, not merely parsed."""
+    from maestro import roles as roles_mod
+
+    doc = yaml.safe_load((TEMPLATES_DIR / "project.yaml.tmpl").read_text())
+    entry = doc["roles"][roles_mod.ROLE_DIAGNOSER]
+
+    settings = roles_mod.role_config(roles_mod.ROLE_DIAGNOSER, doc)
+
+    assert settings.backend == entry["backend"]
+    assert settings.model_for(entry["backend"]) == entry["models"][entry["backend"]]
+
+
+# ── model_limits: block names exactly the knob maestro.limits reads (G6) ──
+
+
+def test_project_yaml_tmpl_model_limits_is_actually_read_by_default_table_paths(
+    monkeypatch, tmp_path
+):
+    """Observable effect: `default_table_paths()` reads *this document's* `model_limits:`
+    mapping, not merely a coincidence of the template's shown defaults matching the
+    hardcoded ones. The declared value is mutated to a path nothing else could produce, so
+    the assertion only holds if the knob is actually wired."""
+    from maestro import config as _config
+    from maestro import limits
+
+    doc = yaml.safe_load((TEMPLATES_DIR / "project.yaml.tmpl").read_text())
+    assert "model_limits" in doc, "template dropped the model_limits knob entirely"
+
+    custom = tmp_path / "custom_claude_limits.md"
+    doc["model_limits"] = {"claude": str(custom)}
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: doc)
+
+    assert limits.default_table_paths() == [custom]
+
+
 # ── executability ──
 
 

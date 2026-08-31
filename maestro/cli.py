@@ -573,9 +573,11 @@ def _check_backends(repo_root: Path) -> Check:
     # per-role, so any role's resolved chain names the same backends; ROLE_IMPLEMENTER is
     # just a stand-in for "ask the resolution layer what the chain actually is" rather
     # than re-deriving it here.
+    # `role_config(...).chain` always includes at least `default_chain()`'s result,
+    # which is non-empty whenever the registry has a known backend (always true outside
+    # a test that deliberately empties it) — so `backend_names` is never empty here, and
+    # a separate "nothing configured" fallback would be unreachable dead code.
     backend_names.update(_roles.role_config(_roles.ROLE_IMPLEMENTER, cfg).chain)
-    if not backend_names:
-        backend_names = {backend_registry.DEFAULT_BACKEND}
     missing = []
     for name in sorted(backend_names):
         info = backend_registry.backend_binary(name)

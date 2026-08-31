@@ -453,8 +453,10 @@ def stop_agent(
 
     The trigger is *not* consulted here. Liveness is: a quota-exhausted implementer has
     already exited, so the same code that would write a sentinel simply finds no window
-    and returns `STOPPED_GONE`. That is what keeps all three triggers on one path instead
-    of three that drift apart.
+    and returns `STOPPED_GONE`. That is what keeps all four triggers on one path instead
+    of four that drift apart — D4's rotation stops its outgoing agent through exactly
+    this function, and depends on the checkpoint half of it more than any of the other
+    three, since the work it is preserving is the only thing the fresh session inherits.
 
     The kill is a fallback, never the first move (`docs/DESIGN.md` §7): the sentinel goes
     in first, the window is re-checked throughout the grace period, and a window that

@@ -29,7 +29,7 @@ import pytest
 from maestro import state, switch, worktree as worktree_module
 from maestro.backends import registry
 from maestro.backends.base import Capabilities, Handle, LaunchSpec, Usage, WindowUsage
-from maestro.limits import ModelLimits
+from maestro.limits import LimitsResult, ModelLimits
 
 TASK_ID = "T7"
 OLD_SESSION = "impl-T7-20260812-090000"
@@ -1328,3 +1328,22 @@ def test_the_rotation_is_a_fourth_trigger_on_the_one_path(dirty_worktree, previo
     assert recorder.events(switch.ROTATE_EVENT)[0][1].endswith(
         f"reason={switch.REASON_CONTEXT}"
     )
+
+
+def test_the_samples_display_name_is_not_a_table_key():
+    """Regression for the defect that made this trigger inert on every claude task.
+
+    `usage.json` carries the statusline's *display name* — the live document in this repo
+    reads `"Opus 5"` — while the limits tables key on `"Claude Opus 5"`. `limits`'
+    normaliser folds case and whitespace, which cannot invent the missing `"Claude "`, so
+    the sample's own model id resolves to nothing and `context_crossed` answers `False`
+    forever. The fix is not to fold harder, it is to key the lookup on the model the task
+    was *launched* with, which is a slug the tables do resolve.
+    """
+    table = LimitsResult(models={"Claude Opus 5": ROW})
+    over = Usage(context_total_input_tokens=200_000, model="Opus 5")
+
+    assert table.get("Opus 5") is None
+    assert table.get("claude-opus-5") is ROW
+    assert switch.context_crossed(over, resolve=table.get) is False
+    assert switch.context_crossed(over, "claude-opus-5", resolve=table.get) is True

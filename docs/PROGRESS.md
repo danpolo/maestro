@@ -3189,3 +3189,79 @@ Carried from `docs/DESIGN.md` §13. Resolve during the stage noted; record the a
   be handed back to a backend it has already exhausted. Note the fix deliberately **continues on the
   same backend** rather than advancing the fallback chain: advancing is `switch.py`'s job, driven by a
   trigger, and a reaped window is not evidence the current backend is unusable.
+
+## 2026-08-30/31 — pre-integration readiness queue, wave 1 (A1, A2, A3, B3, C6)
+
+Executed the first five items of `handoffs/2026-08-30_pre-integration-readiness-queue.md` — the
+queue answering "can maestro be integrated into another project yet?" (answer: not until these
+land). Merged at `d7dd51d`; suite **3138 collected / exit 0**, up from a 3110 baseline, and the
+count composes exactly (3110 + A2 12 + A3 10 + B3 4 + C5 2), which is the check that the parallel
+execution below lost nothing. Wave 2 (A4, B1, B2, C1, C2, C3, C4, C7, D1, D2, D3) is handed off in
+`handoffs/2026-08-31_wave2-a4-onward.md`.
+
+**A1 (`10ccadd`) — `driver.parse_exit` reached production.** Both drivers implemented it and no core
+module called it, so reconcile classified quota deaths with a Claude-worded regex and a codex
+implementer dying on quota fell through to "stale entry; marking FAILED" → retry → the same wall.
+Reconcile now resolves the entry's driver and calls `parse_exit`. One characterisation pin was
+re-baselined (named in the commit); `quota._scan_impl_log_for_limit` is kept but no longer called by
+core. Note a premise in the queue was wrong: `ClaudeBackend.parse_exit` never called that helper, it
+was already written against the lower-level regex/reset helpers, so the helper is now reachable only
+from `tests/characterization/test_quota.py`. Left in place deliberately — the plan forbade deleting
+it — but flagged for the final review.
+
+**A2 (`999b063`) — the loop samples its own usage.** `.orchestrator/usage.json` was written only by
+an *interactive* statusline hook, so an unattended loop read a missing file, got `five_pct = 0`, and
+never fired the concurrency throttle or the 92% pause. The loop now samples through the driver
+(reusing `_under_usage_pressure`'s reading, once per poll per backend) and renders via the existing
+`to_usage_json`. Review caught a real hole in the first cut: `quota.get_effective_cap()` applies a
+*single* `used_pct` as the **global** cap, so with two backends concurrent, one above `PAUSE_PCT`
+escaped the throttle entirely if it merely wasn't written last that poll — the same class of failure
+A2 exists to close. Fixed by writing the **most-pressured** sample rather than the last-iterated one:
+same document shape (`quota.py` reads it and the statusline hook must coexist), no new schema, and a
+cap that errs toward throttling early. The `None`-is-not-zero rule survived the change — the max
+comparison skips unmeasurable samples rather than defaulting them to 0.
+
+**A3 (`0065b1b`) — the implementer profile is delivered, and the SWITCH contract unconditionally.**
+`SYS_PROMPT` pointed at a layout `maestro init` does not scaffold, and `claude.py` silently omits
+`--system-prompt-file` when the file is missing, so the profile was quietly absent on every
+onboarded project. Repointed at `profiles/implementer.md`, and where `system_prompt_file` is `False`
+(codex) the profile is folded into the brief at *both* launch sites through one shared helper.
+The review found the load-bearing defect: `_make_brief` early-returned to `_make_prep_brief` for
+`dispatch: manual` tasks **before** the SWITCH-contract append, and the new test used a task with no
+`dispatch` key so it never exercised that branch. Prep tasks are legitimate switch targets —
+`_threshold_switches` and `_switch_instead_of_waiting` iterate `in_flight` with no filter — so for
+them the contract's only carrier was still the optional profile file, exactly the failure the item
+exists to remove. Fixed structurally rather than by a second append site: `_make_brief` now has one
+trailing `return` that appends the contract after both branches, so any future brief-returning path
+inherits it. **A4's rotation is carried by this sentinel; do not let a later edit move that append
+back inside a branch.**
+
+**B3 (`24062c0`) — `/redo`'s notebook wording is gated.** The notebook/Drive *behaviour* was already
+gated on `confinement.available(CHECK_NB)`; the operator-facing *text* was not and fired on every
+project. Both message sites now branch on the same signal, following `_make_prep_brief`'s existing
+pattern rather than a second mechanism. The notebook path is byte-identical when `CHECK_NB` is
+present — the goal was no unconditional assumption, not removal.
+
+**C5 (`bda4bdb`) — `doctor` probes the whole fallback chain**, resolved through
+`roles.role_config(...).chain` rather than a re-derivation, so a missing `codex` binary no longer
+passes cleanly under the template's all-claude roles. Review caught test pollution: the chain tests
+cleared the process-global `_BINARY_CACHE` before installing stubs but never after, leaving
+fabricated entries for the rest of the session — a trap directly in C7's path. Now uses a fixture
+clearing both sides, mirroring `tests/backends/test_registry.py`'s existing `_clean_cache`.
+
+**C6 — roster rows**, outside the repo: `Claude Haiku 4.5` in `~/.claude/model_context_limits.md`,
+`GPT-5.5` in `~/.codex/` (edited via the Codex CLI per standing rule; confirmed from that session's
+rollout). Both numbers are conservative judgements, not published windows, and each file says so.
+Fable 5 stays excluded — per-token billing outside the subscription.
+
+**Bug found, not yet fixed — carried into C7:** `limits.resolve()` matches `Claude Haiku 4.5` and
+`claude-haiku-4.5` but **not** the actual configured id `claude-haiku-4-5-20251001`, nor
+`claude-haiku-4-5`. Two gaps in the normaliser: period-vs-hyphen folding and date-suffix stripping.
+Load-bearing twice — verification item 7 requires every configured model to resolve, and A4 keys its
+rotation trigger on the running model id, so a haiku implementer would silently never rotate. Fix
+the normaliser, not the table row: the tables use display names by convention.
+
+**Still owed from this wave:** the scoped re-review of C5's fix (`865f4f2..bda4bdb`) was never
+dispatched — its implementer died on a rate limit before committing, and the controller verified and
+committed the work itself. That is controller verification, not the independent seat the process
+requires. Dispatch it before C7 builds on the same doctor check list.

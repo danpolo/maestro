@@ -51,13 +51,13 @@ from maestro.gates import (
     sonnet_review_proofs,
 )
 from maestro.hitl.commands import poll_control_commands, run_status
-from maestro.limits import resolve as resolve_model_limits
 from maestro.hitl.telegram import (
     _danreq,
     _send_hitl_reminders,
     notify_telegram,
     phase_report,
 )
+from maestro.limits import resolve as resolve_model_limits
 from maestro.implementer import (
     _questions_ready,
     _synthesize_sentinel,

@@ -1052,14 +1052,13 @@ def test_the_rotation_reuses_this_polls_usage_sample(rotation, tmp_path):
     cache: dict = {}
     entries = [_entry(tmp_path), _entry(tmp_path, sid="impl-T4-1", task_id="T4")]
     orchestrator._sampled_usage(CLAUDE, cache)                # A2's own sampling
-    before = len(calls)
 
     with pytest.MonkeyPatch.context() as mp:
+        # From here on, reaching a driver at all is a defect: the memo already holds
+        # this backend's reading for the poll.
         mp.setattr(orchestrator, "get_backend", _get_backend)
-        orchestrator._sampled_usage(CLAUDE, cache)
-        assert len(calls) == before                           # served from the memo
-        orchestrator._context_rotations(entries, {}, cache)
-        assert len(calls) == before                           # and so is the rotation
+        assert orchestrator._context_rotations(entries, {}, cache) == 2
+        assert calls == []
 
 
 def test_the_limits_tables_are_parsed_once_per_poll(rotation, tmp_path):

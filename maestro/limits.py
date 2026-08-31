@@ -162,7 +162,7 @@ def parse_limits_table(text: str) -> dict:
 
 def default_table_paths() -> list:
     """`~/.claude/model_context_limits.md` and `~/.codex/model_context_limits.md`, unless
-    `project.yaml` sets `model_limits: {<backend>: <path>, ...}` (DESIGN.md §8,
+    `project.yaml` sets `model_limits: {<backend>: <path>, ...}` (DESIGN.md §5, §8,
     `project.yaml.tmpl`) — a mapping, not a flat list — in which case its values
     (`~`-expanded, in declaration order) replace the two defaults entirely.
 
@@ -171,22 +171,38 @@ def default_table_paths() -> list:
     would otherwise silently do nothing (the exact class of bug this reconciles), so its
     presence raises a `UserWarning` naming the correct key and is then ignored, falling
     through to `model_limits` (if also set) or the two defaults.
+
+    A `model_limits` that *is* present but is not a usable mapping — the deleted list
+    shape reused under the new key, a scalar, `null`, or an empty `{}` — degrades the
+    same way: a `UserWarning` and the two defaults, never silent, since "knob set, no
+    effect" is the exact defect class this function exists to close. An empty `{}` is
+    deliberately treated as unusable rather than as "no override": a project.yaml that
+    wants the defaults simply omits the key, so an explicit-but-empty mapping is far more
+    likely a mistake (an accidentally cleared value) than an intentional opt-in.
     """
     cfg = _config.load_project_yaml()
     if "model_limits_paths" in cfg:
         warnings.warn(
             "project.yaml sets 'model_limits_paths' (a flat list), which maestro no "
             "longer reads and has no effect — rename it to "
-            "'model_limits: {<backend>: <path>, ...}' (DESIGN.md §8)",
+            "'model_limits: {<backend>: <path>, ...}' (DESIGN.md §5, §8)",
             stacklevel=2,
         )
-    override = cfg.get("model_limits")
-    if isinstance(override, Mapping):
-        paths = [
-            Path(p).expanduser() for p in override.values() if isinstance(p, str) and p.strip()
-        ]
+    if "model_limits" in cfg:
+        override = cfg.get("model_limits")
+        paths = (
+            [Path(p).expanduser() for p in override.values() if isinstance(p, str) and p.strip()]
+            if isinstance(override, Mapping)
+            else []
+        )
         if paths:
             return paths
+        warnings.warn(
+            "project.yaml's 'model_limits' is not a usable "
+            f"'{{<backend>: <path>, ...}}' mapping (got {override!r}) and has no "
+            "effect — see 'model_limits: {<backend>: <path>, ...}' (DESIGN.md §5, §8)",
+            stacklevel=2,
+        )
     return [
         Path.home() / ".claude" / "model_context_limits.md",
         Path.home() / ".codex" / "model_context_limits.md",

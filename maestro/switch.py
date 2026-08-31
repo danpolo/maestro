@@ -335,6 +335,11 @@ class SwitchOutcome:
     the answer that tells the orchestrator to keep its existing throttle-and-wait
     behaviour, and raising there would force every call site to handle an exception on a
     path where there is nothing useful to do.
+
+    `switched` means "the outgoing agent was stopped and a new one is running in its
+    worktree", not "the backend name changed". For D4's rotation `to_backend` equals
+    `from_backend` and `switched` is still true, because a fresh session on the same
+    backend is exactly as much of a relaunch as a move to a different one.
     """
 
     task_id: str
@@ -1025,15 +1030,14 @@ def switch_task(
         f"{task_id} from={current} to={target} reason={reason}",
         session_id,
     )
+    headline = (
+        f"Session rotation: {task_id} restarted on {target} with a fresh session ({reason})."
+        if rotation
+        else f"Backend switch: {task_id} {current} -> {target} ({reason})."
+    )
     deps.announce(
-        (
-            f"Session rotation: {task_id} restarted on {target} with a fresh session "
-            f"({reason})."
-            if rotation
-            else f"Backend switch: {task_id} {current} -> {target} ({reason})."
-        )
-        + f" Same worktree {path}, uncommitted work preserved."
-        + f" New session {live_session_id}."
+        f"{headline} Same worktree {path}, uncommitted work preserved. "
+        f"New session {live_session_id}."
     )
     note = _replace_in_flight(session_id, new_entry, deps)
 

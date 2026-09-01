@@ -16,8 +16,11 @@ Design authority is `docs/DESIGN.md` §6, as corrected by the M2 research pass r
 * **A context reading means nothing without a session to attribute it to.** `windows` is
   about the account, so any sample can carry it; `context_used_pct` and
   `context_total_input_tokens` are about one conversation, and `Usage.session_id` is
-  where a driver says which. No driver can say yet, so the field is `""` everywhere and
-  D4's rotation is inert by construction — see `Usage.session_id`.
+  where a driver says which. Both drivers say (A5): `usage(handle)` reads the named
+  session's own record and stamps that field, while `usage()` — the account-level
+  question — leaves it `""`, an account having no one conversation to name. D4's rotation
+  acts on the stamped form only, so it is live for an implementer and still refuses a
+  reading it cannot place — see `Usage.session_id` and `AgentBackend.usage`.
 
 `to_usage_json` / `from_usage_json` normalise to the shape already written by the
 statusline sampler and already read by `maestro.quota`, so every driver and the existing

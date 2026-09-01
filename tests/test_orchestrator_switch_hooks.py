@@ -900,8 +900,9 @@ def rotation(hooks, monkeypatch):
     # lookup must key on.
     box.model = "Opus 5"
     box.launch_model = "claude-opus-5"
-    # Attributed to the entry `_entry()` builds, i.e. a per-session reading of the kind
-    # no driver can produce yet (item A5). Every rotation test states its precondition.
+    # Attributed to the entry `_entry()` builds — the shape both real drivers now produce
+    # (A5): `usage(handle)` stamps the handle's own session id. Every rotation test below
+    # states its attribution precondition rather than relying on this default.
     box.attributed_to = "impl-T1-1"
     orchestrator._rotation_notices.clear()
 
@@ -1222,11 +1223,15 @@ def test_an_unresolved_model_is_announced_once(rotation, tmp_path, capsys):
 
 
 def test_a_sample_that_names_no_session_never_rotates(rotation, tmp_path):
-    """Today's production reality, pinned. No driver can attribute a context reading, so
-    `Usage.session_id` is `""` everywhere and D4 is inert **by construction** — not
-    because a threshold happens not to be met, but because the evidence cannot be shown
-    to be about the implementer whose session would be thrown away."""
-    rotation.attributed_to = ""                  # every driver, today
+    """The precondition, pinned independently of whether any driver satisfies it.
+
+    Both shipped drivers do satisfy it now (A5), so this no longer describes production —
+    it pins the rule that has to hold whatever a driver reports. An unattributed reading
+    is not weaker evidence about this implementer, it is evidence about somebody else, and
+    what D4 spends on it is a live session's conversation. A driver that regressed to
+    reporting `""` fails closed here instead of rotating on the operator's own numbers.
+    """
+    rotation.attributed_to = ""                  # a driver that does not, or no longer, attributes
 
     assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
     assert rotation.switches == []
@@ -1254,8 +1259,10 @@ def test_an_attributed_sample_above_the_mark_rotates(rotation, tmp_path):
 
 
 def test_the_missing_attribution_is_announced_once(rotation, tmp_path, capsys):
-    """Inert, but self-announcing: a crossing that could not be justified says so, once
-    per backend per process. Silence is what let the first version look implemented."""
+    """Declining, but self-announcing: a crossing that could not be justified says so,
+    once per backend per process. Silence is what let the first version look implemented —
+    and now that D4 does fire, an unattributed crossing means a driver is misreporting,
+    which is exactly the thing an operator must not have to infer from nothing."""
     rotation.attributed_to = ""
     entries = [_entry(tmp_path), _entry(tmp_path, sid="impl-T4-1", task_id="T4")]
 

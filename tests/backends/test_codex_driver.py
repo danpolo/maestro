@@ -1021,6 +1021,68 @@ def test_usage_uses_the_thread_id_recorded_in_the_workspace(driver, tmp_path):
     assert driver.usage(handle).seven_day.used_pct == 98.0
 
 
+# ── A5: a reading about one session, or none at all ──
+
+
+def test_a_session_reading_names_the_session_it_was_asked_about(driver, tmp_path):
+    """The attribution D4 acts on. `Usage.session_id` is *maestro's* session id — the one
+    on the handle and on the `in_flight` entry — never the backend's thread id, because
+    the entry the orchestrator compares it against knows only the former."""
+    _write_rollout(driver, THREAD_ID, [_token_count_event(rate_limits={"primary": WEEKLY},
+                                                          last_tokens=130_000)])
+    handle = Handle(backend="codex", session_id="impl-T1-1", native_id=THREAD_ID,
+                    workspace=tmp_path / "ws", window="impl-T-1")
+
+    sample = driver.usage(handle)
+
+    assert sample.session_id == "impl-T1-1"
+    assert sample.context_total_input_tokens == 130_000
+
+
+def test_an_unreadable_session_answers_none_and_starts_no_app_server(driver, tmp_path):
+    """A5's cost bound and its honesty bound, in one behaviour.
+
+    The account-level fallback spawns a `codex app-server`; asked about a session, this
+    driver must not pay for that once per in-flight task. It must also not *answer* with
+    it — an account-level sample carries no context reading and names no session, so
+    offering it here would be answering a different question than the one asked (G6:
+    "not measurable" is `None`).
+    """
+    # Recorded rather than raised: `_read_rate_limits_via_app_server` swallows every
+    # exception and answers `None`, so a `forbidden` stub that raises would be absorbed
+    # and this test would pass without ever proving the process was not started.
+    started: list = []
+    driver._popen = lambda *a, **k: started.append(a)
+    workspace = tmp_path / "ws"
+    workspace.mkdir()
+    handle = Handle(backend="codex", session_id="impl-T1-1", native_id="no-such-thread",
+                    workspace=workspace, window="impl-T-1")
+
+    assert driver.usage(handle) is None
+    assert started == []
+
+
+def test_a_session_with_no_thread_id_anywhere_answers_none(driver, tmp_path):
+    started: list = []
+    driver._popen = lambda *a, **k: started.append(a)
+    workspace = tmp_path / "ws"
+    workspace.mkdir()                       # no codex_thread_id.txt sidecar in it
+    handle = Handle(backend="codex", session_id="impl-T1-1", native_id=None,
+                    workspace=workspace, window="impl-T-1")
+
+    assert driver.usage(handle) is None
+    assert started == []
+
+
+def test_an_account_level_reading_names_no_session(driver):
+    """`usage()` with no handle is about the account. Even when it happens to read a
+    rollout, it must not claim to be about a session the caller never named."""
+    _write_rollout(driver, THREAD_ID, [_token_count_event(rate_limits={"primary": WEEKLY})])
+    driver._thread_id = THREAD_ID
+
+    assert driver.usage().session_id == ""
+
+
 # ── parse_exit (plan step 6) ──
 
 

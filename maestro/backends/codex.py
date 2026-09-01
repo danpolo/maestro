@@ -59,6 +59,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
@@ -1123,14 +1124,36 @@ class CodexBackend:
         is always current; `app-server` is the fallback for when no run is active. `None`
         means *no sample*, which is not the same as a sample showing no limits — that one
         is a `Usage` with an empty `windows` map.
+
+        **Asked about a session** (`handle` given, A5), the rollout is not merely the
+        preferred source but the only admissible one, and the answer carries
+        `session_id=handle.session_id` so the caller can see whose reading it is. Two
+        reasons, and both matter:
+
+        * an `app-server` sample is about the *account* — it has no `context_used_pct`
+          and no token count by construction (there is no conversation behind it), so
+          offering it as this session's context reading would answer a question nobody
+          asked, and answer it with a number the D4 rotation would then act on;
+        * it costs a subprocess. The caller asks this question once per in-flight task
+          per poll, and falling back here would multiply the one bounded `app-server`
+          call per poll by the number of running agents.
+
+        So a session whose rollout cannot be found or cannot be read is "not measurable"
+        — `None` (G6) — and no process starts.
         """
         self.last_telemetry_error = None
-        thread_id = handle.native_id if handle is not None else None
-        if not thread_id and handle is not None:
-            thread_id = self.thread_id_for(handle.workspace)
-        thread_id = thread_id or self._thread_id
-        if thread_id:
+        if handle is not None:
+            thread_id = handle.native_id or self.thread_id_for(handle.workspace)
+            if not thread_id:
+                self.last_telemetry_error = (
+                    f"no thread id for session {handle.session_id!r}"
+                )
+                return None
             sample = self.usage_from_rollout(thread_id)
+            return None if sample is None else replace(sample,
+                                                       session_id=handle.session_id)
+        if self._thread_id:
+            sample = self.usage_from_rollout(self._thread_id)
             if sample is not None:
                 return sample
         return self.usage_from_app_server()

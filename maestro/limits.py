@@ -276,17 +276,48 @@ def load_limits(paths=None) -> LimitsResult:
 
 # ── model-name normalisation ──
 
+#: A model id's release-date suffix (`-20251001`), stripped after folding so the
+#: dated id a CLI actually reports (`claude-haiku-4-5-20251001`) matches the table row
+#: for the model family, which carries no date (R8, 2026-08-31 finding, wave 1).
+_DATE_SUFFIX_RE = re.compile(r"-\d{8}$")
+
+#: Any run of whitespace, `.` or `-` — the three separators seen across both tables and
+#: `project.yaml`'s slugs — folded to one `-`. Periods and hyphens must fold to the same
+#: character, not just each other: the tables key by display name, where whitespace is
+#: the only separator (`"Claude Haiku 4.5"`), while `project.yaml`'s slugs use `-`
+#: throughout, including where the display name would keep a version number's own `.`
+#: (`claude-haiku-4-5` vs. `"Claude Haiku 4.5"`). GPT's `gpt-5.6-terra` (DESIGN.md §5)
+#: already mixes both spellings in one slug, which is what proves this must be a single
+#: separator class, not two independent substitutions.
+_SEPARATOR_RUN_RE = re.compile(r"[\s.-]+")
+
+
 def _normalise_model_key(name: str) -> str:
     """Fold a model name to the one spelling the tables and `project.yaml` agree on.
 
     The two table files key by human display name (`"Claude Opus 5"`, `"GPT-5.6 Terra"`)
     while `project.yaml`'s `roles:` block names models by machine slug (`claude-opus-5`,
     `gpt-5.6-terra`, per DESIGN.md §5's example), so a literal lookup resolves nothing on
-    a real project (M4 finding #2). Casefolding and turning whitespace runs into single
-    hyphens closes the gap on both live tables exactly, with no mapping table to maintain:
-    a model added to either file works with no code change here. Idempotent — a name that
-    is already a slug normalises to itself."""
-    return "-".join(name.casefold().split())
+    a real project (M4 finding #2). Casefolding and collapsing whitespace/`.`/`-` runs to
+    a single `-` closes that gap, with no mapping table to maintain: a model added to
+    either file works with no code change here.
+
+    **R8 (2026-08-31 finding, wave 1).** The original version of this fold only joined
+    whitespace runs, which left two gaps open on the one model actually shaped
+    differently: `claude-haiku-4-5-20251001` (the id maestro configures and the CLI
+    reports) folded to itself, matching neither `"Claude Haiku 4.5"`'s
+    `claude-haiku-4.5` (a `.`, not the configured `-`) nor even the un-dated
+    `claude-haiku-4-5`. Folding `.`/`-`/whitespace to one separator closes the first gap;
+    stripping a trailing 8-digit release-date suffix closes the second. Neither change
+    widens what *matches* a bare display name like `"Opus 5"` against `"Claude Opus 5"`
+    — that gap is the missing `"Claude "` prefix, a different defect this function
+    deliberately leaves alone (`task-C7-report.md`; `tests/test_switch.py` pins it).
+
+    Idempotent — a name that is already normalised folds to itself, and re-normalising an
+    already-normalised name changes nothing (there is no second date suffix to strip, and
+    no separator run left to collapse)."""
+    folded = _SEPARATOR_RUN_RE.sub("-", name.casefold()).strip("-")
+    return _DATE_SUFFIX_RE.sub("", folded)
 
 
 def _lookup(models: dict, name: str):

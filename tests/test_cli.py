@@ -32,7 +32,12 @@ local `.env` file with `python-dotenv`).
 **Cost**: the `init`-driving tests are slow by construction — `maestro.orchestrator.main()`'s
 natural-return mechanism (see `maestro/cli.py`'s docstring) needs one real `POLL_INTERVAL` sleep
 (30s) to complete its idle pass. `_healthy_project` is a module-scoped fixture so that cost is
-paid once, not once per test that needs an already-initialized project.
+paid once, not once per test that needs an already-initialized project. Every test that takes
+`_healthy_project` is marked `@pytest.mark.slow` — the fixture's first use in a run pays the
+~30s `init` setup regardless of which test triggers it, so a test added here without the marker
+would silently make `pytest -m "not slow"` pay that cost again. `pytest -m "not slow"` is the
+fast local-iteration tier; a bare `pytest` (no marker filter, what `selfupdate.self_test()` runs)
+is the merge/adoption-boundary gate and always includes this module in full.
 """
 from __future__ import annotations
 
@@ -125,6 +130,7 @@ def _healthy_project(tmp_path_factory):
     return root, proc
 
 
+@pytest.mark.slow
 def test_init_scaffolds_every_component_b_template(_healthy_project):
     root, proc = _healthy_project
 
@@ -164,6 +170,7 @@ def test_init_scaffolds_every_component_b_template(_healthy_project):
     assert "Telegram setup: skipped" in proc.stdout
 
 
+@pytest.mark.slow
 def test_init_no_op_supervised_loop_left_the_expected_journal_trail(_healthy_project):
     """Direct evidence the natural-return mechanism documented in `maestro/cli.py` actually
     fired during `_healthy_project`'s own `init` call: both `while True:` iterations described
@@ -181,6 +188,7 @@ def test_init_no_op_supervised_loop_left_the_expected_journal_trail(_healthy_pro
     assert "halt_respected" in events, events
 
 
+@pytest.mark.slow
 def test_init_second_run_is_non_destructive(_healthy_project):
     """Hand-edit a scaffolded file, re-run `init`, and confirm DESIGN.md §10's rule: the
     original is untouched and the rendered content lands beside it as `.new` with a diff.
@@ -225,6 +233,7 @@ def test_init_rejects_a_non_git_directory(tmp_path):
 # ── doctor ──
 
 
+@pytest.mark.slow
 def test_doctor_healthy_project_fails_only_on_the_unwired_test_adapter(_healthy_project, tmp_path):
     """A freshly-scaffolded project's `adapters/test` stub deliberately fails until a real
     tests/ dir exists (see `templates/adapters/test`'s own docstring) — so `doctor` correctly
@@ -248,6 +257,7 @@ def test_doctor_healthy_project_fails_only_on_the_unwired_test_adapter(_healthy_
         assert f"[OK  ] adapter:{kind}:" in proc.stdout
 
 
+@pytest.mark.slow
 def test_doctor_healthy_project_passes_once_a_real_test_adapter_exists(_healthy_project):
     root, _ = _healthy_project
     tests_dir = root / "tests"
@@ -264,6 +274,7 @@ def test_doctor_healthy_project_passes_once_a_real_test_adapter_exists(_healthy_
         shutil.rmtree(tests_dir)
 
 
+@pytest.mark.slow
 def test_doctor_pre_commit_runs_only_the_fast_subset(_healthy_project):
     """`templates/pre-commit` probes `maestro doctor --help` for `--pre-commit` before ever
     relying on it — this pins that the flag really exists and really narrows the checklist."""
@@ -594,6 +605,7 @@ def test_status_on_a_never_initialized_project_reports_missing_state(tmp_path):
     assert "no state.json" in proc.stdout
 
 
+@pytest.mark.slow
 def test_status_on_the_healthy_project_reports_idle(_healthy_project):
     root, _ = _healthy_project
     proc = _run_cli("status", "--repo", str(root), timeout=30)
@@ -604,6 +616,7 @@ def test_status_on_the_healthy_project_reports_idle(_healthy_project):
 # ── ctl ──
 
 
+@pytest.mark.slow
 def test_ctl_pause_resume_round_trip_leaves_state_as_found(_healthy_project):
     """`_healthy_project`'s own `init` call already leaves `paused_by_user: true` behind
     (its no-op supervised loop check's own return mechanism — see `maestro/cli.py`'s
@@ -626,6 +639,7 @@ def test_ctl_pause_resume_round_trip_leaves_state_as_found(_healthy_project):
     assert "Paused: False" in after.stdout
 
 
+@pytest.mark.slow
 def test_ctl_unpark_reports_a_task_that_is_not_parked(_healthy_project):
     root, _ = _healthy_project
     proc = _run_cli("ctl", "--repo", str(root), "unpark", "NOPE", timeout=30)
@@ -633,6 +647,7 @@ def test_ctl_unpark_reports_a_task_that_is_not_parked(_healthy_project):
     assert "not parked" in proc.stdout
 
 
+@pytest.mark.slow
 def test_ctl_backend_records_the_choice_in_state(_healthy_project):
     root, _ = _healthy_project
     proc = _run_cli("ctl", "--repo", str(root), "backend", "claude", timeout=30)
@@ -641,6 +656,7 @@ def test_ctl_backend_records_the_choice_in_state(_healthy_project):
     assert state.get("backend") == "claude"
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("verb,extra_args", [
     ("waiting", []),
     ("manual", []),
@@ -663,6 +679,7 @@ def test_ctl_dispatch_verbs_are_safe_no_ops_against_a_nonexistent_id(_healthy_pr
     assert "dispatched to hitl.commands." in proc.stdout
 
 
+@pytest.mark.slow
 def test_ctl_unknown_verb_is_reported_not_crashed(_healthy_project):
     root, _ = _healthy_project
     proc = _run_cli("ctl", "--repo", str(root), "not-a-real-verb", timeout=30)
@@ -673,6 +690,7 @@ def test_ctl_unknown_verb_is_reported_not_crashed(_healthy_project):
 # ── run / the no-op supervised loop mechanism ──
 
 
+@pytest.mark.slow
 def test_run_on_an_empty_roadmap_completes_via_natural_return(_healthy_project):
     """The concrete mechanism (see `maestro/cli.py`'s module docstring for the full trace
     through `orchestrator.main()`): with `in_flight`, `runnable` and `waiting_on_dan` all

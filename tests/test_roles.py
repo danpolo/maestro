@@ -20,6 +20,7 @@ import ast
 import builtins
 import dataclasses
 import os
+import re
 import subprocess
 from pathlib import Path
 from types import ModuleType
@@ -367,6 +368,40 @@ def test_default_models_reproduce_the_call_sites_they_replace():
         == implementer._DEFAULT_IMPLEMENTER_MODEL
     )
     assert roles.model_for(roles.ROLE_DIAGNOSER, config={}) == diagnose.JUDGE_MODEL
+
+
+def test_default_models_are_derived_from_limits_canonical_names_not_a_second_literal():
+    """C7 part 1: `DEFAULT_MODELS`'s slugs must not be a second hand-typed copy of the
+    model id — they are the project.yaml-slug fold (`maestro.limits.model_slug`, pure
+    string work, no IO) of `maestro.limits`'s own canonical display-name constants.
+    Renaming one of those constants is then the *only* edit `_SHIPPED_DEFAULTS` and
+    `roles.DEFAULT_MODELS` both need, instead of a literal in each."""
+    from maestro import limits as _limits
+
+    assert roles.DEFAULT_MODELS[roles.ROLE_IMPLEMENTER][DEFAULT] == _limits.model_slug(
+        _limits.DEFAULT_IMPLEMENTER_MODEL_NAME
+    )
+    assert roles.DEFAULT_MODELS[roles.ROLE_JUDGE][DEFAULT] == _limits.model_slug(
+        _limits.DEFAULT_JUDGE_MODEL_NAME
+    )
+    assert roles.DEFAULT_MODELS[roles.ROLE_DIAGNOSER][DEFAULT] == _limits.model_slug(
+        _limits.DEFAULT_DIAGNOSER_MODEL_NAME
+    )
+
+
+def test_roles_module_holds_no_model_id_string_literal_of_its_own():
+    """The inverse view of the same fix, read straight from source: no bare
+    `"claude-...-N"`-shaped string literal appears anywhere in `roles.py` any more — the
+    two model ids it resolves to by default are both computed, not typed."""
+    source = Path(roles.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    literals = [
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant) and isinstance(node.value, str)
+    ]
+    offenders = [s for s in literals if re.match(r"^claude-[a-z0-9-]+-\d", s)]
+    assert not offenders, f"roles.py still hardcodes a model id literal: {offenders}"
 
 
 #: The package root, for the source scan below.

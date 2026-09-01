@@ -159,6 +159,36 @@ def test_shipped_defaults_fill_in_when_nothing_parses_anywhere(tmp_path):
     assert any("shipped defaults" in w for w in result.warnings)
 
 
+# ── C7 part 1: _SHIPPED_DEFAULTS shrinks to "roles.py's own defaults still resolve to
+# something", not a mirror of every real table row ──
+
+def test_shipped_defaults_covers_exactly_the_role_default_models_not_a_full_table_mirror():
+    """`_SHIPPED_DEFAULTS`'s only documented job is "a machine with neither table file"
+    (its own comment) — the minimal set that satisfies that job is the handful of models
+    `roles.DEFAULT_MODELS` can ever hand back with zero configuration, not a second copy
+    of every row in either real table (GPT-5.6 Terra/Sol, etc.), which is what made this
+    dict a second place to edit every time a table row changed."""
+    assert set(limits._SHIPPED_DEFAULTS) == {
+        limits.DEFAULT_IMPLEMENTER_MODEL_NAME,
+        limits.DEFAULT_JUDGE_MODEL_NAME,
+        limits.DEFAULT_DIAGNOSER_MODEL_NAME,
+    }
+
+
+def test_shipped_defaults_still_resolve_the_default_models_by_their_project_yaml_slug():
+    """The shrunk fallback must still answer the one question `roles.py` can ask of it
+    with zero project.yaml and neither table file present: the implementer/judge/
+    diagnoser default models, by the slug `roles.DEFAULT_MODELS` actually hands
+    `limits.resolve()`. Resolving each default slug against an empty/missing table set
+    must fall back to a real `ModelLimits`, not `None`."""
+    from maestro import roles as _roles
+
+    empty = limits.load_limits([])
+    for role, backend_models in _roles.DEFAULT_MODELS.items():
+        slug = backend_models[_roles.registry.DEFAULT_BACKEND]
+        assert empty.get(slug) is not None, f"{role}'s default model {slug!r} did not resolve"
+
+
 def test_shipped_defaults_are_not_used_when_at_least_one_real_row_parsed(tmp_path):
     table = tmp_path / "table.md"
     table.write_text(

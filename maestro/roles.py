@@ -47,6 +47,14 @@ M2 left the call sites themselves alone — this module resolved roles that noth
 On 2026-08-30 the last of them was routed through `maestro.agentcall`, so this table is
 now the only place a model id is chosen, and the pins that used to assert *that* the call
 sites hardcoded a model now assert that none of them does.
+
+**C7 (2026-08-31): `DEFAULT_MODELS`'s slugs are derived, not typed here.** They come from
+`maestro.limits.DEFAULT_IMPLEMENTER_MODEL_NAME` et al. — the module that owns the two
+`model_context_limits.md` tables — via `limits.model_slug`, which only casefolds and
+collapses separators. That import adds no exception to "reads no file beyond the project
+configuration": `model_slug` touches no file, and the constants it slugifies are Python
+string literals, not table rows read at call time. It removes the second hand-typed copy
+of the same model id that used to live in this dict.
 """
 from __future__ import annotations
 
@@ -54,6 +62,7 @@ from dataclasses import dataclass
 from typing import Iterable, Mapping, Optional
 
 from maestro import config as _config
+from maestro import limits as _limits
 from maestro.backends import registry
 
 __all__ = [
@@ -90,10 +99,25 @@ KNOWN_ROLES: tuple[str, ...] = (ROLE_IMPLEMENTER, ROLE_JUDGE, ROLE_DIAGNOSER)
 #: hardcode, and every one of them runs there. A backend with no entry resolves to
 #: `None`, which means "let the backend choose its own default model" — inventing a
 #: model id for a tool we have not verified would be worse than omitting the flag.
+#:
+#: The slugs themselves are **derived**, not typed here a second time: `maestro.limits`
+#: is the module that owns the two `model_context_limits.md` tables (DESIGN.md's C7,
+#: "the tables are the single source of truth"), so its
+#: `DEFAULT_IMPLEMENTER_MODEL_NAME`/`DEFAULT_JUDGE_MODEL_NAME`/`DEFAULT_DIAGNOSER_MODEL_NAME`
+#: constants — spelled as the tables spell them — are the one place this decision is
+#: written down. `limits.model_slug` is pure string folding (casefold + separator
+#: collapsing, no file IO, no subprocess), so calling it here at import time discloses
+#: nothing this module's own purity claim above rules out.
 DEFAULT_MODELS: dict[str, dict[str, str]] = {
-    ROLE_IMPLEMENTER: {registry.DEFAULT_BACKEND: "claude-sonnet-5"},
-    ROLE_JUDGE: {registry.DEFAULT_BACKEND: "claude-sonnet-5"},
-    ROLE_DIAGNOSER: {registry.DEFAULT_BACKEND: "claude-opus-5"},
+    ROLE_IMPLEMENTER: {
+        registry.DEFAULT_BACKEND: _limits.model_slug(_limits.DEFAULT_IMPLEMENTER_MODEL_NAME)
+    },
+    ROLE_JUDGE: {
+        registry.DEFAULT_BACKEND: _limits.model_slug(_limits.DEFAULT_JUDGE_MODEL_NAME)
+    },
+    ROLE_DIAGNOSER: {
+        registry.DEFAULT_BACKEND: _limits.model_slug(_limits.DEFAULT_DIAGNOSER_MODEL_NAME)
+    },
 }
 
 #: Top-level project.yaml keys this module reads.

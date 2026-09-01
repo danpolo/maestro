@@ -66,15 +66,38 @@ class LimitsResult:
         return _lookup(self.models, model)
 
 
-# Best-effort fallback for a machine that has neither table file. Mirrors the values
-# shipped in this build's own ~/.claude and ~/.codex tables at the time this module was
-# written; used only when zero real rows were parsed from any configured path.
+# ── the tables as the single source of truth (C7 part 1) ──
+#
+# `roles.DEFAULT_MODELS` and `_SHIPPED_DEFAULTS` used to each carry their own copy of
+# which models the implementer/judge/diagnoser default to — two more places than the
+# tables themselves, so renaming one meant four edits (the table row, both of
+# `roles.py`'s two entries that shared it, and this dict's key) across three places.
+# These three constants are now the *one* place that decision is written down, spelled
+# exactly as the tables spell them (their own convention, DESIGN.md §8) — `roles.py`
+# derives its project.yaml-shaped slug from them via `model_slug`, below, rather than
+# hardcoding a second copy, and `_SHIPPED_DEFAULTS` keys directly off them.
+DEFAULT_IMPLEMENTER_MODEL_NAME = "Claude Sonnet 5"
+DEFAULT_JUDGE_MODEL_NAME = "Claude Sonnet 5"
+DEFAULT_DIAGNOSER_MODEL_NAME = "Claude Opus 5"
+
+# Best-effort fallback for a machine that has neither table file — the tables are the
+# single source of truth *when either is readable*; this is only what is left over when
+# neither is. Its only job is making sure `roles.DEFAULT_MODELS`'s own defaults still
+# resolve to *something* even then, so it is keyed on exactly the three constants above
+# rather than mirroring every row either real table happens to carry today (GPT-5.6
+# Terra/Sol, Haiku 4.5, ...) — that broader ambition is what made this dict a second
+# place to edit every time an operator's table changed, the exact defect this item
+# exists to close. The numbers themselves are deliberately the tables' own documented
+# fallback for a genuinely unknown model (see the last line of both real files: "100K
+# warn / 120K evaluate / 150K normal max") rather than a claim to still know any one
+# model's real ceiling without being able to read either table.
 _SHIPPED_DEFAULTS: dict = {
-    "Claude Sonnet 5": ModelLimits("Claude Sonnet 5", 90_000, 100_000, 120_000, 140_000, 180_000),
-    "Claude Opus 5": ModelLimits("Claude Opus 5", 100_000, 120_000, 150_000, 180_000, 240_000),
-    "GPT-5.6 Luna": ModelLimits("GPT-5.6 Luna", 70_000, 90_000, 100_000, 120_000, 150_000),
-    "GPT-5.6 Terra": ModelLimits("GPT-5.6 Terra", 100_000, 120_000, 140_000, 170_000, 220_000),
-    "GPT-5.6 Sol": ModelLimits("GPT-5.6 Sol", 120_000, 140_000, 180_000, 220_000, 280_000),
+    name: ModelLimits(name, 90_000, 100_000, 100_000, 120_000, 150_000)
+    for name in {
+        DEFAULT_IMPLEMENTER_MODEL_NAME,
+        DEFAULT_JUDGE_MODEL_NAME,
+        DEFAULT_DIAGNOSER_MODEL_NAME,
+    }
 }
 
 
@@ -318,6 +341,15 @@ def _normalise_model_key(name: str) -> str:
     no separator run left to collapse)."""
     folded = _SEPARATOR_RUN_RE.sub("-", name.casefold()).strip("-")
     return _DATE_SUFFIX_RE.sub("", folded)
+
+
+def model_slug(name: str) -> str:
+    """Public entry point onto `_normalise_model_key`, for a caller outside this module
+    that wants a `project.yaml`-shaped slug from one of the tables' own display names
+    (`roles.py` uses this to derive `DEFAULT_MODELS` from `DEFAULT_IMPLEMENTER_MODEL_NAME`
+    et al. instead of hardcoding its own copy). Pure string folding — no file IO, no
+    subprocess, nothing a caller with its own "no IO" purity claim needs to disclose."""
+    return _normalise_model_key(name)
 
 
 def _lookup(models: dict, name: str):

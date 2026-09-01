@@ -5,6 +5,10 @@ and `docs/EXECUTION.md` must be enough for a fresh session to resume with no oth
 
 Process: `docs/EXECUTION.md`. Design: `docs/DESIGN.md`.
 
+**Running tests:** `docs/EXECUTION.md`'s "Testing — two tiers" section. Short version: use
+`pytest -q -m "not slow" -n auto` while iterating; the full unfiltered `pytest -q` (~2 min) is for
+phase boundaries, pre-commit, and anywhere a Done-when/Verification step asks for suite numbers.
+
 PROGRAMME-STATUS: COMPLETE
 
 > Machine-readable. `scripts/run_overnight.sh` greps this exact line to decide whether to relaunch a

@@ -394,6 +394,16 @@ upcoming-work document. It interviews, then calls `init` with the answers. It al
 existing project's prose docs into the machine-readable roadmap format — the realistic case for any
 repository that is not brand new.
 
+**Two entry modes, one skill.** *Fresh project*: the operator runs brainstorming/planning first
+(outside maestro) to produce a real plan, however rough; the setup skill runs after that and
+*before* any implementation begins, since implementation from here on is what maestro's loop runs —
+Step 2's roadmap interview turns that plan into `init`'s first real task blocks (a fresh scaffold
+otherwise ships with zero tasks by design). *Existing/running project*: Step 1 detects a prior
+`project.yaml`/`ROADMAP.md`/`.orchestrator` and treats the run as a migration, not a fresh install;
+Step 3 adapts what is already there — organising existing prose docs (README roadmaps, backlogs,
+design docs) into the roadmap format, preserving the reasoning behind each item — rather than
+starting blank, then hands off to maestro from that point on.
+
 ### Systemd and tmux
 
 Generated units obey the operator's isolation rules: `ExecStart` runs a launcher script that wraps
@@ -454,3 +464,20 @@ uncommitted work in the consuming repository is never touched.
 - Whether the Codex statusline can be sampled on the same cadence as Claude's, or needs polling.
 - Calibration of the default usage-threshold percentages once switching has run in anger.
 - Whether `upcoming.py`'s explanation generation should be backend-agnostic or pinned to one role.
+
+---
+
+## 14. Future research directions
+
+Not scheduled work and not part of the M0–M6 extraction plan — flagged here so a dedicated future
+session picks it up deliberately rather than it getting lost.
+
+- **Graph engineering for agent orchestration.** The current frontier beyond "prompt engineering"
+  and "loop engineering" in agentic coding is structuring agent work as an explicit graph (nodes =
+  agent calls/tools/checks, edges = control/data flow and conditional branching) rather than a
+  single supervised loop. Maestro's own orchestrator is loop-shaped today (§7 mid-work switching,
+  §9 self-update, the per-stage loop in `docs/EXECUTION.md`). Run a deep-research session to survey
+  state-of-the-art graph-based agent orchestration — frameworks, papers, and working projects, not
+  just the concept — for ideas that could improve maestro's own model, and to identify any existing
+  project worth using as a tool or collaborating with rather than reimplementing. No owner yet; not
+  started.

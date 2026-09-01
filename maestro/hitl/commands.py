@@ -185,6 +185,8 @@ def poll_control_commands(in_flight: list) -> None:
                     "/backend <name> [task_id] — pick the agent backend for new launches, "
                     "or move one in-flight task to it now (same worktree, uncommitted "
                     "work kept)\n"
+                    "/backend auto — clear a pinned choice; new launches resolve through "
+                    "the configured role again\n"
                     "/waiting — list tasks parked for your decision\n"
                     "/approve <id> — done & it worked: finalize/graduate a parked task\n"
                     "/fix <id> — agree with a failure diagnosis: have Maestro implement the "
@@ -300,6 +302,14 @@ BACKEND_KEY = "backend"
 #: Telegram control verbs already use.
 BACKEND_EVENT = "control_backend"
 
+#: `/backend auto` — the clear verb (C4/G7). A pin set with `/backend <name>` (during an
+#: outage, say) otherwise has no way back: it outlives the reason it was set for and
+#: freezes every future launch onto that one backend forever. `"auto"` is deliberately
+#: not a registered backend name — `known_backends()` must never grow an entry that
+#: collides with it — so it is matched *before* the known-backend check rather than
+#: added to the registry as a fake driver.
+BACKEND_AUTO = "auto"
+
 
 def _in_flight_entry(in_flight: list, task_id: str) -> dict | None:
     """The in-flight entry for `task_id`, matched exactly first.
@@ -327,7 +337,10 @@ def _process_backend(arg: str) -> None:
     With a task id after it, that one in-flight task is handed over *now*, through the
     single switch path in `maestro.switch`: the outgoing agent is asked to checkpoint, and
     the incoming one is launched into the same worktree with the uncommitted work still
-    in it.
+    in it. `/backend auto` (C4/G7) is the way back out of a pin: it clears the recorded
+    choice so a fresh launch resolves through `maestro.roles` again instead of being stuck
+    on whatever name was last set — trailing words after `auto` are ignored the same way a
+    trailing task id is ignored after a real name with nothing to switch.
 
     Every failure mode — no argument, an unknown backend, an unknown task id, a task
     already on that backend, a switch that could not happen — is answered with a message
@@ -342,11 +355,27 @@ def _process_backend(arg: str) -> None:
             f"Usage: /backend <name> [task_id]\n"
             f"Known backends: {known}\n"
             f"/backend <name> — new launches use it; "
-            f"/backend <name> <task_id> — move that task now."
+            f"/backend <name> <task_id> — move that task now; "
+            f"/backend auto — clear a pinned choice."
         )
         return
 
     name = normalise_name(parts[0])
+    if name == BACKEND_AUTO:
+        try:
+            state = read_state()
+            state.pop(BACKEND_KEY, None)
+            write_state(state)
+            append_journal(BACKEND_EVENT, "auto — pin cleared via Telegram /backend")
+        except Exception as exc:
+            notify_telegram(f"⚠ Could not clear the backend choice: {exc}")
+            return
+        notify_telegram(
+            "✅ Backend pin cleared — new launches resolve through the configured role "
+            "again."
+        )
+        return
+
     if name not in known_backends():
         notify_telegram(f"ℹ Unknown backend `{parts[0]}`. Known backends: {known}.")
         return

@@ -299,6 +299,114 @@ def test_an_unreadable_state_document_is_reported_not_raised(store, notifier):
 
 
 # =======================================================================================
+# /backend auto — clearing a recorded pin (C4/G7)
+# =======================================================================================
+
+
+def test_backend_auto_clears_a_recorded_pin_journals_it_and_confirms(store, notifier):
+    commands._process_backend(TARGET)
+    notifier.clear()
+    commands._process_backend("auto")
+    assert commands.BACKEND_KEY not in store.get()
+    assert [(e["event"], e["detail"]) for e in store.events()][-1] == (
+        commands.BACKEND_EVENT, "auto — pin cleared via Telegram /backend"
+    )
+    assert len(notifier) == 1
+    assert notifier[0].startswith("✅ Backend pin cleared")
+
+
+def test_backend_auto_is_normalised_before_it_is_matched(store, notifier):
+    commands._process_backend(TARGET)
+    commands._process_backend("  AUTO  ")
+    assert commands.BACKEND_KEY not in store.get()
+
+
+def test_backend_auto_with_nothing_pinned_still_confirms_without_error(store, notifier):
+    commands._process_backend("auto")
+    assert commands.BACKEND_KEY not in store.get()
+    assert len(notifier) == 1
+    assert notifier[0].startswith("✅ Backend pin cleared")
+
+
+def test_backend_auto_leaves_every_other_state_key_alone(store, notifier):
+    store.put(phase={"id": "P8"}, in_flight=[_in_flight()], paused_by_user=True, backend=TARGET)
+    commands._process_backend("auto")
+    after = store.get()
+    assert after["phase"] == {"id": "P8"}
+    assert after["paused_by_user"] is True
+    assert [e["task_id"] for e in after["in_flight"]] == [TASK_ID]
+    assert commands.BACKEND_KEY not in after
+
+
+def test_an_unreadable_state_document_reports_the_auto_clear_failure_not_raised(store, notifier):
+    state_module.STATE_JSON.write_text("{not json", encoding="utf-8")
+    commands._process_backend("auto")
+    assert len(notifier) == 1
+    assert notifier[0].startswith("⚠ Could not clear the backend choice:")
+
+
+def test_backend_auto_reverts_the_launch_path_to_the_configured_default(
+    store, notifier, configured
+):
+    """The whole point of the clear verb: a pin set during an outage must not be able to
+    freeze every future launch onto that backend forever."""
+    commands._process_backend(TARGET)
+    assert implementer._implementer_backend()[0] == TARGET
+    assert orchestrator._launch_backend() == TARGET
+
+    commands._process_backend("auto")
+
+    assert implementer._implementer_backend()[0] == CURRENT
+    assert orchestrator._launch_backend() == CURRENT
+
+
+def test_a_backend_auto_command_over_telegram_reaches_the_launch_path(
+    router, store, configured
+):
+    router.deliver(f"/backend {TARGET}")
+    router.deliver("/backend auto")
+    assert router.sent[-1].startswith("✅ Backend pin cleared")
+    assert implementer._implementer_backend()[0] == CURRENT
+    assert orchestrator._launch_backend() == CURRENT
+
+
+def test_help_mentions_the_auto_clear_verb(router, store):
+    router.deliver("/help")
+    (sheet,) = router.sent
+    assert "/backend auto" in sheet
+
+
+# =======================================================================================
+# the pin is the preferred head of roles.resolve, not a bypass of it (C4/G7)
+# =======================================================================================
+
+
+def test_implementer_backend_routes_the_operators_pin_through_roles_resolve(
+    monkeypatch, store, configured
+):
+    """`_implementer_backend` used to short-circuit past `maestro.roles.resolve` entirely
+    (`operator_backend() or settings.backend`), so a pinned-but-unusable backend could
+    never fall through the role's fallback chain — `roles.resolve` already does that for
+    `preferred=`, but only if the pin actually reaches it. The spy wraps the real
+    function rather than replacing it, so this still exercises real resolution, not a
+    stubbed answer."""
+    real_resolve = implementer.roles.resolve
+    seen: list = []
+
+    def spy(role, **kwargs):
+        seen.append(kwargs.get("preferred"))
+        return real_resolve(role, **kwargs)
+
+    monkeypatch.setattr(implementer.roles, "resolve", spy)
+
+    assert implementer._implementer_backend()[0] == CURRENT
+    commands._process_backend(TARGET)
+    assert implementer._implementer_backend()[0] == TARGET
+
+    assert seen == [None, TARGET]
+
+
+# =======================================================================================
 # bad input — every one of these answers, and none of them raises
 # =======================================================================================
 

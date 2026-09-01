@@ -77,6 +77,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -588,6 +589,18 @@ def _check_model_limits(repo_root: Path) -> Check:
 #: `doctor` for long.
 MODEL_PROBE_TIMEOUT_SEC = 8.0
 
+#: Total wall-clock ceiling for `_check_model_ids`' whole loop, across every configured
+#: `(backend, model)` pair. `MODEL_PROBE_TIMEOUT_SEC` only bounds one probe — with no
+#: aggregate cap, cost still grows linearly and without limit as an operator adds roles
+#: or a third backend (review round 1, 2026-09-01: the real `templates/project.yaml.tmpl`
+#: roster already carries four distinct pairs, not the two this check was first measured
+#: against, so a fully offline `doctor` run cost 4 * 8s = 32s with nothing stopping a
+#: fifth or sixth pair from adding another 8s each). Set to exactly two probe timeouts:
+#: `_check_model_ids` checks this budget *before* starting each probe, so at most two full
+#: `MODEL_PROBE_TIMEOUT_SEC`-length probes ever run in one `doctor` invocation, however
+#: many pairs are configured — the remainder are reported unchecked rather than probed.
+MODEL_PROBE_BUDGET_SEC = 2 * MODEL_PROBE_TIMEOUT_SEC
+
 #: Per-backend: the flags (everything *after* the binary name) that ask its CLI about one
 #: model id as cheaply as possible — a minimal one-word turn, always killed well before it
 #: could run for real — and the substring in its output that means "no, I don't know this
@@ -668,7 +681,25 @@ def _check_model_ids(repo_root: Path, *, run: Optional[Callable[..., str]] = Non
     `project.yaml`'s `roles:` block against that backend's own CLI, so a typo fails here
     instead of reaching `claude -p --model <typo>` mid-task. `run` is `_probe_model_id`'s
     injectable subprocess seam (default: the real `_run_model_probe`); tests always pass a
-    stub, per this module's "no test may execute a real agent CLI" rule."""
+    stub, per this module's "no test may execute a real agent CLI" rule.
+
+    **Not `required`** (`Check.required` defaults to `False`, unset here exactly like the
+    pre-existing `_check_model_limits`), which is what makes this check's known blind spot
+    tolerable rather than merely disclosed: a false positive from either CLI's own
+    allowlist marker firing on a model it simply doesn't have cached metadata for yet
+    (observed for Codex; nothing rules out the identical failure mode for Claude's
+    `claude-code:unrecognized_model` marker, which is the same class of client-side
+    allowlist) prints as `[WARN]`, not `[FAIL]` — it never trips `cmd_doctor`'s
+    `if check.required and not check.ok` and never fails the pre-commit fast path (this
+    check does not run under `--pre-commit` at all).
+
+    **Bounded, and honest about what "clean" means.** At most `MODEL_PROBE_BUDGET_SEC`
+    worth of probing runs per invocation, however many pairs are configured — pairs beyond
+    that are reported unchecked, not probed. And because this probe can only ever *prove*
+    a model id is bad (its own CLI's rejection marker appeared) and never prove one is
+    good (a valid model gives no distinguishing signal before its real, network-bound turn
+    — see `_probe_model_id`), a clean result says exactly that: 0 confirmed invalid among
+    however many were actually checked, not "N confirmed working"."""
     from maestro import config as _config
     cfg = _config.load_project_yaml()
     pairs: set[tuple[str, str]] = set()
@@ -682,18 +713,31 @@ def _check_model_ids(repo_root: Path, *, run: Optional[Callable[..., str]] = Non
         return Check("model_ids", True, "no models declared in project.yaml roles — nothing to probe")
 
     invalid: list[str] = []
-    unverified: list[str] = []
+    notes: list[str] = []
+    unchecked: list[str] = []
+    start = time.monotonic()
     for backend, model in sorted(pairs):
+        if time.monotonic() - start >= MODEL_PROBE_BUDGET_SEC:
+            unchecked.append(f"{backend}:{model}")
+            continue
         bad, detail = _probe_model_id(backend, model, run=run)
         if bad:
             invalid.append(f"{backend}:{model}")
         elif detail:
-            unverified.append(detail)
+            notes.append(detail)
+
     if invalid:
         return Check("model_ids", False, f"rejected by their own CLI: {', '.join(invalid)}")
-    detail = f"probed {len(pairs)} model id(s)"
-    if unverified:
-        detail += f"; unverified: {'; '.join(unverified)}"
+
+    checked = len(pairs) - len(unchecked)
+    detail = (
+        f"0 confirmed invalid among {checked} checked (a clean probe rules out a "
+        "known-bad id, it does not confirm a working one)"
+    )
+    if unchecked:
+        detail += f"; {len(unchecked)} not checked (probe time budget exhausted): {', '.join(unchecked)}"
+    if notes:
+        detail += f"; {len(notes)} note(s): {'; '.join(notes)}"
     return Check("model_ids", True, detail)
 
 

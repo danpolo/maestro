@@ -66,3 +66,69 @@ was lost — roughly an hour of work across four agents.
 Monitor notification that cannot arrive once the turn ends. Instruct implementers to run the suite
 in the **foreground** with a generous tool timeout. A stranded agent looks identical to a working
 one until you check.
+
+---
+
+## 2026-09-01 — A green suite cannot see a spelling production never produces
+
+**What happened.** A4 shipped a context-rotation trigger with 27 new tests, all green. The trigger
+was a guaranteed no-op. `context_crossed` fell back to `Usage.model`, which in production is the
+statusline's display name `"Opus 5"` — normalising to `"opus-5"`, which matches no table key. Every
+test injected the slug `"claude-opus-5"` instead. The tests and the code agreed perfectly with each
+other and both disagreed with production.
+
+**The rule.** When a lookup is keyed on a value that *arrives from outside the process* — a CLI's
+output, another tool's JSON, an operator's config — at least one test must use the spelling that
+source actually emits, and the review must check that it does. A fixture is a statement about what
+the author believes the world sends. It is not evidence about the world.
+
+The reviewer caught it by reading the live `.orchestrator/usage.json` and running the normaliser
+against the real table, rather than reasoning from the diff. That is the move worth repeating:
+for any boundary value, go and look at one real instance.
+
+## 2026-09-01 — Persistent worktrees paid for themselves four times in one session
+
+Four separate rate-limit waves killed agents mid-task. In every case the uncommitted work survived,
+because the workspace and worktrees live at `/home/dan/.maestro-sdd/` rather than in `/tmp` (the
+lesson from 2026-08-30, applied). Combined with "commit as soon as you have something green", the
+cost of a 429 dropped from *an item* to *a resume message*.
+
+Two refinements learned this session:
+
+1. **After a rate-limit loss, tell the resumed agent to work in value order** — load-bearing
+   adjudications and binding-constraint verdicts first, general polish last — so a second cut-off
+   costs minors rather than the finding the round exists to produce.
+2. **Re-orient the resumed agent from its own diff, not its recall.** `git diff` in the worktree is
+   the truth; a resumed agent's memory of where it was is not.
+
+## 2026-09-01 — Two defect classes that look alike and invert
+
+This queue exists to remove **declared-but-unread** config: a knob an operator sets that no code
+reads, so they see no error and get no effect. C3 produced its mirror image — **read-but-undeclared**:
+the wiring was correct but the key was absent from the scaffolded template, so an operator could not
+discover the knob existed without reading source.
+
+They need opposite fixes, and confusing them makes things worse: the instinct on seeing "knob not in
+template" is to add config-reading code, which here would have duplicated an already-correct read
+path. Name the direction before fixing.
+
+## 2026-09-01 — Implementers reach for the reference project's name while removing it
+
+Two independent implementers (B1, B2) had their *first draft of a test about removing the reference
+project* trip `tests/test_purity.py` by naming that project. Both caught it in self-review.
+
+The failure mode a decoupling gate must survive is not a careless author — it is a careful one
+writing a test about the removal. D1's gate must therefore scan `tests/` as well as `maestro/`, and
+its review must distinguish "genuinely generic wording" from "obfuscated enough to pass the gate
+while still encoding the project."
+
+## 2026-09-01 — Ask the reviewer, don't pre-judge, when you spot something yourself
+
+Twice I noticed a probable defect while packaging a diff (C3's missing template declaration; C7's
+budget-checked-before-a-probe arithmetic). Both times I handed it to the reviewer as an open question
+with the reasoning, rather than ruling on it or instructing a fix. Both came back confirmed *with
+evidence I did not have* — that both sibling threshold keys are declared in the template, and that
+the true probe bound is ~24s not ~16s, with a worked example.
+
+Pre-judging would have produced the same fix with a weaker justification, and would have skipped the
+independent check that the fix was even the right one.

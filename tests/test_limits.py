@@ -159,6 +159,36 @@ def test_shipped_defaults_fill_in_when_nothing_parses_anywhere(tmp_path):
     assert any("shipped defaults" in w for w in result.warnings)
 
 
+# ── C7 part 1: _SHIPPED_DEFAULTS shrinks to "roles.py's own defaults still resolve to
+# something", not a mirror of every real table row ──
+
+def test_shipped_defaults_covers_exactly_the_role_default_models_not_a_full_table_mirror():
+    """`_SHIPPED_DEFAULTS`'s only documented job is "a machine with neither table file"
+    (its own comment) — the minimal set that satisfies that job is the handful of models
+    `roles.DEFAULT_MODELS` can ever hand back with zero configuration, not a second copy
+    of every row in either real table (GPT-5.6 Terra/Sol, etc.), which is what made this
+    dict a second place to edit every time a table row changed."""
+    assert set(limits._SHIPPED_DEFAULTS) == {
+        limits.DEFAULT_IMPLEMENTER_MODEL_NAME,
+        limits.DEFAULT_JUDGE_MODEL_NAME,
+        limits.DEFAULT_DIAGNOSER_MODEL_NAME,
+    }
+
+
+def test_shipped_defaults_still_resolve_the_default_models_by_their_project_yaml_slug():
+    """The shrunk fallback must still answer the one question `roles.py` can ask of it
+    with zero project.yaml and neither table file present: the implementer/judge/
+    diagnoser default models, by the slug `roles.DEFAULT_MODELS` actually hands
+    `limits.resolve()`. Resolving each default slug against an empty/missing table set
+    must fall back to a real `ModelLimits`, not `None`."""
+    from maestro import roles as _roles
+
+    empty = limits.load_limits([])
+    for role, backend_models in _roles.DEFAULT_MODELS.items():
+        slug = backend_models[_roles.registry.DEFAULT_BACKEND]
+        assert empty.get(slug) is not None, f"{role}'s default model {slug!r} did not resolve"
+
+
 def test_shipped_defaults_are_not_used_when_at_least_one_real_row_parsed(tmp_path):
     table = tmp_path / "table.md"
     table.write_text(
@@ -376,17 +406,81 @@ REAL_MODEL_SLUGS = [
 
 
 def test_normalise_model_key_folds_display_names_to_project_yaml_slugs():
+    """R8 deliberate re-baseline (2026-08-31): the fold now treats `.` the same as `-`
+    and whitespace (needed to match `claude-haiku-4-5` against `"Claude Haiku 4.5"`), so
+    the GPT-5.6 family's folded form loses its literal `.` too — `gpt-5-6-luna`, not the
+    old `gpt-5.6-luna`. This does not change what resolves: `project.yaml`'s own
+    `gpt-5.6-terra` slug (DESIGN.md §5) folds to the same new value on the other side of
+    the comparison, proven directly by
+    `test_gpt_5_6_slugs_still_resolve_against_the_real_codex_table_after_the_fold_change`
+    below, against the real table."""
     assert limits._normalise_model_key("Claude Sonnet 5") == "claude-sonnet-5"
     assert limits._normalise_model_key("Claude Opus 5") == "claude-opus-5"
-    assert limits._normalise_model_key("GPT-5.6 Luna") == "gpt-5.6-luna"
-    assert limits._normalise_model_key("GPT-5.6 Terra") == "gpt-5.6-terra"
-    assert limits._normalise_model_key("GPT-5.6 Sol") == "gpt-5.6-sol"
+    assert limits._normalise_model_key("GPT-5.6 Luna") == "gpt-5-6-luna"
+    assert limits._normalise_model_key("GPT-5.6 Terra") == "gpt-5-6-terra"
+    assert limits._normalise_model_key("GPT-5.6 Sol") == "gpt-5-6-sol"
 
 
 def test_normalise_model_key_is_idempotent():
     for name in REAL_MODEL_NAMES + REAL_MODEL_SLUGS:
         once = limits._normalise_model_key(name)
         assert limits._normalise_model_key(once) == once
+
+
+# ── R8: period-vs-hyphen folding + date-suffix stripping (wave-1 finding, promoted into
+# C7's scope) ──
+#
+# The real configured id for Haiku 4.5 is `claude-haiku-4-5-20251001` (a hyphen where the
+# table's own normalised form has a period, plus a trailing release-date suffix). Before
+# this fix, `_normalise_model_key` only casefolded and joined whitespace runs, so neither
+# gap closed: `"Claude Haiku 4.5"` and `"claude-haiku-4.5"` resolved, but the id maestro
+# actually configures and the CLI actually reports did not.
+
+def test_normalise_model_key_folds_hyphen_and_period_as_the_same_separator():
+    assert limits._normalise_model_key("claude-haiku-4-5") == limits._normalise_model_key(
+        "Claude Haiku 4.5"
+    )
+    assert limits._normalise_model_key("claude-haiku-4.5") == limits._normalise_model_key(
+        "Claude Haiku 4.5"
+    )
+
+
+def test_normalise_model_key_strips_a_trailing_release_date_suffix():
+    assert limits._normalise_model_key(
+        "claude-haiku-4-5-20251001"
+    ) == limits._normalise_model_key("Claude Haiku 4.5")
+
+
+def test_resolve_finds_the_actual_configured_haiku_id_against_the_real_claude_table():
+    """The wave-1 finding, closed: all four spellings of Haiku 4.5 resolve against the
+    real `~/.claude/model_context_limits.md`, including the dated id nothing but this fix
+    could ever produce and the plain `claude-haiku-4-5` slug `implementer.py` launches
+    with."""
+    for spelling in (
+        "Claude Haiku 4.5",
+        "claude-haiku-4.5",
+        "claude-haiku-4-5",
+        "claude-haiku-4-5-20251001",
+    ):
+        result = limits.resolve(spelling, [CLAUDE_TABLE])
+        assert result is not None, f"{spelling!r} did not resolve"
+        assert result.model == "Claude Haiku 4.5"
+
+
+def test_gpt_5_6_slugs_still_resolve_against_the_real_codex_table_after_the_fold_change():
+    """The broadened fold (hyphen/period/whitespace all equivalent) must not break the
+    existing GPT-5.6 family, whose `project.yaml` slugs already carry a literal period
+    (`gpt-5.6-terra`, DESIGN.md §5) that happened to survive the old, narrower fold
+    unchanged."""
+    for slug, display in (
+        ("gpt-5.6-luna", "GPT-5.6 Luna"),
+        ("gpt-5.6-terra", "GPT-5.6 Terra"),
+        ("gpt-5.6-sol", "GPT-5.6 Sol"),
+    ):
+        result = limits.resolve(slug, [CODEX_TABLE])
+        assert result is not None, f"{slug!r} did not resolve"
+        assert result.model == display
+
 
 
 def test_resolve_finds_a_display_name_row_by_its_slug(tmp_path):

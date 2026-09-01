@@ -1314,6 +1314,39 @@ def test_generate_proposals_tolerates_a_missing_est_hours(subject, sandbox, prop
     assert "~?h" in proposal_env.sent[-1]
 
 
+def test_generate_proposals_system_prompt_does_not_name_a_reference_project(
+    subject, sandbox, proposal_env, monkeypatch
+):
+    """The system prompt must not assert a domain belonging to the reference project
+    maestro is decoupling from. `docs/PROJECT.md` is already passed as user content in
+    the same call, so the prompt should point there instead of hardcoding a description
+    that is true of the reference project and false of everyone else's."""
+    captured = SimpleNamespace(system=None)
+
+    def _judge(system, user, **kwargs):
+        captured.system = system
+        return proposal_env.raw
+
+    monkeypatch.setattr(subject, "_judge_complete", _judge)
+    subject.generate_proposals()
+
+    assert captured.system is not None
+    lowered = captured.system.lower()
+    for banned in ("arabic", "hebrew", "rag archive", "telegram rag"):
+        assert banned not in lowered, f"system prompt still names the reference project: {banned!r}"
+    assert "project described below" in lowered
+
+
+def test_orchestrator_source_does_not_carry_the_stale_fable_comment(subject):
+    """`generate_proposals`' judge-model comment used to say "Opus now, Fable when CLI
+    access returns" — Fable is never entering the roster (per-token billing, outside the
+    subscription the whole quota/fallback machinery assumes), so the comment is now
+    false in a way that would mislead the next reader into adding it."""
+    source = Path(subject.__file__).read_text(encoding="utf-8")
+    assert "Fable" not in source
+    assert "CLI access returns" not in source
+
+
 # =======================================================================================
 # poll_proposal_answer
 # =======================================================================================

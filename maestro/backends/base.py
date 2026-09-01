@@ -211,10 +211,16 @@ class Usage:
     model: Optional[str] = None
     updated_at: str = ""
     context_total_input_tokens: int = 0
-    #: The agent session this reading is *about*, when the driver can say — `""` when it
-    #: cannot, which is every driver today. A quota window is a property of the account
-    #: and needs no attribution; a context reading is a property of one conversation and
-    #: is meaningless without it. `maestro.orchestrator`'s D4 rotation therefore acts only
+    #: The **maestro** session this reading is *about* — the `session_id` the caller put
+    #: on the `Handle` it passed to `usage()` — and `""` when the driver was not asked
+    #: about a session or could not read the one it was asked about. Not the backend's
+    #: own native id: the record this attribution is checked against is the orchestrator's
+    #: `in_flight` entry, which knows maestro's id and never the driver's.
+    #:
+    #: A quota window is a property of the account and needs no attribution; a context
+    #: reading is a property of one conversation and is meaningless without it — which is
+    #: why an account-level sample (`usage()` with no handle) leaves this empty however
+    #: much else it knows. `maestro.orchestrator`'s D4 rotation therefore acts only
     #: on a sample carrying this, so that a reading taken from somewhere else (the
     #: operator's own interactive session, say) can never be mistaken for an
     #: implementer's and cost it its conversation.
@@ -282,8 +288,28 @@ class AgentBackend(Protocol):
     def parse_exit(self, rc: int, log_tail: str) -> ExitVerdict:
         """Classify a finished run as ok / quota_exhausted(reset_at) / crashed."""
 
-    def usage(self) -> Optional[Usage]:
-        """The latest usage sample, or `None` when none is available."""
+    def usage(self, handle: Optional[Handle] = None) -> Optional[Usage]:
+        """The latest usage sample, or `None` when none is available.
+
+        Two questions, told apart by `handle`, and a driver must not answer one with the
+        other:
+
+        * **without a handle** — "what does this *account* look like right now?" Quota
+          windows, from whatever source the driver has. Nothing there is attributable to
+          one conversation, so `Usage.session_id` stays `""`.
+        * **with a handle** — "how full is *that session's* context?" The answer must be
+          read from that session's own record and must carry
+          `session_id == handle.session_id`, which is the assertion `maestro.orchestrator`
+          checks before it will rotate a live implementer. A driver that cannot read the
+          named session answers `None` (G6, "not measurable"), and specifically **not**
+          an account-level sample: a reading about somewhere else is not a rougher answer
+          to this question, it is an answer to a different one.
+
+        The handled form must also stay cheap: the caller asks it once per in-flight task
+        per poll, so it reads a record the agent is already writing rather than starting
+        a process. The unhandled form is the one allowed to cost a subprocess, and the
+        caller memoises it to once per backend per poll.
+        """
 
 
 # ── usage.json normalisation ──

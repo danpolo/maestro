@@ -115,8 +115,14 @@ maestro/                        # ~/projects/maestro — installable, `maestro` 
 
 ### What each project keeps
 
-`project.yaml`, `adapters/`, `operating_preamble.md`, `orchestrator/profiles/`, the `.orchestrator/`
+`project.yaml`, `adapters/`, `operating_preamble.md`, `profiles/`, the `.orchestrator/`
 runtime directory, and its own docs. Nothing else. No orchestration code is copied into a project.
+
+`profiles/` sits at the project root, not under an `orchestrator/` directory — there is no
+`orchestrator/` in a scaffolded project at all (`maestro init` creates `adapters/ docs/ profiles/
+systemd/`, matching `maestro/templates/`'s own top-level entries one for one; confirmed by a fresh
+`maestro init` on a throwaway repo, and by `grep -rn 'REPO / "orchestrator"' maestro/` returning
+nothing).
 
 **Nothing project-identifying crosses into maestro** — no tokens, chat IDs, bot names, domain
 vocabulary, or evaluation specifics. `.env` is per-project and `init` prompts for its contents.
@@ -335,6 +341,50 @@ failure on a machine that lacks these files.
 
 > Per the operator's delegate-to-agent rule, the `~/.codex/` side of this extraction is performed by
 > invoking the Codex CLI, not by writing into `~/.codex/` directly.
+
+### The rotation trigger — live on both backends (A4, A5, readiness queue)
+
+The ceiling table is not just a lookup library: the orchestrator's poll loop uses it to decide when
+to rotate an in-flight implementer onto a fresh session, through the same switch path §7 describes —
+`REASON_CONTEXT` (`switch.py`), a fourth trigger beside quota/threshold/manual, in the same worktree
+(no `create_worktree` call), always re-briefed rather than resumed, journalled distinctly. A4 built
+this trigger; **A5 is what makes it fire for real** — before A5, `Usage.session_id` was `""` on every
+real path, so the guard below never passed and the trigger, while fully wired, was correct but inert
+by construction.
+
+**Attribution is the precondition, not a formality.** A context reading means nothing without knowing
+which conversation it describes, so `AgentBackend.usage()` takes an optional session `Handle`
+(`backends/base.py`), and the orchestrator threads it through (`_sampled_usage`). Asked about a
+session, each driver must answer *that session's own record or nothing*: Claude reads the session's
+own transcript JSONL, located by the uuid **maestro minted at launch** — deliberately not by
+re-deriving Claude Code's own encoded-cwd directory name, which is lossy and ambiguous on real paths.
+Codex reads the session's own rollout by thread id, and no longer falls back to whatever thread the
+driver instance last happened to touch. Either way the returned `Usage` carries
+`session_id == handle.session_id`; an account-level sample (`usage()` with no handle — the operator's
+own interactive reading, say) leaves `session_id` empty by contract and can never be mistaken for an
+implementer's. `orchestrator._attributed_to` checks exactly that equality before any rotation is
+allowed to act, and **a reading it cannot attribute to a specific conversation still rotates nothing**
+— that refusal is the whole safety property this trigger is built on, not an incidental gap: acting
+on an unplaceable reading would mean throwing away a healthy implementer's session on evidence that
+could belong to a different agent, or to the operator's own interactive use, entirely.
+
+**The number.** What's compared against a model's `prepare_handoff_high` is one turn's live input
+side, not a running total. For Claude it is `input_tokens + cache_creation_input_tokens +
+cache_read_input_tokens` of the **last** assistant record in that session's transcript — reproduced
+independently against a live statusline reading and found exact to the token. Codex reads the
+equivalent figure its own rollout already reports for that thread. Both are read per-record, never
+summed across turns: a sum measures cumulative spend, which only ever grows, where a context is a
+size that can also come back down.
+
+**Two guards bound the rotation, and both now cover both backends.** *Freshness*
+(`_rotation_sample`): the sample must postdate the entry's own launch, checked against the session
+record's own mtime — real on Claude via the transcript's mtime, and, after A5's fix round, on Codex
+via the rollout's mtime on the handled path. Without this, a task that rotates and then re-reads the
+pre-rotation context on the very next poll would rotate again, forever, discarding each fresh agent's
+work in turn. *Count* (`MAX_CONTEXT_ROTATIONS = 3`, unchanged since A4): once a task has been rotated
+this many times it is left in the session it has — `TASK_TIMEOUT` and the ordinary failure paths
+still apply — because a task that needs more fresh sessions than this is one for the operator to look
+at, not one for the loop to keep restarting on its own.
 
 ---
 

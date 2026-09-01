@@ -71,6 +71,25 @@ Rules for you, the orchestrating session:
 
 ---
 
+## Testing — two tiers, not one
+
+The suite is 3200+ tests; a bare `pytest` run takes ~2 minutes because ~20 tests in
+`tests/test_cli.py` shell out to a real `maestro init`/`run`/`doctor` subprocess (one of them pays a
+real 30s `POLL_INTERVAL` sleep). Those are marked `@pytest.mark.slow` (registered in
+`pyproject.toml`; see `tests/test_cli.py`'s module docstring for the convention — any new test that
+takes the `_healthy_project` fixture must carry the marker too).
+
+- **Iterating on a single change:** `.venv/bin/python -m pytest -q -m "not slow" -n auto`
+  (`pytest-xdist`, a dev dependency, parallelizes across cores) — a few seconds to ~20s, not minutes.
+- **Phase/stage boundary, before a commit that closes an item, and always before merge/adoption:**
+  a bare `.venv/bin/python -m pytest -q` (no marker filter) — the full 3200+, unfiltered. This is
+  also exactly what `maestro/selfupdate.py`'s `self_test()` runs as the self-update gate; never add
+  `-m` or `-n` there.
+- Report collected count + exit code from the **full** run when a Done-when or Verification section
+  asks for suite numbers — the filtered count is for your own iteration speed, not for reporting.
+
+---
+
 ## Unattended operation
 
 **This programme runs overnight with nobody watching.** The operator has explicitly authorised, in

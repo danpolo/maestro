@@ -17,8 +17,10 @@ from __future__ import annotations
 
 import ast
 import json
+import os
 import subprocess
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -697,6 +699,251 @@ def test_usage_defaults_to_the_module_global(tmp_path, monkeypatch):
 def test_usage_never_runs_anything(tmp_path, runs):
     driver, _ = _usage_driver(tmp_path, F4_USAGE_JSON)
     driver.usage()
+    assert runs.calls == []
+
+
+# ── usage(handle): A5's per-session context reading ──
+#
+# The account-level document above is the operator's statusline output. It is a fine
+# answer to "what does this account look like" and a *wrong* one to "how full is this
+# implementer's context" — it is a different conversation's number, and D4 rotates a live
+# session on the answer. So the handled form reads the session's own transcript, and when
+# it cannot, it says so.
+
+
+def _assistant(*, model="claude-opus-5", input_tokens=2, cache_creation=0,
+               cache_read=0, output_tokens=100, sidechain=False):
+    """One `assistant` record in the shape Claude Code writes into a session transcript."""
+    return {
+        "type": "assistant",
+        "isSidechain": sidechain,
+        "message": {
+            "model": model,
+            "usage": {
+                "input_tokens": input_tokens,
+                "cache_creation_input_tokens": cache_creation,
+                "cache_read_input_tokens": cache_read,
+                "output_tokens": output_tokens,
+            },
+        },
+    }
+
+
+def _transcript(root: Path, session_uuid: str, records, *,
+                project="-a-worktree", mtime=None, trailing="") -> Path:
+    directory = root / project
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{session_uuid}.jsonl"
+    body = "".join(json.dumps(r) + "\n" for r in records) + trailing
+    path.write_text(body, encoding="utf-8")
+    if mtime is not None:
+        os.utime(path, (mtime, mtime))
+    return path
+
+
+def _session_driver(tmp_path, records=None, **kwargs) -> tuple[ClaudeBackend, Handle]:
+    """A driver whose Claude home is under `tmp_path`, and a handle naming one session."""
+    home = tmp_path / "claude-home"
+    root = home / "projects"
+    root.mkdir(parents=True, exist_ok=True)
+    if records is not None:
+        _transcript(root, SESSION_UUID, records, **kwargs)
+    driver = ClaudeBackend(usage_path=tmp_path / "usage.json", claude_home=home)
+    handle = Handle(backend="claude", session_id="impl-T1-1", native_id=SESSION_UUID,
+                    workspace=tmp_path / "ws", window="agents:impl-T1")
+    return driver, handle
+
+
+#: 2026-08-12T01:00:00Z, as a unix timestamp — a transcript's mtime in the tests below.
+ONE_AM = datetime(2026, 8, 12, 1, 0, 0, tzinfo=timezone.utc).timestamp()
+
+
+def test_a_session_reading_is_the_last_turns_live_context(tmp_path):
+    """The arithmetic, and the reason it is not a sum.
+
+    `prepare_handoff_high` is a threshold on the **size of the live context**, so the
+    reading is one turn's input side — `input_tokens + cache_creation_input_tokens +
+    cache_read_input_tokens` — taken from the *last* turn. Summing across turns would
+    measure cumulative spend, which grows without bound while the context itself may not
+    have moved, and would rotate a healthy session on its third reply.
+    """
+    driver, handle = _session_driver(tmp_path, [
+        _assistant(input_tokens=4, cache_creation=9_000, cache_read=0),
+        _assistant(input_tokens=3, cache_creation=1_000, cache_read=9_000),
+        _assistant(input_tokens=2, cache_creation=600, cache_read=129_398),
+    ])
+
+    assert driver.usage(handle).context_total_input_tokens == 130_000
+
+
+def test_a_session_reading_leaves_out_what_the_model_wrote(tmp_path):
+    """Output tokens are not in the live context the *next* turn has to carry; the
+    statusline figure this reproduces does not count them either."""
+    driver, handle = _session_driver(tmp_path, [
+        _assistant(input_tokens=2, cache_read=25_415, output_tokens=100_000),
+    ])
+
+    assert driver.usage(handle).context_total_input_tokens == 25_417
+
+
+def test_a_session_reading_names_the_session_and_its_model(tmp_path):
+    driver, handle = _session_driver(tmp_path, [_assistant(cache_read=25_415)])
+
+    sample = driver.usage(handle)
+
+    assert sample.session_id == "impl-T1-1"      # maestro's id, not the transcript uuid
+    assert sample.model == "claude-opus-5"       # a real id, not a statusline display name
+
+
+def test_a_session_reading_is_dated_by_the_transcript(tmp_path):
+    """Not by the clock. D4's freshness guard asks whether the evidence postdates the
+    launch, and the honest answer is when the agent last wrote a turn — a wall-clock stamp
+    would re-certify a transcript that has not moved since before the last rotation."""
+    driver, handle = _session_driver(tmp_path, [_assistant(cache_read=25_415)],
+                                     mtime=ONE_AM)
+
+    assert driver.usage(handle).updated_at == "2026-08-12T01:00:00Z"
+
+
+def test_a_session_reading_carries_no_quota_windows(tmp_path):
+    """A window belongs to the account and this reading is about one conversation. Empty
+    is the honest answer, and `max_used_pct()` is `None` rather than a phantom 0."""
+    driver, handle = _session_driver(tmp_path, [_assistant(cache_read=25_415)])
+
+    sample = driver.usage(handle)
+
+    assert sample.windows == {}
+    assert sample.max_used_pct() is None
+    assert sample.context_used_pct is None
+
+
+def test_the_operators_statusline_document_is_never_a_sessions_reading(tmp_path):
+    """The defect A5 exists to close, pinned directly.
+
+    `usage.json` holds a real, large, current context figure — the operator's own. Asked
+    about an implementer whose transcript cannot be found, the driver must answer "not
+    measurable", not hand that figure over wearing the implementer's session id.
+    """
+    driver, handle = _session_driver(tmp_path)          # no transcript at all
+    (tmp_path / "usage.json").write_text(json.dumps(dict(
+        F4_USAGE_JSON, context_total_input_tokens=228_972)), encoding="utf-8")
+
+    assert driver.usage(handle) is None
+    # …while the account-level question is still answered, and still names nobody.
+    assert driver.usage().context_total_input_tokens == 228_972
+    assert driver.usage().session_id == ""
+
+
+def test_a_transcript_with_no_turn_yet_is_not_measurable(tmp_path):
+    """G6. A session that has been launched but has not answered yet has an unknown
+    context, not an empty one — `0` here would read as "loads of room"."""
+    driver, handle = _session_driver(tmp_path, [{"type": "user", "message": {}}])
+
+    assert driver.usage(handle) is None
+
+
+def test_a_turn_that_reports_no_tokens_at_all_is_not_measurable(tmp_path):
+    """Claude Code writes synthetic assistant records — an interrupted or errored turn —
+    whose usage is all zeroes. Reading the newest turn blindly would turn one of those
+    into a `0` token count."""
+    driver, handle = _session_driver(tmp_path, [
+        _assistant(input_tokens=2, cache_read=129_998),
+        _assistant(model="<synthetic>", input_tokens=0, cache_creation=0,
+                   cache_read=0, output_tokens=0),
+    ])
+
+    assert driver.usage(handle).context_total_input_tokens == 130_000
+
+
+def test_only_synthetic_turns_are_not_measurable(tmp_path):
+    driver, handle = _session_driver(tmp_path, [
+        _assistant(model="<synthetic>", input_tokens=0, output_tokens=0),
+    ])
+
+    assert driver.usage(handle) is None
+
+
+def test_a_subagents_turn_is_not_this_sessions_context(tmp_path):
+    """A sidechain record is a subagent's conversation living in the parent's file. Its
+    context is not the parent's, and it is routinely much smaller — taking it would make a
+    full session look fresh."""
+    driver, handle = _session_driver(tmp_path, [
+        _assistant(input_tokens=2, cache_read=129_998),
+        _assistant(input_tokens=1, cache_read=500, sidechain=True),
+    ])
+
+    assert driver.usage(handle).context_total_input_tokens == 130_000
+
+
+def test_a_half_written_last_line_does_not_lose_the_reading(tmp_path):
+    """The agent is appending to this file while it is read. A truncated final line is
+    normal, and must cost the trailing line only — not the whole sample."""
+    driver, handle = _session_driver(
+        tmp_path,
+        [_assistant(input_tokens=2, cache_read=129_998)],
+        trailing='{"type":"assistant","message":{"usa',
+    )
+
+    assert driver.usage(handle).context_total_input_tokens == 130_000
+
+
+def test_a_session_with_no_transcript_is_not_measurable(tmp_path):
+    driver, handle = _session_driver(tmp_path)
+    assert driver.usage(handle) is None
+
+
+def test_a_transcript_is_found_by_its_uuid_whatever_its_directory_is_called(tmp_path):
+    """The directory name is the session's cwd with its separators flattened, and the
+    flattening is lossy and version-dependent. The uuid is the one maestro minted and
+    passed to `--session-id`, and it is unique across every project directory — so the
+    lookup keys on that, exactly as the codex driver's `rollout_path` keys on the thread
+    id rather than on a reconstructed path."""
+    driver, handle = _session_driver(tmp_path, [_assistant(cache_read=25_415)],
+                                     project="-an-encoding-we-did-not-predict")
+
+    assert driver.usage(handle).context_total_input_tokens == 25_417
+
+
+def test_the_uuid_comes_from_the_workspace_when_the_handle_has_none(tmp_path):
+    """A handle rebuilt from an `in_flight` entry has no `native_id`; the launch left the
+    uuid in the workspace sidecar, which is how `resume` recovers it too."""
+    driver, handle = _session_driver(tmp_path, [_assistant(cache_read=25_415)])
+    workspace = tmp_path / "ws"
+    workspace.mkdir(parents=True, exist_ok=True)
+    (workspace / claude_mod.SESSION_UUID_FILE).write_text(SESSION_UUID, encoding="utf-8")
+    handle = Handle(backend="claude", session_id="impl-T1-1", native_id=None,
+                    workspace=workspace, window="agents:impl-T1")
+
+    assert driver.usage(handle).context_total_input_tokens == 25_417
+
+
+def test_a_session_with_no_uuid_anywhere_is_not_measurable(tmp_path):
+    driver, _ = _session_driver(tmp_path, [_assistant(cache_read=25_415)])
+    workspace = tmp_path / "empty-ws"
+    workspace.mkdir()
+    handle = Handle(backend="claude", session_id="impl-T1-1", native_id=None,
+                    workspace=workspace, window="agents:impl-T1")
+
+    assert driver.usage(handle) is None
+
+
+def test_the_transcripts_are_found_under_the_clis_own_home(tmp_path, monkeypatch):
+    """With no seam injected, the driver looks where the CLI keeps its state —
+    `CLAUDE_CONFIG_DIR` when set, `~/.claude` otherwise — and never at the repo."""
+    home = tmp_path / "claude-home"
+    _transcript(home / "projects", SESSION_UUID, [_assistant(cache_read=25_415)])
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(home))
+    handle = Handle(backend="claude", session_id="impl-T1-1", native_id=SESSION_UUID,
+                    workspace=tmp_path / "ws", window="agents:impl-T1")
+
+    driver = ClaudeBackend()
+    assert driver.transcripts_dir() == home / "projects"
+    assert driver.usage(handle).context_total_input_tokens == 25_417
+
+
+def test_a_session_reading_never_runs_anything(tmp_path, runs):
+    driver, handle = _session_driver(tmp_path, [_assistant(cache_read=25_415)])
+    driver.usage(handle)
     assert runs.calls == []
 
 

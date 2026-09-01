@@ -565,20 +565,27 @@ def operator_backend() -> str:
 def _implementer_backend() -> tuple[str, dict]:
     """(backend name, its configured models) for the `implementer` role.
 
-    The operator's `/backend <name>` wins when there is one; otherwise one read of
-    `project.yaml`, and the same answer `maestro.roles.backend_for` — and so
-    `orchestrator._launch_backend`, which stamps the `in_flight` entry — resolves to when
-    nothing has been probed: with no availability measured and nothing exhausted,
-    `roles.resolve` returns the role's configured backend unchanged. Resolution degrades
-    to the default backend on every malformed input rather than raising, so a typo in the
-    `roles:` block cannot stop a launch.
+    The operator's `/backend <name>` is the *preferred head* of `roles.resolve`'s
+    fallback chain (C4/G7), not a bypass of it: `roles.resolve` tries the preferred
+    backend first and only falls through to the rest of the role's chain when the
+    preferred one cannot run. A pin used to short-circuit straight to the operator's
+    choice with `operator_backend() or settings.backend`, which is why it could freeze
+    every future launch onto a backend nothing could actually run on — with no way back
+    short of `/backend auto` (`hitl/commands.py`), which clears the pin itself; this is
+    what stops honouring a live one blindly. With no availability measured and nothing
+    exhausted (`launch_implementer` probes neither today), `roles.resolve` still returns
+    the preferred backend unchanged, so an unpinned launch resolves exactly as it always
+    has: one read of `project.yaml`, degrading to the default backend on every malformed
+    `roles:` entry rather than raising, so a typo cannot stop a launch.
 
     The models table is the role's either way: a role declares its model *per backend*
     (`docs/DESIGN.md` §5), so the operator's choice picks a column out of the same table
     rather than needing one of its own.
     """
     settings = roles.role_config(roles.ROLE_IMPLEMENTER)
-    return operator_backend() or settings.backend, dict(settings.models)
+    pinned = operator_backend()
+    resolution = roles.resolve(roles.ROLE_IMPLEMENTER, preferred=pinned or None)
+    return resolution.backend, dict(settings.models)
 
 
 def _implementer_driver(backend: str, session_uuid: str):

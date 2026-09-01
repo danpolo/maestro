@@ -16,11 +16,16 @@ return, the files a launch leaves in the workspace (`brief.txt`, `session_uuid.t
 own sidecars beside them), the `implementer_model` journal record, the brief text, and
 the order in which all of that happens.
 
-Model selection also stays here, with one addition: `model:` in a task's ROADMAP block
-selects from `IMPLEMENTER_MODELS`, which is an allowlist of *Claude* model ids, so a
-model configured for the resolved backend under `roles.implementer.models` wins over it.
-A Claude model id means nothing to another CLI, and a project that writes that
-configuration has said what that backend runs.
+Model selection also stays here, with one change (C1/R2, 2026-08-30 pre-integration wave
+1): a task's `model:` **overrides** the role's per-backend `roles.implementer.models`
+table, which is only the default. A size keyword (`haiku`/`sonnet`/`opus`) resolves
+through the *resolved backend's own* size map — `IMPLEMENTER_MODELS` is that map for
+`claude`, and it is the only one today, so the same keyword on another backend has
+nowhere to resolve; it is never passed through as a literal id (a bogus id no CLI would
+understand), it is ignored with a logged warning, and the role table's model applies.
+Anything else is passed straight through as a literal model id — a task may pin one
+directly, and is then implicitly backend-specific, the same way `agentcall.resolve_call`
+already treats an explicit `model=` as winning outright. See `resolve_implementer_model`.
 
 One deliberate non-change: **no backend name is compared anywhere here.** Which driver
 runs is a name that comes out of configuration and goes straight into
@@ -448,25 +453,69 @@ _DEFAULT_IMPLEMENTER_MODEL = "claude-sonnet-5"
 # dispatch:manual workaround for that class. dispatch:manual is retained only for
 # genuinely non-delegable physical work (Colab/GPU runs, prod downtime windows).
 
-def resolve_implementer_model(task: dict) -> str:
-    """Resolve the implementer model for a task, right-sizing model selection."""
-    raw_model = task.get("model")
-    if isinstance(raw_model, str):
-        model_key = raw_model.lower().strip()
-        if model_key in ("opus5", "claude-opus-5"):
-            return IMPLEMENTER_MODELS["opus"]
-        if model_key in ("sonnet5", "claude-sonnet-5"):
-            return IMPLEMENTER_MODELS["sonnet"]
-        if model_key in IMPLEMENTER_MODELS:
-            return IMPLEMENTER_MODELS[model_key]
-        if raw_model.strip() in IMPLEMENTER_MODELS.values():
-            return raw_model.strip()
-        return _DEFAULT_IMPLEMENTER_MODEL
-    elif raw_model:
-        # Falsy/non-string values: call .lower() to raise AttributeError as characterization expects
-        raw_model.lower()
+#: Keyword spellings that resolve through a backend's size map rather than being taken as
+#: a literal model id — bare `haiku`/`sonnet`/`opus`, plus the `<name>5` and canonical-id
+#: spellings this allowlist has always also accepted. Recognising a spelling *here*, not
+#: merely finding it in a backend's size map, is what tells a keyword typed for the wrong
+#: backend apart from an ordinary literal id: R2 requires the former to warn and fall back
+#: to the role table's default, never to reach a CLI as a bogus id.
+_MODEL_KEYWORD_ALIASES: dict[str, str] = {
+    "haiku": "haiku",
+    "sonnet": "sonnet",
+    "opus": "opus",
+    "opus5": "opus",
+    "claude-opus-5": "opus",
+    "sonnet5": "sonnet",
+    "claude-sonnet-5": "sonnet",
+}
 
-    return _DEFAULT_IMPLEMENTER_MODEL
+#: backend -> {size keyword: model id}. `IMPLEMENTER_MODELS` is `claude`'s map and
+#: predates any other backend; a backend absent here (every one but `claude`, today) has
+#: no size keywords of its own, so a keyword resolved against it always misses — by
+#: design, per R2's accepted cost.
+_MODEL_SIZE_MAPS: dict[str, dict[str, str]] = {"claude": IMPLEMENTER_MODELS}
+
+
+def resolve_implementer_model(task: dict, backend: str = "") -> tuple[str, str]:
+    """The task's `model:` override, resolved against `backend`'s size map.
+
+    Returns ``(model_id, warning)``. The caller (`launch_implementer`) treats an empty
+    `model_id` as "no override" and applies the role table's model for `backend` (or its
+    own hardcoded default) instead — this function never invents that fallback itself,
+    so it has nothing to prefer over a real task value:
+
+    * no `model:`, or a falsy one (``None``/``""``/``0``/``False``) — ``("", "")``.
+    * a size keyword `backend` has an entry for — ``(model_id, "")``.
+    * that same keyword vocabulary, but `backend` has no entry for it (every backend but
+      `claude`, today) — ``("", warning)``. The keyword is never passed through as a
+      literal id (`gpt-5.6-sol` is a model, `opus` is not); `warning` is non-empty so the
+      caller can surface it as a real, observable signal rather than dropping it.
+    * anything else — passed straight through, stripped, as a literal model id: a task
+      may pin one directly, implicitly backend-specific, the same way
+      `agentcall.resolve_call`'s explicit `model=` already wins outright.
+
+    A non-string, truthy `model:` (e.g. an int) still raises `AttributeError` — pinned by
+    `test_launch_implementer_non_string_model_raises`; out of scope for R2, which is only
+    about which value wins, not this input shape.
+    """
+    raw_model = task.get("model")
+    if not isinstance(raw_model, str):
+        if raw_model:
+            raw_model.lower()
+        return "", ""
+    text = raw_model.strip()
+    if not text:
+        return "", ""
+    keyword = _MODEL_KEYWORD_ALIASES.get(text.lower())
+    if keyword is None:
+        return text, ""
+    size_map = _MODEL_SIZE_MAPS.get(backend, {})
+    if keyword in size_map:
+        return size_map[keyword], ""
+    return "", (
+        f"model: {raw_model!r} is a size keyword with no entry for backend {backend!r} "
+        f"— ignoring it; the role's configured model applies"
+    )
 
 
 def _driver_kwargs(cls: type, **optional) -> dict:
@@ -567,8 +616,16 @@ def launch_implementer(task: dict, session_id: str, workspace: Path,
     resolved, backend_models = _implementer_backend()
     pinned = registry.normalise_name(backend) if backend else ""
     backend = pinned if pinned in registry.known_backends() else resolved
-    model_id = resolve_implementer_model(task)
-    model_id = backend_models.get(backend) or model_id
+    # C1/R2: the task's `model:` overrides the role table; the role table (falling back
+    # to the hardcoded default) is only what applies when the task has no opinion — either
+    # because it declared no `model:` at all, or because it named a size keyword with no
+    # entry for `backend` (`task_model_warning`, surfaced below rather than dropped).
+    role_default = backend_models.get(backend) or _DEFAULT_IMPLEMENTER_MODEL
+    task_model, task_model_warning = resolve_implementer_model(task, backend)
+    model_id = task_model or role_default
+    if task_model_warning:
+        print(f"  [model] {task_id}: {task_model_warning}")
+        append_journal("implementer_model_ignored", f"{task_id} {task_model_warning}")
     raw_key  = task.get("model")
     model_key = raw_key.lower().strip() if isinstance(raw_key, str) else (raw_key or "")
     print(f"  [model] {task_id}: model_key={model_key!r} → {model_id} on {backend}")

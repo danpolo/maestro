@@ -926,6 +926,21 @@ def test_make_brief_unresolved_model_and_backend_never_render_as_none(
     assert "unspecified backend" in brief
 
 
+def test_make_brief_explicit_none_model_and_backend_never_render_as_none(
+    subject, sandbox, tmp_path
+):
+    """B1 review (Minor, left open): the test above only exercises the omitted/default-
+    `""` path. C1's launch-site fix can resolve `model_id` to `None` for real (a role
+    table with no entry for the resolved backend and no task override), so pin the
+    explicit `model=None, backend=None` call too, not just the omitted one. The code is
+    already correct (`None` is falsy, same as `""`) — this closes the coverage gap."""
+    brief = subject._make_brief(TASK, tmp_path / "ws", tmp_path / "wt",
+                                model=None, backend=None)
+    assert "None" not in brief
+    assert "unspecified model" in brief
+    assert "unspecified backend" in brief
+
+
 # ===================================================================================
 # _make_prep_brief
 # ===================================================================================
@@ -1228,13 +1243,98 @@ def test_launch_implementer_model_key_is_lowercased_and_stripped(
     assert argv[argv.index("--model") + 1] == subject.IMPLEMENTER_MODELS["opus"]
 
 
-@pytest.mark.parametrize("model_key", [None, "", "gpt-4", "haiku-4-5", 0, False])
-def test_launch_implementer_unknown_model_falls_back_to_the_default(
+@pytest.mark.parametrize("model_key", [None, "", 0, False])
+def test_launch_implementer_falsy_model_falls_back_to_the_default(
     subject, sandbox, monkeypatch, model_key
 ):
+    """No task-level override at all (missing/empty/falsy `model:`). The sandbox's
+    default project.yaml declares no `roles.implementer.models`, so there is no role
+    table default to fall back to first here — see the override tests below for that
+    half of R2. Re-baselined from `test_launch_implementer_unknown_model_falls_back_to_
+    the_default`: `"gpt-4"`/`"haiku-4-5"` moved out, they are not falsy — R2 passes a
+    non-keyword string straight through instead of discarding it as "unknown"."""
     out = _launch(subject, sandbox, monkeypatch, task={**TASK, "model": model_key})
     argv = _agent_argv(out.workspace / "launch.py")
     assert argv[argv.index("--model") + 1] == subject._DEFAULT_IMPLEMENTER_MODEL
+
+
+@pytest.mark.parametrize("model_key", ["gpt-4", "haiku-4-5", "gpt-5.6-sol"])
+def test_launch_implementer_literal_model_id_passes_through(
+    subject, sandbox, monkeypatch, model_key
+):
+    """R2 (2026-08-30 pre-integration wave 1, C1): a `model:` that is not a recognised
+    size keyword is not silently discarded — the pre-C1 behaviour this re-baselines away
+    from (it used to fall back to `_DEFAULT_IMPLEMENTER_MODEL`, indistinguishable from a
+    typo) — it passes straight through as a literal model id, implicitly backend-specific,
+    mirroring how `agentcall.resolve_call`'s explicit `model=` already wins outright.
+    `"haiku-4-5"` looks keyword-adjacent but is not `IMPLEMENTER_MODELS`'s own `"haiku"`
+    spelling, so it is a literal here, not a keyword with a missing backend entry."""
+    out = _launch(subject, sandbox, monkeypatch, task={**TASK, "model": model_key})
+    argv = _agent_argv(out.workspace / "launch.py")
+    assert argv[argv.index("--model") + 1] == model_key
+
+
+def test_launch_implementer_task_model_overrides_the_configured_role_table(
+    subject, sandbox, monkeypatch
+):
+    """C1/R2: the bug this item fixes (G5). `project.yaml.tmpl` always declares
+    `roles.implementer.models`, so on every scaffolded project the role table used to win
+    unconditionally and a task's ROADMAP `model:` never did anything. The task now
+    overrides the role table; the role table becomes the default (below)."""
+    (sandbox.repo / "project.yaml").write_text(
+        "roles:\n"
+        "  implementer:\n"
+        "    backend: claude\n"
+        "    models:\n"
+        "      claude: claude-sonnet-5\n",
+        encoding="utf-8",
+    )
+    out = _launch(subject, sandbox, monkeypatch, task={**TASK, "model": "opus"})
+    argv = _agent_argv(out.workspace / "launch.py")
+    assert argv[argv.index("--model") + 1] == subject.IMPLEMENTER_MODELS["opus"]
+
+
+def test_launch_implementer_role_table_is_the_default_when_the_task_has_no_model(
+    subject, sandbox, monkeypatch
+):
+    """The flip side of the fix above: with no task-level override, the role's configured
+    model still applies — it becomes the default, it does not disappear."""
+    (sandbox.repo / "project.yaml").write_text(
+        "roles:\n"
+        "  implementer:\n"
+        "    backend: claude\n"
+        "    models:\n"
+        "      claude: claude-opus-5\n",
+        encoding="utf-8",
+    )
+    out = _launch(subject, sandbox, monkeypatch, task=TASK)
+    argv = _agent_argv(out.workspace / "launch.py")
+    assert argv[argv.index("--model") + 1] == "claude-opus-5"
+
+
+def test_launch_implementer_keyword_with_no_backend_entry_warns_and_falls_back(
+    subject, sandbox, monkeypatch
+):
+    """R2's accepted cost: `IMPLEMENTER_MODELS` is claude-only, so a size keyword pinned
+    on a task resolves only against a backend that has its own size-map entry — `codex`
+    does not, today. The keyword is never handed to the CLI as a bogus id (`opus` means
+    nothing to `codex`); it is ignored, the role table's configured model applies, and the
+    drop must be a real observable signal (a journal event), not silent."""
+    monkeypatch.setattr(registry, "resolve_binary", lambda *args, **kwargs: None)
+    _configure_backend(sandbox, "codex")
+
+    out = _launch(subject, sandbox, monkeypatch, task={**TASK, "model": "opus"})
+    sess = (out.workspace / "session_uuid.txt").read_text(encoding="utf-8")
+    brief = (out.workspace / "brief.txt").read_text(encoding="utf-8")
+    assert _agent_argv(out.workspace / "launch.py", brief) == _AGENT_ARGV["codex"](
+        subject, out, sess
+    )
+
+    records = _journal(sandbox)
+    warnings = [r for r in records if r["event"] == "implementer_model_ignored"]
+    assert len(warnings) == 1
+    assert "opus" in warnings[0]["detail"]
+    assert "codex" in warnings[0]["detail"]
 
 
 def test_launch_implementer_title_keywords_never_escalate_the_model(

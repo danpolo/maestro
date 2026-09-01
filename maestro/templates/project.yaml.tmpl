@@ -15,6 +15,14 @@ project:
   remote: origin
   main_branch: "{{ main_branch }}"
 
+# These `models:` are defaults, not the last word: a ROADMAP task's own `model:` field
+# overrides them for that one task (implementer only). `model: opus` (a size keyword —
+# haiku/sonnet/opus) resolves through whichever backend actually runs the task, using
+# that backend's own keyword map — today only `claude` has one, so the same keyword on
+# `codex` has nowhere to resolve, is ignored with a warning logged, and the row below
+# applies instead. A `model:` that is not one of those three keywords is taken as a
+# literal model id and passed straight through — pin one directly (e.g. `model:
+# gpt-5.6-sol`) and it is then implicitly specific to whichever backend the task runs on.
 roles:
   implementer:  {backend: claude, models: {claude: claude-sonnet-5, codex: gpt-5.6-terra}}
   judge:        {backend: claude, models: {claude: claude-opus-5,   codex: gpt-5.6-sol}}

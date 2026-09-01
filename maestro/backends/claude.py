@@ -43,8 +43,10 @@ and every test monkeypatches it.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
 
@@ -163,6 +165,97 @@ def session_uuid_in(workspace: Path) -> str:
         return (Path(workspace) / SESSION_UUID_FILE).read_text(encoding="utf-8").strip()
     except Exception:
         return ""
+
+
+# ── the session transcript: how full is one conversation? ──
+
+
+def context_reading(path: Path) -> Optional[tuple[int, str]]:
+    """`(live context in tokens, the model that reported it)` from a transcript, or `None`.
+
+    **The arithmetic, which is the whole judgement call in this function.** Claude Code's
+    own status line reads `.context_window.total_input_tokens` out of the JSON it hands a
+    `statusLine` hook — a document a driver never sees. The equivalent recovered from the
+    session transcript is one turn's *input side*::
+
+        input_tokens + cache_creation_input_tokens + cache_read_input_tokens
+
+    of the **last** assistant turn. Three properties, each load-bearing:
+
+    * **the input side only.** What the model wrote (`output_tokens`) is billed, but it is
+      not what the next turn has to carry, and the figure this reproduces excludes it too.
+    * **all three input fields.** A cached prefix is still in the context — it is cheaper,
+      not absent. Counting `input_tokens` alone would report single digits for a session
+      sitting at its ceiling, and the rotation would never fire.
+    * **the last turn, never a sum.** Summing across turns measures cumulative spend,
+      which only ever grows; a context is a size that can also come down.
+      `switch.context_crossed` compares this against the model's `prepare_handoff_high`,
+      which is a threshold on the size of the live context, so a cumulative figure would
+      rotate a healthy session after a handful of ordinary turns.
+
+    Two kinds of record are skipped rather than taken as the newest turn. A **sidechain**
+    record is a subagent's conversation stored in its parent's file — a different, and
+    routinely much smaller, context. A turn reporting **no input tokens at all** is a
+    synthetic or interrupted one; taking it would publish a `0`, and a `0` here reads as
+    "loads of room" rather than as the "not measurable" it actually is (G6). A file with
+    no usable turn answers `None` for the same reason, and so does an unreadable one.
+
+    Parsed line by line, tolerating garbage: the agent is appending to this file while it
+    is being read, so a half-written final line is normal and must cost that line only.
+    """
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+
+    tokens = 0
+    model = ""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if not isinstance(record, Mapping):
+            continue
+        if record.get("type") != "assistant" or record.get("isSidechain"):
+            continue
+        message = record.get("message")
+        if not isinstance(message, Mapping):
+            continue
+        usage = message.get("usage")
+        if not isinstance(usage, Mapping):
+            continue
+        total = sum(
+            _as_token_count(usage.get(field))
+            for field in ("input_tokens",
+                          "cache_creation_input_tokens",
+                          "cache_read_input_tokens")
+        )
+        if total <= 0:
+            continue
+        tokens = total
+        model = str(message.get("model") or "")
+    return (tokens, model) if tokens > 0 else None
+
+
+def _as_token_count(value: Any) -> int:
+    """One field of the sum above. Anything that is not a count contributes nothing — it
+    is a missing part of a total, not a reason to lose the whole reading."""
+    if isinstance(value, bool) or value is None:
+        return 0
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _zulu(moment: datetime) -> str:
+    """The fixed-width UTC stamp every timestamp in maestro's state documents uses, so a
+    plain string comparison against one of them is chronological."""
+    return moment.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 # ── argv ──
@@ -351,12 +444,14 @@ class ClaudeBackend:
         tmux_session: str = "",
         python: Optional[Path] = None,
         usage_path: Optional[Path] = None,
+        claude_home: Optional[Path | str] = None,
         new_session_id: Optional[Callable[[], str]] = None,
         runner: Optional[Callable[..., Any]] = None,
     ) -> None:
         self._tmux_session = tmux_session
         self._python = python
         self._usage_path = usage_path
+        self._claude_home = Path(claude_home) if claude_home else None
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
         #: The one seam that actually starts a process for `complete()`. Injectable for
         #: the same reason every other seam here is: the suite must be able to cover the
@@ -561,18 +656,117 @@ class ClaudeBackend:
 
     # ── usage ──
 
-    def usage(self) -> Optional[Usage]:
-        """The latest sample from `.orchestrator/usage.json`, or `None` when there is none.
+    def claude_home(self) -> Path:
+        """Where Claude Code keeps its own state. Honours `CLAUDE_CONFIG_DIR`, as the CLI
+        does.
 
+        A method rather than a module global, for the reason `CodexBackend.codex_home` is
+        one: a `Path` global here would be resolved at import time, could not be
+        redirected by a test, and does not live under `REPO` — which is the one root the
+        characterisation sandbox rebases.
+        """
+        if self._claude_home is not None:
+            return self._claude_home
+        override = os.environ.get("CLAUDE_CONFIG_DIR")
+        return Path(override).expanduser() if override else Path.home() / ".claude"
+
+    def transcripts_dir(self) -> Path:
+        """One directory per session cwd, each holding one JSONL per session."""
+        return self.claude_home() / "projects"
+
+    def transcript_path(self, session_uuid: str) -> Optional[Path]:
+        """The JSONL Claude Code is writing for `session_uuid`, or `None` when none exists.
+
+        Keyed on the uuid, and deliberately **not** on a reconstruction of the session's
+        cwd. The directory that file sits in is that cwd with its separators flattened,
+        and the flattening is both lossy and version-dependent — two different cwds can
+        flatten onto one directory name, and a leading-dot component is not rendered the
+        same way by every build of the CLI. The uuid, by contrast, is the uuid4 `launch`
+        minted and passed to `--session-id`: unique across every project directory, and
+        known both to the handle and to the `session_uuid.txt` sidecar. That is the same
+        trade `CodexBackend.rollout_path` already makes, globbing for the thread id
+        rather than rebuilding a path.
+
+        Newest first, so the answer stays stable if a uuid ever appeared twice.
+        """
+        if not session_uuid:
+            return None
+        try:
+            matches = sorted(
+                self.transcripts_dir().glob(f"*/{session_uuid}.jsonl"),
+                key=lambda path: path.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            return None
+        return matches[0] if matches else None
+
+    def usage(self, handle: Optional[Handle] = None) -> Optional[Usage]:
+        """A usage sample — about the account, or about one session (A5).
+
+        **With no handle**, the latest sample from `.orchestrator/usage.json`, or `None`.
         The document is the F4 shape written by the Claude Code `statusLine` hook, the
         same file `maestro.quota.get_effective_cap` reads. `from_usage_json` maps
         `five_hour` to `windows[300]` and `seven_day` to `windows[10080]`, keying every
         window by its **duration in minutes** rather than by its name — finding G5 found
         an account with no five-hour window at all, and a threshold keyed to a name that
-        is absent can never fire.
+        is absent can never fire. It names no session, because it belongs to none.
 
-        `None` means "no sample available" and must never be read as "no quota pressure".
+        **With a handle**, that session's own context, read from its transcript. The
+        statusline document is emphatically not an answer to this question: it is written
+        by whichever *interactive* session is rendering a status line, which is never an
+        implementer — an implementer runs `claude -p`, which renders none, with its cwd
+        in a worktree where `.orchestrator/` does not exist. Handing that figure back
+        stamped with the implementer's session id is precisely the wrong-evidence
+        rotation D4's attribution precondition exists to refuse, so a session whose
+        transcript cannot be found or read is "not measurable" — `None` (G6) — and
+        nothing is substituted for it.
+
+        `None` means "no sample available" and must never be read as "no pressure".
         """
+        if handle is not None:
+            return self._session_usage(handle)
         path = self._usage_path if self._usage_path is not None else USAGE_JSON
         document = _read_usage_document(path)
         return None if document is None else from_usage_json(document)
+
+    def _session_usage(self, handle: Handle) -> Optional[Usage]:
+        """How full `handle`'s conversation is, from its own transcript, or `None`.
+
+        `windows` is left empty on purpose. A rate-limit window is a property of the
+        account and this reading is a property of one conversation; an empty map means
+        "no window information here", which `max_used_pct()` reports as `None` rather
+        than as a phantom `0` (G5/G6). The account-level question has its own answer.
+
+        `updated_at` is the transcript's own mtime, not the wall clock: it is when the
+        agent last wrote a turn, which is exactly what D4's freshness guard is asking
+        about. A wall-clock stamp would re-certify, every poll, a transcript that has not
+        moved since before the last rotation — which is the loop that guard exists to
+        forbid.
+
+        The uuid comes from the handle, falling back to the `session_uuid.txt` sidecar the
+        launch left behind, so a handle rebuilt from `in_flight` (which carries no
+        `native_id`) is still readable — the same recovery `resume` performs.
+        """
+        session_uuid = handle.native_id or session_uuid_in(handle.workspace)
+        if not session_uuid:
+            return None
+        path = self.transcript_path(session_uuid)
+        if path is None:
+            return None
+        reading = context_reading(path)
+        if reading is None:
+            return None
+        try:
+            taken = _zulu(datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc))
+        except OSError:
+            return None
+        tokens, model = reading
+        return Usage(
+            context_used_pct=None,
+            windows={},
+            model=model or None,
+            updated_at=taken,
+            context_total_input_tokens=tokens,
+            session_id=handle.session_id,
+        )

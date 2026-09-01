@@ -25,6 +25,10 @@ exact roadmap task schema — rather than guessing the shape of anything below.
 - An existing project already has planning docs (a roadmap, a backlog, a PROJECT-shaped doc)
   written in prose, and the operator wants them turned into maestro's machine-readable format
   without losing the reasoning behind them.
+- For a genuinely fresh project, run this *after* brainstorming/planning has produced a real
+  plan (even a rough one) and *before* any implementation starts — implementation from here on is
+  what maestro runs. Running it earlier leaves Step 2's roadmap interview with nothing concrete to
+  turn into task blocks.
 
 ## Step 1 — Confirm the target and check for prior setup
 

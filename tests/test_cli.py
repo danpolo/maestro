@@ -506,6 +506,64 @@ def test_check_model_ids_passes_cleanly_with_no_models_declared(monkeypatch):
     assert "nothing to probe" in check.detail
 
 
+# ── review round 1 (2026-09-01): aggregate probe budget + honest confirmation wording ──
+#
+# The reviewer hand-traced the real template roster (`templates/project.yaml.tmpl`):
+# implementer/judge/diagnoser's `models:` maps carry FOUR distinct (backend, model) pairs,
+# not two -- (claude, claude-sonnet-5), (claude, claude-opus-5), (codex, gpt-5.6-terra),
+# (codex, gpt-5.6-sol) -- so a fully offline `doctor` run used to cost 4 * 8s = 32s with no
+# ceiling as more roles/backends are added. `MODEL_PROBE_BUDGET_SEC` bounds the aggregate;
+# these tests pin that a fake `run` that actually consumes wall-clock time (via `time.sleep`)
+# stops being called once the budget is spent, and that a clean run never claims a model
+# is "confirmed" -- this probe can only ever prove a model id is *bad*.
+
+def test_check_model_ids_stops_probing_once_the_aggregate_time_budget_is_exhausted(monkeypatch):
+    from maestro import cli
+    from maestro import config as _config
+    import time as _time
+
+    cfg = {
+        "roles": {
+            "implementer": {"backend": "claude", "models": {"claude": "model-a"}},
+            "judge": {"backend": "claude", "models": {"claude": "model-b"}},
+            "diagnoser": {"backend": "codex", "models": {"codex": "model-c"}},
+        },
+    }
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+    monkeypatch.setattr(cli, "MODEL_PROBE_BUDGET_SEC", 0.05)
+
+    calls = []
+
+    def fake_run(argv, *, timeout):
+        calls.append(tuple(argv))
+        _time.sleep(0.03)
+        return ""
+
+    check = cli._check_model_ids(Path("/unused"), run=fake_run)
+    assert check.ok
+    # 0.03s/call against a 0.05s budget: the 1st call always runs (elapsed 0 < 0.05), the
+    # 2nd still starts (elapsed 0.03 < 0.05), the 3rd must not (elapsed 0.06 >= 0.05) --
+    # bounded regardless of how many pairs are configured, not merely "fewer than before".
+    assert len(calls) == 2
+    assert "budget" in check.detail
+
+
+def test_check_model_ids_never_claims_a_clean_result_confirms_a_model_works(monkeypatch):
+    """The minor the reviewer folded in: `"probed N model id(s)"` read as a claim of N
+    confirmations, but a marker-less result only ever means "this CLI did not (yet) say
+    it's bad" -- it is never proof the model works. The wording must say so."""
+    from maestro import cli
+    from maestro import config as _config
+
+    cfg = {"roles": {"implementer": {"backend": "claude", "models": {"claude": "claude-sonnet-5"}}}}
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+
+    check = cli._check_model_ids(Path("/unused"), run=lambda argv, *, timeout: "")
+    assert check.ok
+    assert "confirmed invalid" in check.detail
+    assert "probed 1 model id(s)" not in check.detail
+
+
 def test_run_model_probe_survives_a_timeout_without_raising():
     """The real subprocess seam, exercised directly (still no real CLI: the executable
     invoked is `sleep`, standing in for a hung `claude`/`codex` behind an unreachable

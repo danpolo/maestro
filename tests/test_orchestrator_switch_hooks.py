@@ -99,7 +99,7 @@ class _FakeDriver:
     def __init__(self, used_pct: float | None, telemetry: bool = True,
                  exit_verdict: ExitVerdict | None = None,
                  context_tokens: int = 0, model: str | None = None,
-                 updated_at: str = "", session_id: str = ""):
+                 updated_at: str = "", session_id: str = "", record=None):
         self._used_pct = used_pct
         self._telemetry = telemetry
         self._exit_verdict = exit_verdict or ExitVerdict(kind="crashed")
@@ -109,13 +109,28 @@ class _FakeDriver:
         self._model = model
         self._updated_at = updated_at
         self._session_id = session_id
+        #: Optional call recorder, so a test can pin *which* question was asked.
+        self._record = record
 
     def capabilities(self) -> Capabilities:
         return Capabilities(usage_telemetry=self._telemetry)
 
-    def usage(self):
+    def usage(self, handle=None):
+        """A5: the two questions `AgentBackend.usage` distinguishes.
+
+        Without a handle this is the account-level answer — quota windows, attributable
+        to nobody, so no context reading and no `session_id`. With one it is the
+        per-session answer, and `session_id` is whatever the test told this driver to
+        claim: the real drivers stamp `handle.session_id`, and a test that stamps
+        something else is modelling exactly the misattribution `_attributed_to` exists to
+        refuse.
+        """
+        if self._record is not None:
+            self._record(handle)
         if self._used_pct is None:
             return None
+        if handle is None:
+            return Usage(windows={300: WindowUsage(used_pct=self._used_pct)})
         return Usage(
             windows={300: WindowUsage(used_pct=self._used_pct)},
             context_total_input_tokens=self._context_tokens,
@@ -885,8 +900,9 @@ def rotation(hooks, monkeypatch):
     # lookup must key on.
     box.model = "Opus 5"
     box.launch_model = "claude-opus-5"
-    # Attributed to the entry `_entry()` builds, i.e. a per-session reading of the kind
-    # no driver can produce yet (item A5). Every rotation test states its precondition.
+    # Attributed to the entry `_entry()` builds — the shape both real drivers now produce
+    # (A5): `usage(handle)` stamps the handle's own session id. Every rotation test below
+    # states its attribution precondition rather than relying on this default.
     box.attributed_to = "impl-T1-1"
     orchestrator._rotation_notices.clear()
 
@@ -1057,29 +1073,42 @@ def test_a_failed_rotation_leaves_the_task_exactly_where_it_is(rotation, tmp_pat
 
 
 def test_the_rotation_reuses_this_polls_usage_sample(rotation, tmp_path):
-    """A2 already samples every in-flight backend once per poll and shares the memo. The
-    rotation reads it rather than asking the driver a third time — `CodexBackend.usage()`
-    spawns a subprocess."""
-    calls = []
+    """The rotation takes no reading the poll has already taken.
+
+    **Re-baselined by A5.** Before it, "the reading" was one thing — one account-level
+    sample per backend — and this test asserted the rotation reached no driver at all
+    once A2 had primed the memo. A5 splits the reading in two: the account-level sample
+    the memo already holds, and one per-session context reading per in-flight task, which
+    is a different question and cannot be served out of the account slot. So what is
+    pinned here now is the cost that actually matters — the account-level sample, the one
+    that may spawn a `codex app-server`, is never re-taken — plus the per-session slots
+    being one per session per poll however many times the rotation runs.
+    """
+    asked: list = []
 
     def _get_backend(name):
-        calls.append(name)
         return _FakeDriver(10.0, context_tokens=130_000, model="Opus 5",
-                           updated_at=SAMPLED_AT, session_id="impl-T1-1")
+                           updated_at=SAMPLED_AT, session_id="impl-T1-1",
+                           record=lambda handle: asked.append((name, handle)))
 
     cache: dict = {}
     entries = [_entry(tmp_path), _entry(tmp_path, sid="impl-T4-1", task_id="T4")]
+    originals = list(entries)
     orchestrator._sampled_usage(CLAUDE, cache)                # A2's own sampling
 
     with pytest.MonkeyPatch.context() as mp:
-        # From here on, reaching a driver at all is a defect: the memo already holds
-        # this backend's reading for the poll.
         mp.setattr(orchestrator, "get_backend", _get_backend)
-        # One rotation, not two: the single sample is attributed to T1's session, so T4
-        # is correctly left alone. Both entries still went through `_sampled_usage`,
-        # which is what this test is about.
+        # One rotation, not two: the sample names T1's session, so T4 — which gets its
+        # own reading, and one that does not name it — is correctly left alone.
         assert orchestrator._context_rotations(entries, {}, cache) == 1
-        assert calls == []
+        # Asking about the same two sessions again inside the same poll costs nothing.
+        for entry in originals:
+            orchestrator._rotation_sample(entry, cache)
+
+    # The account slot was primed before the driver was watched, and never asked again.
+    assert [handle for _, handle in asked if handle is None] == []
+    # Two sessions, two readings — not four, and not one shared between them.
+    assert sorted(handle.session_id for _, handle in asked) == ["impl-T1-1", "impl-T4-1"]
 
 
 def test_the_limits_tables_are_parsed_once_per_poll(rotation, tmp_path):
@@ -1194,11 +1223,15 @@ def test_an_unresolved_model_is_announced_once(rotation, tmp_path, capsys):
 
 
 def test_a_sample_that_names_no_session_never_rotates(rotation, tmp_path):
-    """Today's production reality, pinned. No driver can attribute a context reading, so
-    `Usage.session_id` is `""` everywhere and D4 is inert **by construction** — not
-    because a threshold happens not to be met, but because the evidence cannot be shown
-    to be about the implementer whose session would be thrown away."""
-    rotation.attributed_to = ""                  # every driver, today
+    """The precondition, pinned independently of whether any driver satisfies it.
+
+    Both shipped drivers do satisfy it now (A5), so this no longer describes production —
+    it pins the rule that has to hold whatever a driver reports. An unattributed reading
+    is not weaker evidence about this implementer, it is evidence about somebody else, and
+    what D4 spends on it is a live session's conversation. A driver that regressed to
+    reporting `""` fails closed here instead of rotating on the operator's own numbers.
+    """
+    rotation.attributed_to = ""                  # a driver that does not, or no longer, attributes
 
     assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
     assert rotation.switches == []
@@ -1226,8 +1259,10 @@ def test_an_attributed_sample_above_the_mark_rotates(rotation, tmp_path):
 
 
 def test_the_missing_attribution_is_announced_once(rotation, tmp_path, capsys):
-    """Inert, but self-announcing: a crossing that could not be justified says so, once
-    per backend per process. Silence is what let the first version look implemented."""
+    """Declining, but self-announcing: a crossing that could not be justified says so,
+    once per backend per process. Silence is what let the first version look implemented —
+    and now that D4 does fire, an unattributed crossing means a driver is misreporting,
+    which is exactly the thing an operator must not have to infer from nothing."""
     rotation.attributed_to = ""
     entries = [_entry(tmp_path), _entry(tmp_path, sid="impl-T4-1", task_id="T4")]
 

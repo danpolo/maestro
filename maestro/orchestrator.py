@@ -26,7 +26,7 @@ from pathlib import Path
 
 import yaml  # PyYAML
 
-from maestro.backends.base import ExitVerdict, Usage, to_usage_json
+from maestro.backends.base import ExitVerdict, Handle, Usage, to_usage_json
 from maestro.backends.registry import (
     backend_binary,
     get_backend,
@@ -590,6 +590,34 @@ def _entry_backend(entry: dict) -> str:
     return normalise_name(entry.get("backend")) or _launch_backend()
 
 
+def _entry_handle(entry: dict) -> Handle | None:
+    """A handle naming `entry`'s live agent session, or `None` when it names none.
+
+    This is what lets a driver be asked about *this* implementer rather than about the
+    account. Two fields are deliberately not what a caller might expect:
+
+    * `native_id` is `None`. An `in_flight` entry records maestro's own `session_id` and
+      never the backend's native one, so the driver recovers its id from the sidecar its
+      own launch wrote into the workspace — the same recovery `resume` already performs
+      on a handle rebuilt from state.
+    * `workspace` is derived, not read off the entry, because the entry has no such key.
+      `WORKSPACES / session_id` is the convention every launch and every switch follows.
+
+    A `Usage` sampled through this handle comes back stamped with the same `session_id`,
+    which is the string `_attributed_to` compares against the entry.
+    """
+    session_id = str(entry.get("session_id") or "").strip()
+    if not session_id:
+        return None
+    return Handle(
+        backend=_entry_backend(entry),
+        session_id=session_id,
+        native_id=None,
+        workspace=WORKSPACES / session_id,
+        window=str(entry.get("window") or ""),
+    )
+
+
 def _reconcile_exit_verdict(entry: dict, log_tail: str) -> ExitVerdict | None:
     """`entry`'s own driver's read of a vanished window's log, or `None` when the
     driver cannot be resolved.
@@ -664,31 +692,46 @@ def _handover_ready(entry: dict) -> bool:
     return bool(worktree) and Path(worktree).is_dir()
 
 
-def _sampled_usage(backend: str, cache: dict | None = None) -> Usage | None:
+def _sampled_usage(backend: str, cache: dict | None = None, *,
+                   handle: Handle | None = None) -> Usage | None:
     """This poll's usage reading for `backend`, sampled through its driver at most once.
 
-    `cache`, when given, is a per-poll memo shared by every caller that needs this
-    backend's reading during the same poll — the switch-pressure check below and the
-    `usage.json` write (`_write_usage_sample`) both go through here, so a backend is
-    never sampled twice in one poll. That matters concretely for `CodexBackend`, whose
-    `usage()` spawns a short-lived `codex app-server` subprocess (bounded by
-    `APP_SERVER_TIMEOUT_SEC`, but still not something to pay for twice a poll).
+    `handle` selects *which reading*, and the two are different questions (see
+    `AgentBackend.usage`): with no handle this is the account-level sample — quota
+    windows, attributable to nobody — and with one it is that session's own context,
+    carrying `Usage.session_id` so the D4 rotation can tell it is the implementer's.
+
+    `cache`, when given, is a per-poll memo shared by every caller that needs a reading
+    during the same poll — the switch-pressure check below, the `usage.json` write
+    (`_write_usage_sample`) and the rotation check all go through here. **The memo is
+    keyed on the backend *and* the session**, because one slot per backend can no longer
+    hold the answer to both questions: serving a session's context reading out of the
+    account slot is precisely how a rotation would end up acting on somebody else's
+    numbers.
+
+    That widening does not multiply the expensive call. Only the account-level slot may
+    cost a short-lived subprocess — `CodexBackend.usage()` spawns a `codex app-server`
+    to answer it — and that slot is still one per backend per poll, whatever the number
+    of in-flight tasks. The per-session slots are reads of a record the agent is already
+    writing, which is why the protocol requires the handled form never to fall back to
+    the subprocess sampler.
 
     Capability-gated, never name-gated: a driver that declares no usage telemetry, that
     cannot be built, or that raises, answers `None` — the same "not measurable" `None`
     a driver returns deliberately (G6).
     """
-    if cache is not None and backend in cache:
-        return cache[backend]
+    key = (backend, handle.session_id if handle is not None else "")
+    if cache is not None and key in cache:
+        return cache[key]
     sample = None
     try:
         driver = get_backend(backend)
         if driver.capabilities().usage_telemetry:
-            sample = driver.usage()
+            sample = driver.usage(handle) if handle is not None else driver.usage()
     except Exception:
         sample = None
     if cache is not None:
-        cache[backend] = sample
+        cache[key] = sample
     return sample
 
 
@@ -927,12 +970,21 @@ def _rotation_sample(entry: dict, cache: dict | None = None) -> Usage | None:
     reading moved: a feed that restamps itself every render while reporting the same full
     context satisfies it every poll. `MAX_CONTEXT_ROTATIONS` is the other half.
 
-    Every unknown answers `None`, which the caller reads as "do not rotate": no sample at
-    all (G6), an undated one, or one taken at or before the launch. `switch_task` stamps
+    The sample is taken **through the entry's own handle** (`_entry_handle`), so it is a
+    reading of this implementer's session and not of the account — an entry naming no
+    session is not sampled at all, rather than falling back to an account-level reading
+    the rotation could never justify acting on.
+
+    Every unknown answers `None`, which the caller reads as "do not rotate": an entry with
+    no session, no sample at all (G6), an undated one, or one taken at or before the
+    launch. `switch_task` stamps
     the replacement entry's `started_at` from the same `now_iso()` clock the samples use,
     and both are fixed-width UTC ISO-8601 Z, so the string comparison is chronological.
     """
-    sample = _sampled_usage(_entry_backend(entry), cache)
+    handle = _entry_handle(entry)
+    if handle is None:
+        return None
+    sample = _sampled_usage(_entry_backend(entry), cache, handle=handle)
     if sample is None:
         return None
     taken = str(getattr(sample, "updated_at", "") or "").strip()
@@ -951,13 +1003,24 @@ def _attributed_to(sample: Usage, entry: dict) -> bool:
     right one — it is throwing away a healthy implementer's session on evidence about a
     different agent entirely.
 
-    No driver can attribute a reading today, so `Usage.session_id` is `""` everywhere and
-    this returns `False` for every in-flight task: the trigger is inert **by construction**
-    rather than by accident, and the day a driver can attribute its sample it starts
-    firing with no change here. That is deliberately a precondition on the data and not a
-    switch in `project.yaml` — a knob declared and never read is the defect class this
-    whole queue exists to remove, and it would leave the operator able to turn on a
-    rotation driven by the wrong session's numbers.
+    Both drivers attribute a reading now (A5), so this returns `True` for a live
+    implementer and D4 fires: `usage(handle)` reads the named session's own record — a
+    codex rollout, a claude transcript — and stamps `Usage.session_id` with the handle's
+    id. What it still refuses is everything else. An account-level sample (`usage()` with
+    no handle) names nobody by contract and can never pass, so a reading taken from
+    somewhere else — the operator's own interactive statusline, say — cannot be mistaken
+    for an implementer's and cost it its conversation.
+
+    That the feature came on with no edit here is the point: it was always a precondition
+    on the *data*, never a switch in `project.yaml` — a knob declared and never read is
+    the defect class this whole queue exists to remove, and it would have left the
+    operator able to turn on a rotation driven by the wrong session's numbers.
+
+    It is one of three conditions a rotation must clear, and the only one about *whose*
+    reading it is. `_rotation_sample` covers *when* the reading was taken — and since A5's
+    fix round 1 both drivers date a handled reading by the mtime of the record it came
+    from, so that guard can genuinely fail on either backend rather than only on claude.
+    `MAX_CONTEXT_ROTATIONS` bounds the rest.
     """
     attributed = str(getattr(sample, "session_id", "") or "").strip()
     return bool(attributed) and attributed == str(entry.get("session_id") or "").strip()
@@ -1098,8 +1161,9 @@ def _context_rotations(in_flight: list, launch_times: dict,
                 f"unattributed:{backend}",
                 f"  [rotate] a {backend} context reading crossed the handoff mark but "
                 f"names no session, so it cannot be shown to be this implementer's — not "
-                f"rotating. D4 stays inert until a driver reports a per-session context "
-                f"reading (Usage.session_id).",
+                f"rotating. Both shipped drivers stamp Usage.session_id on a per-session "
+                f"reading, so a sample arriving here unattributed means this backend "
+                f"answered about something other than the session it was asked about.",
             )
             continue
         task_id = entry.get("task_id", "")

@@ -72,20 +72,47 @@ Scope decisions (the three term groups below, and why they are not all treated a
   ``gdrive:`` because empirically it lives in exactly the same guarded blocks, for the
   same feature, for the same reason.
 
-All three groups share one exclusion: a string that is a module/class/function
-**docstring** never counts, because a docstring cannot reach a model or an operator —
-only prose that explains history to a human reading the source. This is what lets
-``confinement.py``, ``merge.py`` and ``selfheal/selffix.py``'s own provenance
-paragraphs (module and function docstrings quoting the old, removed hardcoded values)
-stay legitimate without a single hardcoded line-number exception: the exclusion is
-structural (first statement of a module/class/function body), so it survives a reflow
-or a line renumbering that would break a hardcoded list.  A plain ``#`` comment needs no
-special-casing at all — Python's ``ast`` module never sees comments in the first place.
+Docstring exemption — scoped to where the real provenance lives, not blanket.
+A string that is a module/class/function **docstring** never counts *when the file
+is under* ``maestro/``, because a docstring there cannot reach a model or an
+operator — only prose that explains history to a human reading the source. This is
+what lets ``confinement.py``, ``merge.py`` and ``selfheal/selffix.py``'s own
+provenance paragraphs (module and function docstrings quoting the old, removed
+hardcoded values) stay legitimate without a single hardcoded line-number exception:
+the exclusion is structural (first statement of a module/class/function body), so it
+survives a reflow or a line renumbering that would break a hardcoded list. All five
+real provenance sites this gate must tolerate are in ``maestro/`` — none are in
+``tests/`` — so the exemption is **not** applied when scanning ``tests/``: a new
+test file's own docstring is exactly where B1 and B2 actually reintroduced the
+reference project's name (per this item's history), and a docstring is not a
+special case there, it is the live text of the file.
+
+Comment scanning — the discriminator is *does this term have a legitimate
+provenance use anywhere in this tree*, not which group a term happens to be in.
+``EVERYWHERE_PATTERNS`` (``RAG archive``, ``Arabic/Hebrew``) has **no** legitimate
+provenance use anywhere in ``maestro/`` or ``tests/`` — nothing in this codebase's
+history ever needs to say either phrase, even to explain that it used to be
+hardcoded — so those two terms are also scanned inside ``#`` comments (via
+``tokenize``, so a ``#`` inside a string literal is never mistaken for one).
+``MAESTRO_ONLY_PATTERNS`` and ``MAESTRO_ONLY_GUARDED_PATTERNS`` are **not**
+comment-scanned, because two of them do have a legitimate provenance comment in this
+tree today — ``maestro/merge.py:65`` ("used to also exempt `restart_bot.sh` by
+name") and ``maestro/selfheal/selffix.py:69`` ("(`main_bot.py`, ... `scripts/
+restart_bot.sh`, ...)") are both bare ``#`` comments, not docstrings, and both would
+trip a raw comment scan for those terms — forcing exactly the hardcoded path/line
+tolerance list this gate has so far avoided. So the residual risk is stated plainly
+rather than fixed: a ``#`` comment in ``maestro/`` that reintroduces ``main_bot``,
+``restart_bot``, ``gdrive:`` or ``Colab`` as a live default — not as provenance
+prose — would slip through this gate undetected. That is a deliberate trade, not an
+oversight: the alternative (comment-scanning those four) is unsound against the
+tree as it exists today.
 """
 from __future__ import annotations
 
 import ast
+import io
 import re
+import tokenize
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
@@ -148,6 +175,21 @@ def _docstring_ids(tree: ast.AST) -> set[int]:
 
 def _mentions_check_nb(node: ast.AST) -> bool:
     return any(isinstance(n, ast.Name) and n.id == "CHECK_NB" for n in ast.walk(node))
+
+
+def _comment_texts(source: str) -> list[tuple[int, str]]:
+    """[(lineno, comment_text)] for every ``#`` comment in `source`, found via
+    `tokenize` rather than a naive text scan so a ``#`` inside a string literal is
+    never mistaken for one. Only ``EVERYWHERE_PATTERNS`` terms are ever checked
+    against this — see the module docstring's "Comment scanning" section for why."""
+    comments: list[tuple[int, str]] = []
+    try:
+        for tok in tokenize.generate_tokens(io.StringIO(source).readline):
+            if tok.type == tokenize.COMMENT:
+                comments.append((tok.start[0], tok.string))
+    except (tokenize.TokenizeError, SyntaxError, IndentationError):
+        pass
+    return comments
 
 
 def _parent_map(tree: ast.AST) -> dict[int, ast.AST]:
@@ -235,11 +277,16 @@ def _scan_file(path: Path, *, maestro_only: bool) -> list[tuple[int, str, str]]:
     """(lineno, term_name, snippet) for every violation in `path`.
 
     `maestro_only=True` additionally scans MAESTRO_ONLY_PATTERNS and the guard-aware
-    MAESTRO_ONLY_GUARDED_PATTERNS; EVERYWHERE_PATTERNS are scanned regardless.
+    MAESTRO_ONLY_GUARDED_PATTERNS; EVERYWHERE_PATTERNS are scanned regardless, in both
+    string literals and `#` comments (`maestro_only=False` also means the docstring
+    exemption does not apply — see the module docstring's "Docstring exemption" and
+    "Comment scanning" sections for why each is scoped this way).
     """
     source = path.read_text(encoding="utf-8")
     tree = ast.parse(source, filename=str(path))
-    doc_ids = _docstring_ids(tree)
+    # The docstring exemption protects real provenance prose, and every real site of
+    # that is in maestro/ — so it applies only there, never when scanning tests/.
+    doc_ids = _docstring_ids(tree) if maestro_only else set()
     parents = _parent_map(tree)
 
     tracker = _GuardTracker()
@@ -263,6 +310,17 @@ def _scan_file(path: Path, *, maestro_only: bool) -> list[tuple[int, str, str]]:
             for name, pattern in MAESTRO_ONLY_GUARDED_PATTERNS.items():
                 if pattern.search(text) and not guarded:
                     violations.append((node.lineno, f"{name} (unguarded)", snippet))
+
+    # EVERYWHERE_PATTERNS terms have no legitimate provenance use in this tree at
+    # all (see module docstring), so they are also scanned inside comments — in
+    # BOTH trees, docstring-exemption question notwithstanding (comments are never
+    # docstrings). MAESTRO_ONLY_* terms are deliberately excluded: two of them have
+    # a real, legitimate `#` comment in maestro/ today.
+    for lineno, comment in _comment_texts(source):
+        for name, pattern in EVERYWHERE_PATTERNS.items():
+            if pattern.search(comment):
+                snippet = comment.strip()[:70]
+                violations.append((lineno, f"{name} (comment)", snippet))
 
     return violations
 
@@ -289,13 +347,17 @@ def _all_violations() -> list[str]:
 def test_no_reference_project_workflow_strings():
     problems = _all_violations()
     assert not problems, (
-        "a reference-project-specific string was found outside a legitimate "
-        "docstring. If this is genuine historical provenance explaining what used to "
-        "be hardcoded, say so in a module/class/function docstring (not a live "
-        "string or a bare `#` comment carrying the live value) the way "
-        "confinement.py, merge.py and selfheal/selffix.py already do. If it is a new "
-        "occurrence, remove it — see this file's module docstring for why each term "
-        "is scoped the way it is.\nFound:\n  " + "\n  ".join(problems)
+        "a reference-project-specific string was found live: outside a legitimate "
+        "docstring (maestro/ only — see this file's module docstring's 'Docstring "
+        "exemption' section), or, for a '(comment)'-tagged hit, inside a `#` "
+        "comment for a term that has no legitimate provenance use anywhere in this "
+        "tree (see 'Comment scanning'). If this is genuine historical provenance "
+        "explaining what used to be hardcoded, and the term is main_bot/restart_bot/"
+        "gdrive:/Colab, a module/class/function docstring OR a `#` comment in "
+        "maestro/ is fine, the way confinement.py, merge.py and "
+        "selfheal/selffix.py already do — but RAG archive/Arabic-Hebrew have no such "
+        "exemption anywhere. If it is a new occurrence, remove it.\nFound:\n  "
+        + "\n  ".join(problems)
     )
 
 
@@ -315,10 +377,19 @@ def test_the_gate_actually_bites_everywhere_terms(tmp_path):
         '    return None\n',
         encoding="utf-8",
     )
-    problems = _scan_file(synthetic, maestro_only=False)
-    names = {name for _, name, _ in problems}
-    assert names == {"RAG archive", "Arabic/Hebrew"}
-    assert len(problems) == 2  # the docstring occurrence must not also be flagged
+    # maestro_only=True: the docstring exemption applies (this file stands in for
+    # maestro/), so only the two live constants are flagged.
+    maestro_problems = _scan_file(synthetic, maestro_only=True)
+    maestro_names = {name for _, name, _ in maestro_problems}
+    assert maestro_names == {"RAG archive", "Arabic/Hebrew"}
+    assert len(maestro_problems) == 2  # docstring occurrence not also flagged here
+
+    # maestro_only=False: the docstring exemption does NOT apply (fix round 1,
+    # Important 2), so the docstring's own "RAG archive" is flagged too.
+    tests_problems = _scan_file(synthetic, maestro_only=False)
+    tests_names = {name for _, name, _ in tests_problems}
+    assert tests_names == {"RAG archive", "Arabic/Hebrew"}
+    assert len(tests_problems) == 3  # the two live constants plus the docstring hit
 
 
 def test_the_gate_actually_bites_maestro_only_terms(tmp_path):
@@ -382,7 +453,11 @@ def test_gate_tolerates_the_documented_provenance_shape(tmp_path):
     """The precise shape of the five real provenance hits this item's controller
     verified: a term appearing only inside a module or function docstring, describing
     what used to be hardcoded. Proves the exclusion is structural, not a location list,
-    by planting the same shape fresh rather than reading real line numbers."""
+    by planting the same shape fresh rather than reading real line numbers. Scoped to
+    maestro_only=True only (fix round 1, Important 2): all five real sites are in
+    maestro/, and the same docstring scanned as if it were under tests/ must NOT be
+    tolerated for the EVERYWHERE_PATTERNS terms it contains — that half is covered by
+    `test_docstring_exemption_does_not_apply_when_scanning_tests` below."""
     synthetic = tmp_path / "synthetic_module.py"
     synthetic.write_text(
         '"""Denied main_bot.py, restart_bot.sh and warned about a RAG archive '
@@ -400,7 +475,6 @@ def test_gate_tolerates_the_documented_provenance_shape(tmp_path):
         encoding="utf-8",
     )
     assert _scan_file(synthetic, maestro_only=True) == []
-    assert _scan_file(synthetic, maestro_only=False) == []
 
 
 def test_proof_of_absence_shape_is_exempt_in_tests(tmp_path):
@@ -440,3 +514,88 @@ def test_positive_presence_of_a_banned_term_still_bites(tmp_path):
     problems = _scan_file(synthetic, maestro_only=False)
     assert len(problems) == 2
     assert all(name == "RAG archive" for _, name, _ in problems)
+
+
+def test_the_gate_actually_bites_everywhere_terms_in_comments(tmp_path):
+    """Fix round 1, Important 1: `ast.Constant` scanning alone is comment-blind, and
+    B1's/B2's actual historical trips were a `#` comment naming the reference
+    project — this is the shape that gap left open for `EVERYWHERE_PATTERNS`. Proves
+    the fix in both directions: a `#` comment naming a term with no legitimate
+    provenance use is caught, in both trees; a `#` comment inside a string literal
+    (not a real comment) is not mistaken for one."""
+    synthetic = tmp_path / "synthetic_module.py"
+    synthetic.write_text(
+        'CODE = "fine"\n'
+        '# used to assume a RAG archive backend; no longer does\n'
+        'NOT_A_COMMENT = "a literal string containing a # RAG archive character"\n',
+        encoding="utf-8",
+    )
+    for maestro_only in (True, False):
+        problems = _scan_file(synthetic, maestro_only=maestro_only)
+        names = {name for _, name, _ in problems}
+        assert "RAG archive (comment)" in names, (maestro_only, problems)
+        # the literal string's own hit is separate (not "(comment)") and expected —
+        # only assert the comment-specific finding exists, and exactly once each.
+        comment_hits = [p for p in problems if p[1] == "RAG archive (comment)"]
+        assert len(comment_hits) == 1
+
+
+def test_maestro_only_terms_stay_comment_blind_by_design(tmp_path):
+    """The other half of the same fix: `main_bot`/`restart_bot`/`gdrive:`/`Colab` are
+    NOT comment-scanned, because two of them have a real, legitimate `#` comment in
+    maestro/ today (`merge.py:65`, `selfheal/selffix.py:69`). This test proves the
+    boundary is where the module docstring says it is, not accidentally wider."""
+    synthetic = tmp_path / "synthetic_module.py"
+    synthetic.write_text(
+        'CODE = "fine"\n'
+        '# used to also exempt restart_bot.sh and main_bot.py by name\n',
+        encoding="utf-8",
+    )
+    assert _scan_file(synthetic, maestro_only=True) == []
+
+
+def test_docstring_exemption_does_not_apply_when_scanning_tests(tmp_path):
+    """Fix round 1, Important 2: the docstring exemption exists to protect the five
+    real provenance sites, all of which are in maestro/. A new test file's own
+    docstring is exactly where B1/B2 actually reintroduced the reference project's
+    name, so the exemption must not cover tests/-shaped scans."""
+    synthetic = tmp_path / "synthetic_module.py"
+    synthetic.write_text(
+        '"""This test module proves the RAG archive assumption is gone."""\n'
+        'def test_something():\n'
+        '    assert True\n',
+        encoding="utf-8",
+    )
+    tests_hits = _scan_file(synthetic, maestro_only=False)
+    names = {name for _, name, _ in tests_hits}
+    assert "RAG archive" in names
+
+    # The same docstring, scanned as if it were under maestro/, stays exempt — this
+    # is what keeps the five real provenance sites (all in maestro/) tolerated.
+    assert _scan_file(synthetic, maestro_only=True) == []
+
+
+def test_real_provenance_comment_shape_survives_both_fixes(tmp_path):
+    """The precise shape of `maestro/merge.py:65` and
+    `maestro/selfheal/selffix.py:69`: a bare `#` comment naming `main_bot`/
+    `restart_bot` as history. Neither fix in this round should touch it — proven
+    fresh, not by reading real line numbers, so a reformat can't silently break the
+    tolerance."""
+    synthetic = tmp_path / "synthetic_module.py"
+    synthetic.write_text(
+        '# The `sudo` pattern below used to also exempt `restart_bot.sh` by name\n'
+        '# (`main_bot.py`, `data/`, `models/`, `scripts/restart_bot.sh`, ...).\n'
+        'CODE = "fine"\n',
+        encoding="utf-8",
+    )
+    assert _scan_file(synthetic, maestro_only=True) == []
+
+
+def test_orchestrator_proof_of_absence_still_exempt_after_both_fixes():
+    """Regression guard named in the fix-round ruling: B2's characterization test at
+    tests/characterization/test_orchestrator.py must still pass this gate untouched
+    after both fixes — neither the comment scan nor the narrowed docstring exemption
+    should affect it, since its banned-term tuple sits in ordinary code, not a
+    docstring or a comment."""
+    path = TESTS_DIR / "characterization" / "test_orchestrator.py"
+    assert _scan_file(path, maestro_only=False) == []

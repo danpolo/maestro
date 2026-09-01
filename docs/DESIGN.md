@@ -115,14 +115,18 @@ maestro/                        # ~/projects/maestro — installable, `maestro` 
 
 ### What each project keeps
 
-`project.yaml`, `adapters/`, `operating_preamble.md`, `profiles/`, the `.orchestrator/`
-runtime directory, and its own docs. Nothing else. No orchestration code is copied into a project.
+`project.yaml`, `adapters/`, `operating_preamble.md`, `profiles/`, `launch.sh`, `systemd/`, the
+`.orchestrator/` runtime directory, and its own docs. Nothing else. No orchestration code is copied
+into a project.
 
 `profiles/` sits at the project root, not under an `orchestrator/` directory — there is no
-`orchestrator/` in a scaffolded project at all (`maestro init` creates `adapters/ docs/ profiles/
-systemd/`, matching `maestro/templates/`'s own top-level entries one for one; confirmed by a fresh
-`maestro init` on a throwaway repo, and by `grep -rn 'REPO / "orchestrator"' maestro/` returning
-nothing).
+`orchestrator/` in a scaffolded project at all. `maestro init`'s top-level *directories* are
+exactly `adapters/ docs/ profiles/ systemd/`, matching `maestro/templates/`'s own top-level
+directory entries one for one (its `launch.sh.tmpl`, `operating_preamble.md` and
+`project.yaml.tmpl` render to the loose root files named above; its `pre-commit` renders to
+`.git/hooks/pre-commit`, git's own hook location, not a project-root file this list covers).
+Confirmed by a fresh `maestro init` on a throwaway repo, and by
+`grep -rn 'REPO / "orchestrator"' maestro/` returning nothing.
 
 **Nothing project-identifying crosses into maestro** — no tokens, chat IDs, bot names, domain
 vocabulary, or evaluation specifics. `.env` is per-project and `init` prompts for its contents.

@@ -3265,3 +3265,77 @@ the normaliser, not the table row: the tables use display names by convention.
 dispatched — its implementer died on a rate limit before committing, and the controller verified and
 committed the work itself. That is controller verification, not the independent seat the process
 requires. Dispatch it before C7 builds on the same doctor check list.
+
+---
+
+## 2026-08-31/09-01 — Pre-integration queue, wave 2 (A4, B1, C2, B2, C1, C3, C7)
+
+Baseline `19e0724`, 3138 collected. Closed at `bb03c38`, **3222 collected, exit 0**. Both waves
+merged with zero conflicts and composed exactly — 3138 + 41 + 4 + 8 = 3191, then
+3191 + 2 + 5 + 6 + 18 = 3222. That arithmetic is the check that worktree fan-out lost no work.
+
+**C5's owed re-review seat is filled.** Wave 1 left it undispatched. Both findings ADDRESSED; the
+re-reviewer read the `_clean_backend_binary_cache` fixture body to confirm it genuinely clears
+*after* as well as before rather than being a second pre-clear, and confirmed both successor tests
+request it.
+
+**A4 (`1b0148e`) — D4's context ceiling now has real machinery, deliberately inert.** The rotation
+adds `REASON_CONTEXT` as a fourth trigger on `switch.py`'s one path: it bypasses `target_backend`
+outright rather than faking a self-switch, journals distinctly as `session_rotation` while keeping
+the five-field record, never calls `create_worktree`, forces the re-brief path (a native resume
+would restore the very conversation the rotation exists to shed), and triggers on
+`prepare_handoff_high`, not the ceiling.
+
+Review found what 27 green tests could not: **the trigger was a guaranteed no-op.** `context_crossed`
+fell back to `Usage.model`, which on the claude path is the statusline's display name — live value
+`"Opus 5"`, which normalises to `"opus-5"` and matches no table key (`"claude-opus-5"`). Every new
+test injected the slug, a spelling production never produces. C7 does not rescue it: C7 folds
+hyphens and strips date suffixes, neither of which supplies the missing `"Claude "` prefix.
+
+The cause splits, and the split matters. The **model-id source** was A4's own and is fixed — the
+lookup now keys on `roles.model_for(...)` at the trigger site. The **per-session reading** is not
+A4's: `_sampled_usage` keys on a backend *name* and calls `usage()` with no handle. Codex returns
+`context_total_input_tokens = 0` by construction; claude returns the operator's interactive session,
+because implementers launch headless (`claude -p` renders no statusLine) with cwd = the worktree,
+where `.orchestrator/` does not exist. **This is a defect in the plan, not in A4** — the plan assumed
+A2's per-poll sampling yielded a per-implementer reading. It does not.
+
+So A4 ships correct-but-inert *by construction*: `Usage.session_id` gates the rotation on data no
+driver can yet set, with a once-per-model breadcrumb announcing an indicated-but-unattributable
+crossing instead of the blanket `simplefilter("ignore")` that hid the defect. Making it fire without
+that gate would have been worse than the bug — the number is still the operator's, and the statusline
+restamps `updated_at` on every render, so every in-flight implementer would rotate once per 30s poll,
+discarding fresh work. A per-task `MAX_CONTEXT_ROTATIONS = 3` bounds it for when the feed arrives.
+**New item A5** supplies that per-session reading; it owns `backends/` and must land before D3.
+
+**B1 (`23b0a6d`) / B2 (`d19463e`) — the decoupling is done.** Briefs name the resolved model and
+backend instead of "a Sonnet implementer", the bot-restart guardrail is generic, and the proposal
+generator says "for the project described below" rather than asserting a domain. **Verification item
+3 is closed: zero live reference-project strings in `maestro/`**; the 5 surviving hits are provenance
+comments. R4 held — no `description:` key was added. B2's reviewer confirmed the new wording is
+*spatially* truthful by checking `_judge_complete` builds `f"{system}\n\n{user}"`.
+
+**C1 (`e9b84a6`) — a task's `model:` finally wins**, with the role table as default, matching
+`agentcall.resolve_call`'s precedence. Per R2: keyword via the backend's size map, else a literal id,
+else the role default plus a warning on both stdout and the journal. The safety clause was traced
+rather than assumed — an unresolved keyword returns `""`, which is falsy, so the raw string never
+reaches `model_id`, the only value threaded into the CLI argv.
+
+**C2 (`0b85eba`) / C3 (`79e1df3`) — dead knobs reconciled.** `model_limits` is now the single
+spelling and is read; the legacy `model_limits_paths` warns rather than silently doing nothing, and
+so does a present-but-unusable value (list reuse, empty `{}`, non-string values) — that second case
+was the item's own defect class surviving inside its fix. `SWITCH_THRESHOLD_PCT` is configurable at
+default 70.0 via the same `config.threshold()` helper `quota.py` uses.
+
+**C7 (`77d12c0`) — the tables are the source of truth, and R8 is fixed.**
+`claude-haiku-4-5-20251001` now resolves, along with `claude-haiku-4-5`, `claude-haiku-4.5` and the
+display name — normaliser fixed, table row untouched. `_SHIPPED_DEFAULTS` shrank to its documented
+job; `roles.DEFAULT_MODELS` derives slugs through `limits.model_slug()` and `roles.py` stays pure.
+`doctor` now probes each configured model id against its CLI, injected so no test reaches a real one.
+**Verification item 7 is closed** — every configured model resolves, `claude-fable-5` is absent, and
+unresolvable ids now warn instead of failing silently.
+
+**Known imprecision, folded into D3:** the probe's aggregate budget comment claims ~16s, but the
+guard is checked *before* a probe rather than during one, so the true supremum is
+`MODEL_PROBE_BUDGET_SEC + MODEL_PROBE_TIMEOUT_SEC` ≈ 24s. The bound is genuinely O(1) in roster size
+and offline-tolerant; only the stated number is wrong.

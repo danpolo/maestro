@@ -693,9 +693,14 @@ def _check_model_ids(repo_root: Path, *, run: Optional[Callable[..., str]] = Non
     `if check.required and not check.ok` and never fails the pre-commit fast path (this
     check does not run under `--pre-commit` at all).
 
-    **Bounded, and honest about what "clean" means.** At most `MODEL_PROBE_BUDGET_SEC`
-    worth of probing runs per invocation, however many pairs are configured — pairs beyond
-    that are reported unchecked, not probed. And because this probe can only ever *prove*
+    **Bounded, and honest about what "clean" means.** The budget is checked *before* each
+    probe starts, not enforced while one runs, so a probe that begins at
+    budget-minus-epsilon still runs its full `MODEL_PROBE_TIMEOUT_SEC`: the true
+    supremum for one invocation is `MODEL_PROBE_BUDGET_SEC + MODEL_PROBE_TIMEOUT_SEC`
+    (16 + 8 = ~24s today), not `MODEL_PROBE_BUDGET_SEC` alone. The aggregate cost is
+    still genuinely O(1) in roster size and offline-tolerant — pairs beyond what the
+    budget admits are reported unchecked, not probed — only the stated ceiling was
+    short by one timeout. And because this probe can only ever *prove*
     a model id is bad (its own CLI's rejection marker appeared) and never prove one is
     good (a valid model gives no distinguishing signal before its real, network-bound turn
     — see `_probe_model_id`), a clean result says exactly that: 0 confirmed invalid among

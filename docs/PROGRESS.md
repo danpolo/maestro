@@ -3343,3 +3343,116 @@ unresolvable ids now warn instead of failing silently.
 guard is checked *before* a probe rather than during one, so the true supremum is
 `MODEL_PROBE_BUDGET_SEC + MODEL_PROBE_TIMEOUT_SEC` ≈ 24s. The bound is genuinely O(1) in roster size
 and offline-tolerant; only the stated number is wrong.
+
+---
+
+## 2026-09-01 — Pre-integration queue, wave 2c/2d (C4, D1, A5) + D3
+
+Baseline `11a0fd1`, 3222 collected. Wave 2c (C4, D1) closed at `4c39978`, 3243 collected — arithmetic
+composes exactly (3222 + C4's 9 + D1's 12). Wave 2d (A5) closed at `7a4fab1`, 3278 collected — again
+exact (3243 + A5's 35). D3 (this entry) is documentation-only and adds no tests; suite count is
+unchanged by it. **D2 was dispatched alongside D3 in the same wave and is not part of this entry** —
+it owns `tests/` only and lands (or doesn't) independently; see its own report when it does.
+
+**C4 (`2566cee`, `ce18509`) — the `/backend` pin stops bypassing `roles.resolve`.** `/backend auto`
+is a new clear verb (matched before the known-backend check, so `"auto"` can never collide with a
+real driver name), and `implementer._implementer_backend` now calls
+`roles.resolve(ROLE_IMPLEMENTER, preferred=operator_backend() or None)` instead of the old
+`operator_backend() or settings.backend` hard bypass — the pin becomes the *preferred head* of the
+fallback chain rather than a wall in front of it. Disclosed rather than oversold: with no
+`available=`/`exhausted=` data reachable from the launch path today, `roles.resolve` always returns
+the preferred head unchanged, so this is a structural fix with no observable behaviour change yet —
+it opens the seam the deferred item `A6` (timed per-backend exhaustion record) needs, rather than
+using it. `orchestrator._launch_backend` was **not** touched and still hard-short-circuits on
+`operator_backend() or backend_for(...)` instead of calling `roles.resolve(preferred=...)`;
+`agentcall.resolve_call` already called `roles.resolve(preferred=...)` before this item (predates
+C4 entirely). So after C4, two of the three launch-resolution call sites share a real mechanism and
+one doesn't — which is exactly what D3's fold-in below corrects two stale docstrings about.
+
+**D1 (`be122db`, fix round `6e09d9b`) — a sixth-term reference-project gate.** New file
+`tests/test_no_reference_project_strings.py`, AST-based (not a `test_purity.py`-style regex, because
+one of the six terms — `Colab` — needs branch-aware handling: flagged only outside the True-branch of
+an `if confinement.available(CHECK_NB):` guard, and `gdrive:` turned out to live in the same guarded
+blocks for the same feature, so it got the same treatment). Three scopes, each with a stated reason:
+`RAG archive`/`Arabic/Hebrew` scanned in both `maestro/` and `tests/` (nothing in maestro could
+legitimately say them); `main_bot`/`restart_bot` scanned in `maestro/` only (dozens of legitimate
+`main_bot.py` example filenames across the characterisation suite); `Colab`/`gdrive:` guard-aware in
+`maestro/` only. A structural AST exclusion (docstring-as-first-statement) lets the five real
+provenance sites in `confinement.py`, `merge.py` and `selfheal/selffix.py` stay legitimate with zero
+hardcoded line-number exceptions. Fix round closed two review findings: `#` comments were invisible
+to an AST walk (Python discards them before parsing), so the two zero-legitimate-use terms are now
+also scanned via `tokenize`-based comment extraction; and the docstring exemption was unconditional,
+so a *new* test file's own docstring could reintroduce a banned term undetected — narrowed to apply
+only when scanning `maestro/`. One real self-catch along the way: the implementer's own first-draft
+docstring wrote `` `abuali` `` as shorthand and tripped `test_purity.py` on its own file — reworded
+and reported as a live rehearsal of the exact B1/B2 failure mode this gate exists to close.
+
+**A5 (`c15f1df`, `4de8235`, `8ba2c3a`, `077e855`, `05eb9d1`) — the per-session context reading that
+arms D4.** `AgentBackend.usage()` gained an optional `Handle`; asked about a session, Claude now
+reads that session's own transcript JSONL (located by the uuid maestro minted at launch, not by
+re-deriving Claude Code's encoded-cwd path — lossy and ambiguous on real paths) and Codex reads that
+session's own rollout by thread id, with no more falling back to whatever thread the driver instance
+last touched. Review caught two real gaps before this could be called live: the handled Codex reading
+wasn't dated by the record it came from (fixed in the fix round — real on both backends now), and six
+docstrings across `backends/base.py`, `orchestrator.py` and two test files still asserted the "no
+driver can attribute a reading" framing that A4 shipped — all six corrected to state what A5 actually
+made true, without deleting A4's safety rationale. The arithmetic itself
+(`input_tokens + cache_creation_input_tokens + cache_read_input_tokens` of the last assistant
+transcript record) was validated against a live statusline reading on this machine and found **exact
+to the token** (228972 both ways). Verification item 8 closed on merged master with
+`tests/test_per_session_usage.py`'s six end-to-end cases — including `test_a_full_session_really_rotates`,
+which stubs no driver and drives the real `ClaudeBackend` against a real transcript, and
+`test_the_operators_own_context_still_rotates_nobody`, re-pinning A4's original defect in its
+original shape. One incident along the way, not this queue's doing: an untracked file another agent
+wrote directly into the working tree (`docs/RESEARCH_GRAPH_ORCHESTRATION_AND_MEMORY.md`, never
+committed on any branch) tripped `test_purity.py` on two checks; Dan removed the reference-project
+name from it and the tree went green again — recorded as a live demonstration of D1's and
+`test_purity.py`'s working-tree scan doing exactly its job, not a defect in this queue's work.
+
+**D3 (this item) — DESIGN.md §8 made true, plus five fold-in corrections from other items.** §8 gains
+a new subsection describing the rotation trigger A4 built and A5 armed: how attribution works on each
+backend, what the compared number means and why it's per-record rather than summed, and both
+anti-loop guards (`_rotation_sample`'s freshness check, `MAX_CONTEXT_ROTATIONS = 3`'s count check) —
+written to leave a reader understanding *why* an unattributable reading still rotates nothing, not
+just that the trigger fires. Five corrections, each verified against the code rather than taken on
+say-so:
+
+1. `backends/claude.py`'s module docstring named `maestro.quota._scan_impl_log_for_limit` as the
+   reader of the reactive quota net; production actually resolves per-entry through
+   `driver.parse_exit` (A1), and that helper is reachable only from
+   `tests/characterization/test_quota.py`. Docstring corrected; the helper itself is untouched, per
+   A1's own ruling not to delete it.
+2. `docs/DESIGN.md`'s "What each project keeps" still said `orchestrator/profiles/`, stale since A3.
+   A fresh `maestro init` on a throwaway repo scaffolds `adapters/ docs/ profiles/ systemd/` at the
+   project root — no `orchestrator/` anywhere, confirmed against `maestro/templates/`'s own entries
+   and `grep -rn 'REPO / "orchestrator"' maestro/` returning zero.
+3. `cli.py:696`'s `_check_model_ids` docstring claimed the model-probe check costs at most
+   `MODEL_PROBE_BUDGET_SEC` (~16s); because the budget is checked *before* a probe starts rather than
+   enforced during one, the true supremum is `MODEL_PROBE_BUDGET_SEC + MODEL_PROBE_TIMEOUT_SEC`
+   (~24s) — a probe that begins one instant under budget still runs its full timeout. The guard
+   itself is untouched (still genuinely O(1) in roster size, still offline-tolerant); only the stated
+   ceiling was short by one timeout.
+4. §8's rewrite, above.
+5. `orchestrator.py:564`'s `_launch_backend` docstring claimed it resolves "through the same
+   function" as `_implementer_backend`; `agentcall.py:53`'s `resolve_call` docstring separately
+   claimed the same order as both `_implementer_backend` and `_launch_backend`. Neither is true of
+   `_launch_backend` since C4: `_implementer_backend` and `resolve_call` both now call
+   `roles.resolve(preferred=...)` directly (the latter predates C4 and was already right), while
+   `_launch_backend` still hard-short-circuits on `operator_backend() or backend_for(...)` and calls
+   `resolve` only indirectly, only in the unpinned case. Text corrected in both files to say what's
+   true (same *order of preference* today, not the same code) and, per explicit ruling, the code was
+   **not** unified — that belongs to the deferred item `A6`, which changes all three call sites in
+   one commit. Both docstrings now record the binding constraint that has to survive: the three
+   paths agree today only because none is fed `exhausted=`/`available=` data, and the moment one is,
+   all three must move together or an `in_flight` entry can name a backend the task isn't actually
+   running on.
+
+**Discrepancy found against the recon, reported rather than transcribed:** none. Every fold-in
+verified against the code exactly as described; the "not previously known" detail is that
+`agentcall.resolve_call` already matches `_implementer_backend`'s post-C4 shape
+(`roles.resolve(preferred=...)`) — only `_launch_backend` diverges — which the recon's fold-in 5
+implies but doesn't spell out per-file; both docstrings were corrected accordingly.
+
+Files touched: `docs/DESIGN.md`, `docs/PROGRESS.md`, `maestro/backends/claude.py`,
+`maestro/cli.py`, `maestro/orchestrator.py`, `maestro/agentcall.py`. No behaviour changed anywhere —
+confirmed by re-reading the diff end to end and by the full suite's collected count staying at 3278.

@@ -564,12 +564,26 @@ def _available_backends() -> tuple[str, ...] | None:
 def _launch_backend() -> str:
     """The backend a fresh `launch_implementer` call runs on.
 
-    The operator's `/backend <name>` first, then `maestro.roles` — deliberately the same
-    order, through the same function, that `implementer._implementer_backend` resolves
-    the launch itself in. This one only *records* the answer on the `in_flight` entry, so
-    if the two orders ever diverged the entry would name a backend the task is not
-    running on, and every switch decision taken from that entry would be about the wrong
-    agent.
+    The operator's `/backend <name>` first, then `maestro.roles` — the same *order* that
+    `implementer._implementer_backend` resolves the launch itself in, but no longer
+    **through the same function** (C4, readiness queue): that call now goes through
+    `roles.resolve(ROLE_IMPLEMENTER, preferred=operator_backend() or None)`, while this
+    one still calls `operator_backend() or backend_for(ROLE_IMPLEMENTER)` — a hard
+    short-circuit on the operator's pin rather than handing it to `resolve` as a
+    preference. This one only *records* the answer on the `in_flight` entry, so if the
+    two ever diverged the entry would name a backend the task is not running on, and
+    every switch decision taken from that entry would be about the wrong agent.
+
+    **They agree today only because neither is fed anything to diverge on.** Both call
+    sites pass `resolve` (or its `backend_for` wrapper) with no `available=` and no
+    `exhausted=`, and `resolve` with neither set always returns the preferred/configured
+    head unchanged — so the two paths are observably identical for every input reachable
+    right now, not because they share code. **The moment either path gains real
+    availability or exhaustion data, they must be unified** — not merely re-verified —
+    into one function, along with `agentcall.resolve_call`'s own copy of this same
+    "operator's pin leads" order. That unification is the deferred item `A6`; it changes
+    all three call sites in one commit rather than three separate ones, precisely so this
+    docstring's warning can never again describe two paths that only look like one.
 
     Still no binary probe and no subprocess: the state document is one small read on a
     path that is about to start an agent. `""` when resolution itself breaks — an unknown

@@ -1140,6 +1140,15 @@ class CodexBackend:
 
         So a session whose rollout cannot be found or cannot be read is "not measurable"
         — `None` (G6) — and no process starts.
+
+        The handled answer is also **dated by the rollout, not by the clock**, which the
+        unhandled one still uses. `_rotation_sample` certifies a reading by asking whether
+        it postdates the launch; a wall-clock stamp advances every poll whether or not the
+        agent wrote anything, so that test could never fail here and a wedged session's
+        stale rollout would re-certify itself until `MAX_CONTEXT_ROTATIONS` stopped the
+        churn — leaving one of A4's two anti-loop guards covering only the other backend.
+        The file's mtime is when the agent last appended a turn, which is the question
+        actually being asked, and is what `ClaudeBackend` reports from its transcript.
         """
         self.last_telemetry_error = None
         if handle is not None:
@@ -1150,8 +1159,17 @@ class CodexBackend:
                 )
                 return None
             sample = self.usage_from_rollout(thread_id)
-            return None if sample is None else replace(sample,
-                                                       session_id=handle.session_id)
+            if sample is None:
+                return None
+            path = self.rollout_path(thread_id)
+            if path is None:
+                return None
+            try:
+                taken = _zulu(datetime.fromtimestamp(path.stat().st_mtime,
+                                                     tz=timezone.utc))
+            except OSError:
+                return None
+            return replace(sample, updated_at=taken, session_id=handle.session_id)
         if self._thread_id:
             sample = self.usage_from_rollout(self._thread_id)
             if sample is not None:

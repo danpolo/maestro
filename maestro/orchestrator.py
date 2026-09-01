@@ -1003,13 +1003,24 @@ def _attributed_to(sample: Usage, entry: dict) -> bool:
     right one — it is throwing away a healthy implementer's session on evidence about a
     different agent entirely.
 
-    No driver can attribute a reading today, so `Usage.session_id` is `""` everywhere and
-    this returns `False` for every in-flight task: the trigger is inert **by construction**
-    rather than by accident, and the day a driver can attribute its sample it starts
-    firing with no change here. That is deliberately a precondition on the data and not a
-    switch in `project.yaml` — a knob declared and never read is the defect class this
-    whole queue exists to remove, and it would leave the operator able to turn on a
-    rotation driven by the wrong session's numbers.
+    Both drivers attribute a reading now (A5), so this returns `True` for a live
+    implementer and D4 fires: `usage(handle)` reads the named session's own record — a
+    codex rollout, a claude transcript — and stamps `Usage.session_id` with the handle's
+    id. What it still refuses is everything else. An account-level sample (`usage()` with
+    no handle) names nobody by contract and can never pass, so a reading taken from
+    somewhere else — the operator's own interactive statusline, say — cannot be mistaken
+    for an implementer's and cost it its conversation.
+
+    That the feature came on with no edit here is the point: it was always a precondition
+    on the *data*, never a switch in `project.yaml` — a knob declared and never read is
+    the defect class this whole queue exists to remove, and it would have left the
+    operator able to turn on a rotation driven by the wrong session's numbers.
+
+    It is one of three conditions a rotation must clear, and the only one about *whose*
+    reading it is. `_rotation_sample` covers *when* the reading was taken — and since A5's
+    fix round 1 both drivers date a handled reading by the mtime of the record it came
+    from, so that guard can genuinely fail on either backend rather than only on claude.
+    `MAX_CONTEXT_ROTATIONS` bounds the rest.
     """
     attributed = str(getattr(sample, "session_id", "") or "").strip()
     return bool(attributed) and attributed == str(entry.get("session_id") or "").strip()
@@ -1150,8 +1161,9 @@ def _context_rotations(in_flight: list, launch_times: dict,
                 f"unattributed:{backend}",
                 f"  [rotate] a {backend} context reading crossed the handoff mark but "
                 f"names no session, so it cannot be shown to be this implementer's — not "
-                f"rotating. D4 stays inert until a driver reports a per-session context "
-                f"reading (Usage.session_id).",
+                f"rotating. Both shipped drivers stamp Usage.session_id on a per-session "
+                f"reading, so a sample arriving here unattributed means this backend "
+                f"answered about something other than the session it was asked about.",
             )
             continue
         task_id = entry.get("task_id", "")

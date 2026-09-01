@@ -1074,6 +1074,44 @@ def test_a_session_with_no_thread_id_anywhere_answers_none(driver, tmp_path):
     assert started == []
 
 
+#: A rollout's mtime in the tests below — deliberately *earlier* than the fixture's
+#: `NOW`, so a reading dated by the file can never be mistaken for one dated by the clock.
+WROTE_AT = datetime(2026, 8, 12, 9, 30, 0, tzinfo=timezone.utc)
+WROTE_AT_ISO = "2026-08-12T09:30:00Z"
+
+
+def test_a_session_reading_is_dated_by_the_rollout(driver, tmp_path):
+    """A4's freshness guard, made able to fail on this backend.
+
+    `_rotation_sample` only asks whether the reading postdates the launch. Dated by the
+    wall clock that test can never fail: the stamp advances every poll whether or not the
+    agent wrote anything, so a wedged session's stale rollout re-certifies itself forever
+    and only `MAX_CONTEXT_ROTATIONS` stops the churn. The honest answer to "when was this
+    reading taken" is when the agent last appended to its rollout, which is what the
+    claude driver already reports from its transcript.
+    """
+    path = _write_rollout(driver, THREAD_ID,
+                          [_token_count_event(rate_limits={"primary": WEEKLY},
+                                              last_tokens=130_000)])
+    os.utime(path, (WROTE_AT.timestamp(), WROTE_AT.timestamp()))
+    handle = Handle(backend="codex", session_id="impl-T1-1", native_id=THREAD_ID,
+                    workspace=tmp_path / "ws", window="impl-T-1")
+
+    assert driver.usage(handle).updated_at == WROTE_AT_ISO
+
+
+def test_an_account_level_reading_is_still_dated_by_the_clock(driver):
+    """Unchanged, and deliberately so. The unhandled sample is what `_write_usage_sample`
+    renders into `usage.json`, whose `updated_at` means "when this snapshot was taken" —
+    a fact about the poll, not about any one conversation's last turn."""
+    path = _write_rollout(driver, THREAD_ID,
+                          [_token_count_event(rate_limits={"primary": WEEKLY})])
+    os.utime(path, (WROTE_AT.timestamp(), WROTE_AT.timestamp()))
+    driver._thread_id = THREAD_ID
+
+    assert driver.usage().updated_at == NOW_ISO
+
+
 def test_an_account_level_reading_names_no_session(driver):
     """`usage()` with no handle is about the account. Even when it happens to read a
     rollout, it must not claim to be about a session the caller never named."""

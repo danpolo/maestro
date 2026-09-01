@@ -157,3 +157,163 @@ def test_one_account_level_sample_per_backend_however_many_sessions(driver, tmp_
 
     assert driver.calls.count(None) == 1
     assert len([h for h in driver.calls if h is not None]) == 3
+
+
+# =======================================================================================
+# End to end: the real claude driver, a real transcript, and D4 actually firing
+# =======================================================================================
+#
+# Everything above stubs the driver. These do not — they build the files a launched
+# implementer really leaves behind (`session_uuid.txt` in the workspace, a transcript
+# under the CLI's own home) and let `_context_rotations` reach the real `ClaudeBackend`.
+# That is the check A4 could not make: its suite was green with the trigger inert, because
+# every sample it rotated on was one it had constructed itself.
+
+from maestro.backends.claude import SESSION_UUID_FILE, ClaudeBackend   # noqa: E402
+from maestro.limits import ModelLimits                                 # noqa: E402
+from maestro.switch import REASON_CONTEXT, SwitchOutcome               # noqa: E402
+
+#: A stand-in limits row. No test here reads a real model-limits table.
+ROW = ModelLimits("a-model", 100_000, 120_000, 150_000, 180_000, 240_000)
+
+LAUNCHED_AT = "2026-08-12T00:00:00Z"
+#: The transcript's mtime, which is what dates the reading — after the launch above.
+WROTE_AT = 1786496400.0                     # 2026-08-12T01:00:00Z
+
+UUID_ONE = "11111111-2222-3333-4444-555555555555"
+UUID_TWO = "99999999-8888-7777-6666-555555555555"
+
+
+def _assistant(tokens: int) -> str:
+    """One assistant turn carrying `tokens` of live context, as Claude Code writes it."""
+    import json
+    return json.dumps({
+        "type": "assistant",
+        "message": {
+            "model": "a-model",
+            "usage": {"input_tokens": 2,
+                      "cache_creation_input_tokens": 600,
+                      "cache_read_input_tokens": tokens - 602,
+                      "output_tokens": 1_500},
+        },
+    })
+
+
+@pytest.fixture
+def live(monkeypatch, tmp_path):
+    """A loop whose claude driver is the real one, reading files a real launch leaves."""
+    import os
+
+    box = SimpleNamespace(switches=[], home=tmp_path / "claude-home",
+                          workspaces=tmp_path / "workspaces")
+    box.workspaces.mkdir(parents=True, exist_ok=True)
+    (box.home / "projects" / "-a-worktree").mkdir(parents=True, exist_ok=True)
+    # The operator's own statusline document, sitting right there with a full context on
+    # it — the number A4 refused to act on, and the one A5 must still refuse to act on.
+    (tmp_path / "usage.json").write_text(
+        '{"context_used_pct":23,"context_total_input_tokens":228972,'
+        '"five_hour":{"used_pct":9,"resets_at":1786373400},'
+        '"model":"A Display Name","updated_at":"2026-08-12T01:30:00Z"}',
+        encoding="utf-8",
+    )
+
+    def _launched(session_id: str, uuid_: str, tokens: int | None):
+        """The workspace + transcript a launched implementer leaves behind."""
+        workspace = box.workspaces / session_id
+        workspace.mkdir(parents=True, exist_ok=True)
+        (workspace / SESSION_UUID_FILE).write_text(uuid_, encoding="utf-8")
+        if tokens is not None:
+            path = box.home / "projects" / "-a-worktree" / f"{uuid_}.jsonl"
+            path.write_text(_assistant(tokens) + "\n", encoding="utf-8")
+            os.utime(path, (WROTE_AT, WROTE_AT))
+        return workspace
+
+    box.launched = _launched
+
+    def _rotate(task_id, **kwargs):
+        box.switches.append(SimpleNamespace(task_id=task_id, **kwargs))
+        entry = dict(kwargs.get("entry") or {})
+        entry.update({"session_id": f"{task_id}-next", "started_at": "2026-08-12T02:00:00Z"})
+        return SwitchOutcome(task_id=task_id, reason=kwargs.get("reason", ""),
+                             from_backend=kwargs.get("from_backend", CLAUDE),
+                             to_backend=kwargs.get("from_backend", CLAUDE),
+                             switched=True, entry=entry,
+                             new_session_id=entry["session_id"])
+
+    monkeypatch.setattr(orchestrator, "WORKSPACES", box.workspaces)
+    monkeypatch.setattr(orchestrator, "USAGE_JSON", tmp_path / "usage.json")
+    monkeypatch.setattr(orchestrator, "switch_task", _rotate)
+    monkeypatch.setattr(orchestrator, "resolve_model_limits", lambda name: ROW)
+    monkeypatch.setattr(orchestrator, "model_for", lambda role, backend=None, **kw: "a-model")
+    monkeypatch.setattr(
+        orchestrator, "get_backend",
+        lambda name: ClaudeBackend(usage_path=tmp_path / "usage.json", claude_home=box.home),
+    )
+    orchestrator._rotation_notices.clear()
+    yield box
+    orchestrator._rotation_notices.clear()
+
+
+def test_a_full_session_really_rotates(live, tmp_path):
+    """D4, end to end, on the real driver. This is what A4 shipped unable to do."""
+    entry = _entry(tmp_path)
+    live.launched(entry["session_id"], UUID_ONE, tokens=130_000)
+
+    assert orchestrator._context_rotations([entry], None, {}) == 1
+    assert live.switches[0].reason == REASON_CONTEXT
+
+
+def test_the_operators_own_context_still_rotates_nobody(live, tmp_path):
+    """The defect, in the shape it actually had. `usage.json` says 228 972 tokens, well
+    over the mark; the implementer has written no transcript. Nothing may move."""
+    entry = _entry(tmp_path)
+    live.launched(entry["session_id"], UUID_ONE, tokens=None)     # launched, no turn yet
+
+    assert orchestrator._context_rotations([entry], None, {}) == 0
+    assert live.switches == []
+
+
+def test_only_the_session_that_is_full_rotates(live, tmp_path):
+    """Two implementers on one backend, one full and one fresh. Per-backend sampling
+    could only ever have moved both or neither."""
+    full = _entry(tmp_path, sid="impl-T1-1", task_id="T1")
+    fresh = _entry(tmp_path, sid="impl-T2-1", task_id="T2")
+    live.launched(full["session_id"], UUID_ONE, tokens=130_000)
+    live.launched(fresh["session_id"], UUID_TWO, tokens=20_000)
+
+    in_flight = [full, fresh]
+    assert orchestrator._context_rotations(in_flight, None, {}) == 1
+    assert [switch.task_id for switch in live.switches] == ["T1"]
+
+
+def test_a_reading_from_before_the_launch_still_rotates_nobody(live, tmp_path):
+    """A4's freshness guard, now fed by a real transcript: the mtime is the moment the
+    agent last wrote a turn, so a transcript that has not moved since the rotation cannot
+    justify the next one."""
+    entry = _entry(tmp_path)
+    entry["started_at"] = "2026-08-12T02:00:00Z"      # relaunched after the last turn
+    live.launched(entry["session_id"], UUID_ONE, tokens=130_000)
+
+    assert orchestrator._context_rotations([entry], None, {}) == 0
+    assert live.switches == []
+
+
+def test_the_rotation_cap_still_bounds_a_real_reading(live, tmp_path):
+    """`MAX_CONTEXT_ROTATIONS` is defence-in-depth against exactly this situation — a
+    feed that is live, is attributed, and keeps reporting a full context. Turning the
+    feed on is not a reason to relax it."""
+    entry = _entry(tmp_path)
+    entry["context_rotations"] = orchestrator.MAX_CONTEXT_ROTATIONS
+    live.launched(entry["session_id"], UUID_ONE, tokens=130_000)
+
+    assert orchestrator._context_rotations([entry], None, {}) == 0
+    assert live.switches == []
+
+
+def test_a_real_rotation_counts_itself_towards_the_cap(live, tmp_path):
+    entry = _entry(tmp_path)
+    live.launched(entry["session_id"], UUID_ONE, tokens=130_000)
+
+    orchestrator._context_rotations([entry], None, {})
+
+    assert live.switches[0].entry["context_rotations"] == 1

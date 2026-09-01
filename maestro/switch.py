@@ -73,6 +73,7 @@ from typing import Any, Callable, Iterable, Mapping, Optional
 from maestro import limits, roles
 from maestro.backends import registry
 from maestro.backends.base import Handle, LaunchSpec, Usage
+from maestro.config import threshold
 from maestro.hitl.telegram import notify_telegram
 from maestro.implementer import SYS_PROMPT, brief_with_profile
 from maestro.paths import Paths
@@ -149,20 +150,21 @@ DEFAULT_GRACE_SEC = 120.0
 #: How often liveness is re-checked while waiting out the grace period.
 GRACE_POLL_SEC = 5.0
 
-#: **Provisional** (see the plan's open questions). Deliberately *below*
-#: `maestro.quota.THROTTLE_75_PCT` so that a task switches before the existing throttle
-#: would start starving the queue, and deliberately a separate constant: the quota
-#: constants govern concurrency, not backend choice, and repurposing one would couple two
-#: unrelated policies. Calibration waits until switching has run in anger.
+#: Deliberately *below* `maestro.quota.THROTTLE_75_PCT` so that a task switches before
+#: the existing throttle would start starving the queue, and deliberately a separate
+#: constant: the quota constants govern concurrency, not backend choice, and repurposing
+#: one would couple two unrelated policies. Calibration waits until switching has run in
+#: anger; now configurable via `thresholds: { switch_threshold_pct: ... }` in `project.yaml`,
+#: falling back to 70.0.
 #:
-#: This is the *only* usage threshold anything enforces, and it is not configurable.
-#: `project.yaml` used to declare a `switch.on_usage_threshold: {five_hour_pct, weekly_pct}`
-#: block that no code ever read; it was removed on 2026-08-21 rather than wired, because
-#: its per-window shape contradicts how the check actually works — `threshold_crossed()`
-#: compares one limit against `Usage.max_used_pct()`, the most-consumed window, precisely
-#: so an account whose only window is the unnamed one still trips it (finding G5). Making
-#: this configurable means adding a single window-agnostic knob, not restoring that block.
-SWITCH_THRESHOLD_PCT = 70.0
+#: This is the *only* usage threshold anything enforces. `project.yaml` used to declare
+#: a `switch.on_usage_threshold: {five_hour_pct, weekly_pct}` block that no code ever read;
+#: it was removed on 2026-08-21 rather than wired, because its per-window shape contradicts
+#: how the check actually works — `threshold_crossed()` compares one limit against
+#: `Usage.max_used_pct()`, the most-consumed window, precisely so an account whose only
+#: window is the unnamed one still trips it (finding G5). Making this configurable means
+#: adding a single window-agnostic knob, not restoring that block.
+SWITCH_THRESHOLD_PCT = threshold("switch_threshold_pct", 70.0, cast=float)
 
 #: Reasons, journalled verbatim as `reason=<...>`.
 REASON_QUOTA = "quota_exhausted"

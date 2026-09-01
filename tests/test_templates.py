@@ -409,3 +409,18 @@ def test_project_yaml_does_not_redeclare_the_removed_usage_threshold_block():
     template = (TEMPLATES_DIR / "project.yaml.tmpl").read_text(encoding="utf-8")
     parsed = yaml.safe_load(template) or {}
     assert "on_usage_threshold" not in (parsed.get("switch") or {})
+
+
+def test_project_yaml_declares_switch_threshold_pct():
+    """Verifies that C3/G6b wiring is complete: `switch_threshold_pct` is declared in
+    the template's `thresholds:` block alongside the two sibling knobs, so an adopting
+    operator can discover and tune it without reading source code."""
+    template = (TEMPLATES_DIR / "project.yaml.tmpl").read_text(encoding="utf-8")
+    parsed = yaml.safe_load(template) or {}
+    thresholds = parsed.get("thresholds") or {}
+    assert "switch_threshold_pct" in thresholds, (
+        "switch_threshold_pct must be declared in the thresholds: block of the template"
+    )
+    assert thresholds["switch_threshold_pct"] == 70, (
+        "switch_threshold_pct default must match the code default (70)"
+    )

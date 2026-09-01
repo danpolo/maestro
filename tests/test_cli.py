@@ -85,6 +85,32 @@ def _is_executable(path: Path) -> bool:
     return os.access(path, os.X_OK) and bool(stat.S_IMODE(path.stat().st_mode) & 0o111)
 
 
+def _path_shadowing_agent_clis(shadow_dir: Path) -> str:
+    """`$PATH` with a directory of harmless `claude`/`codex` stubs prepended ahead of
+    everything else, so those two names resolve to the stubs instead of the real CLIs —
+    or, on this machine, instead of an *unrelated* `codex` that also happens to sit on
+    `/usr/bin`/`/bin` (some other package's binary; confirmed by hand while writing this
+    helper), which a naive "strip any PATH entry containing codex" approach would have
+    caught along with `python3` and broken every adapter.
+
+    `doctor`'s new C7 `model_ids` check (and C5's existing `backends` check) both call the
+    real CLI's binary when not given an injected stub — harmless for `backends`'
+    `--version` probe, but `model_ids` runs a real (if bounded) `-p`/`exec` turn, which is
+    neither cheap nor something a test may do (`maestro/backends/registry.py`'s "no test
+    may execute a real agent CLI" rule). A `doctor` invoked through `_run_cli` is a genuine
+    subprocess with no seam to inject a stub through, so PATH-shadowing — the same
+    technique `test_run_requires_the_shared_agents_tmux_session` already uses for `tmux` —
+    is the only lever available. Each stub exits `1` immediately with no output, which
+    both checks read as "not this backend's rejection marker" (safe) without ever
+    executing anything real."""
+    shadow_dir.mkdir(exist_ok=True)
+    for name in ("claude", "codex"):
+        stub = shadow_dir / name
+        stub.write_text("#!/bin/sh" + chr(10) + "exit 1" + chr(10))
+        stub.chmod(0o755)
+    return f"{shadow_dir}{os.pathsep}{os.environ.get('PATH', '')}"
+
+
 # ── init: scaffold + idempotent re-run ──
 
 
@@ -199,13 +225,22 @@ def test_init_rejects_a_non_git_directory(tmp_path):
 # ── doctor ──
 
 
-def test_doctor_healthy_project_fails_only_on_the_unwired_test_adapter(_healthy_project):
+def test_doctor_healthy_project_fails_only_on_the_unwired_test_adapter(_healthy_project, tmp_path):
     """A freshly-scaffolded project's `adapters/test` stub deliberately fails until a real
     tests/ dir exists (see `templates/adapters/test`'s own docstring) — so `doctor` correctly
     reports the *required* adapter check as FAIL and exits non-zero, while every optional
-    check passes or only nags. This is intentional D8 honesty, not a broken fixture."""
+    check passes or only nags. This is intentional D8 honesty, not a broken fixture.
+
+    The scaffolded `project.yaml` carries real model ids (`templates/project.yaml.tmpl`'s
+    `roles:` example), so `doctor`'s `model_ids` check would otherwise probe the real
+    `claude`/`codex` CLIs for real through this genuine subprocess — there is no seam to
+    inject a stub through here. `_path_shadowing_agent_clis` shadows both with harmless
+    stubs so that probe (and C5's `backends` one) fails fast instead."""
     root, _ = _healthy_project
-    proc = _run_cli("doctor", "--repo", str(root), timeout=60)
+    proc = _run_cli(
+        "doctor", "--repo", str(root), timeout=60,
+        extra_env={"PATH": _path_shadowing_agent_clis(tmp_path / "shadow-bin")},
+    )
     assert proc.returncode == 1
     assert "[OK  ] docs:" in proc.stdout
     assert "[FAIL] adapter:test:" in proc.stdout
@@ -360,6 +395,192 @@ def test_check_backends_passes_when_every_chain_backend_is_present(monkeypatch, 
     check = cli._check_backends(Path("/unused"))
     assert check.ok
     assert "claude" in check.detail and "codex" in check.detail
+
+
+# ── doctor: model_ids (C7 part 2) ──
+#
+# `_check_model_limits` only ever checked that a ceiling-table *row* exists for a
+# configured model — it never asked the backend's own CLI whether the model id itself is
+# one it recognises, so a typo in project.yaml's `roles:` block passed `doctor` cleanly
+# and only surfaced later as `claude -p --model <typo>` crashing an implementer mid-task.
+# `_check_model_ids` closes that gap. No test here may execute a real agent CLI
+# (`maestro/backends/registry.py`'s rule) — `_probe_model_id`'s `run` parameter is the
+# injectable seam, exactly like `_probe_version`.
+
+def test_probe_model_id_reports_invalid_when_the_cli_prints_its_own_rejection_marker():
+    """The offline-safe signal this probe is built on: both real CLIs print a
+    client-side "I don't know this model" marker before ever reaching the network
+    (verified by hand, offline, while designing this check — see task-C7-report.md).
+    Presence of that marker is the ONLY thing that marks a model invalid."""
+    from maestro import cli
+
+    def fake_run(argv, *, timeout):
+        assert timeout == cli.MODEL_PROBE_TIMEOUT_SEC
+        return "blah blah [claude-code:unrecognized_model] {...}"
+
+    invalid, detail = cli._probe_model_id("claude", "totally-bogus", run=fake_run)
+    assert invalid is True
+    assert "totally-bogus" in detail
+
+
+def test_probe_model_id_is_offline_tolerant_a_timeout_is_not_proof_of_an_invalid_model():
+    """The other half of the contract: when the probe can prove nothing (here: a
+    subprocess timeout, standing in for an unreachable network — see
+    `_run_model_probe`'s docstring for why the real runner is bounded and always
+    returns rather than raising), `doctor` must not fail the check on a guess."""
+    from maestro import cli
+
+    def fake_run(argv, *, timeout):
+        return ""  # no marker seen -- inconclusive, e.g. offline before any output
+
+    invalid, detail = cli._probe_model_id("claude", "claude-sonnet-5", run=fake_run)
+    assert invalid is False
+
+
+def test_probe_model_id_skips_cleanly_for_a_backend_with_no_probe_defined():
+    from maestro import cli
+
+    def _fail_if_called(argv, *, timeout):
+        raise AssertionError("no probe is defined for this backend")
+
+    invalid, detail = cli._probe_model_id("carrier-pigeon", "model-x", run=_fail_if_called)
+    assert invalid is False
+    assert "carrier-pigeon" in detail
+
+
+def test_check_model_ids_fails_when_a_configured_model_is_rejected_by_its_own_cli(monkeypatch):
+    from maestro import cli
+    from maestro import config as _config
+
+    cfg = {
+        "roles": {
+            "implementer": {"backend": "claude", "models": {"claude": "claude-sonnet-5-typo"}},
+        },
+    }
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+
+    def fake_run(argv, *, timeout):
+        return "[claude-code:unrecognized_model]"
+
+    check = cli._check_model_ids(Path("/unused"), run=fake_run)
+    assert not check.ok
+    assert "claude-sonnet-5-typo" in check.detail
+
+
+def test_check_model_ids_passes_and_probes_every_backend_model_pair(monkeypatch):
+    from maestro import cli
+    from maestro import config as _config
+
+    cfg = {
+        "roles": {
+            "implementer": {"backend": "claude", "models": {"claude": "claude-sonnet-5"}},
+            "judge": {"backend": "claude", "models": {"claude": "claude-sonnet-5"}},
+            "diagnoser": {"backend": "codex", "models": {"codex": "gpt-5.6-sol"}},
+        },
+    }
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+
+    seen = []
+
+    def fake_run(argv, *, timeout):
+        seen.append(tuple(argv))
+        return ""
+
+    check = cli._check_model_ids(Path("/unused"), run=fake_run)
+    assert check.ok
+    # implementer and judge share the same (claude, claude-sonnet-5) pair -- probed once.
+    assert len(seen) == 2
+
+
+def test_check_model_ids_passes_cleanly_with_no_models_declared(monkeypatch):
+    from maestro import cli
+    from maestro import config as _config
+
+    def _fail_if_called(argv, *, timeout):
+        raise AssertionError("nothing configured -- must not probe anything")
+
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: {})
+
+    check = cli._check_model_ids(Path("/unused"), run=_fail_if_called)
+    assert check.ok
+    assert "nothing to probe" in check.detail
+
+
+# ── review round 1 (2026-09-01): aggregate probe budget + honest confirmation wording ──
+#
+# The reviewer hand-traced the real template roster (`templates/project.yaml.tmpl`):
+# implementer/judge/diagnoser's `models:` maps carry FOUR distinct (backend, model) pairs,
+# not two -- (claude, claude-sonnet-5), (claude, claude-opus-5), (codex, gpt-5.6-terra),
+# (codex, gpt-5.6-sol) -- so a fully offline `doctor` run used to cost 4 * 8s = 32s with no
+# ceiling as more roles/backends are added. `MODEL_PROBE_BUDGET_SEC` bounds the aggregate;
+# these tests pin that a fake `run` that actually consumes wall-clock time (via `time.sleep`)
+# stops being called once the budget is spent, and that a clean run never claims a model
+# is "confirmed" -- this probe can only ever prove a model id is *bad*.
+
+def test_check_model_ids_stops_probing_once_the_aggregate_time_budget_is_exhausted(monkeypatch):
+    from maestro import cli
+    from maestro import config as _config
+    import time as _time
+
+    cfg = {
+        "roles": {
+            "implementer": {"backend": "claude", "models": {"claude": "model-a"}},
+            "judge": {"backend": "claude", "models": {"claude": "model-b"}},
+            "diagnoser": {"backend": "codex", "models": {"codex": "model-c"}},
+        },
+    }
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+    monkeypatch.setattr(cli, "MODEL_PROBE_BUDGET_SEC", 0.05)
+
+    calls = []
+
+    def fake_run(argv, *, timeout):
+        calls.append(tuple(argv))
+        _time.sleep(0.03)
+        return ""
+
+    check = cli._check_model_ids(Path("/unused"), run=fake_run)
+    assert check.ok
+    # 0.03s/call against a 0.05s budget: the 1st call always runs (elapsed 0 < 0.05), the
+    # 2nd still starts (elapsed 0.03 < 0.05), the 3rd must not (elapsed 0.06 >= 0.05) --
+    # bounded regardless of how many pairs are configured, not merely "fewer than before".
+    assert len(calls) == 2
+    assert "budget" in check.detail
+
+
+def test_check_model_ids_never_claims_a_clean_result_confirms_a_model_works(monkeypatch):
+    """The minor the reviewer folded in: `"probed N model id(s)"` read as a claim of N
+    confirmations, but a marker-less result only ever means "this CLI did not (yet) say
+    it's bad" -- it is never proof the model works. The wording must say so."""
+    from maestro import cli
+    from maestro import config as _config
+
+    cfg = {"roles": {"implementer": {"backend": "claude", "models": {"claude": "claude-sonnet-5"}}}}
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+
+    check = cli._check_model_ids(Path("/unused"), run=lambda argv, *, timeout: "")
+    assert check.ok
+    assert "confirmed invalid" in check.detail
+    assert "probed 1 model id(s)" not in check.detail
+
+
+def test_run_model_probe_survives_a_timeout_without_raising():
+    """The real subprocess seam, exercised directly (still no real CLI: the executable
+    invoked is `sleep`, standing in for a hung `claude`/`codex` behind an unreachable
+    network -- see the module docstring's offline finding)."""
+    from maestro import cli
+
+    output = cli._run_model_probe(["sleep", "5"], timeout=0.2)
+    assert output == ""
+
+
+def test_run_model_probe_captures_partial_output_before_a_timeout_kill():
+    from maestro import cli
+
+    output = cli._run_model_probe(
+        ["bash", "-c", "echo marker-before-hang; sleep 5"], timeout=0.5
+    )
+    assert "marker-before-hang" in output
 
 
 # ── status ──

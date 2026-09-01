@@ -77,6 +77,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -559,6 +560,187 @@ def _check_model_limits(repo_root: Path) -> Check:
     return Check("model_limits", True, detail)
 
 
+# ── doctor: model_ids (C7 part 2) ──
+#
+# `_check_model_limits` above only ever asks `maestro.limits` whether a ceiling-table
+# *row* exists for a configured model name — it never asks the backend's own CLI whether
+# the model id itself is one it recognises. A typo (`claude-sonnet-5-typo`) has no row
+# either, so it would already fail `_check_model_limits` — but a *real*, differently-typo'd
+# id that happens to collide with an unrelated table row would sail through it and only
+# surface later as `claude -p --model <typo>` crashing an implementer mid-task. This check
+# asks the CLI directly, closing that gap independently of the ceiling table.
+#
+# **Cheap and offline-tolerant by construction.** Both real CLIs (verified by hand while
+# building this check, see `task-C7-report.md`) print a client-side "I don't recognise
+# this model" marker within a couple of seconds, *before* attempting any network call —
+# offline or online makes no difference to whether that marker appears. A **valid** model,
+# by contrast, prints nothing distinguishing before the CLI moves on to its real (network)
+# turn, which hangs forever with no network. So the probe is bounded by
+# `MODEL_PROBE_TIMEOUT_SEC` and kills the subprocess at that bound no matter what it was
+# doing, and the interpretation is asymmetric on purpose: the marker's *presence* is proof
+# the model is bad; its *absence* — including a timeout, meaning "offline, or just slow" —
+# proves nothing, and is never treated as a failure. A doctor check that fails on every
+# unlucky network hiccup would be worse than the typo it exists to catch.
+
+#: How long a model-id probe subprocess gets before it is killed. Comfortably above the
+#: ~2-4s both CLIs took (on this machine, online and offline alike) to print their own
+#: "unrecognised model" marker; comfortably below what a real turn would take, so an
+#: unreachable network — which makes the real CLI hang rather than fail — cannot stall
+#: `doctor` for long.
+MODEL_PROBE_TIMEOUT_SEC = 8.0
+
+#: Total wall-clock ceiling for `_check_model_ids`' whole loop, across every configured
+#: `(backend, model)` pair. `MODEL_PROBE_TIMEOUT_SEC` only bounds one probe — with no
+#: aggregate cap, cost still grows linearly and without limit as an operator adds roles
+#: or a third backend (review round 1, 2026-09-01: the real `templates/project.yaml.tmpl`
+#: roster already carries four distinct pairs, not the two this check was first measured
+#: against, so a fully offline `doctor` run cost 4 * 8s = 32s with nothing stopping a
+#: fifth or sixth pair from adding another 8s each). Set to exactly two probe timeouts:
+#: `_check_model_ids` checks this budget *before* starting each probe, so at most two full
+#: `MODEL_PROBE_TIMEOUT_SEC`-length probes ever run in one `doctor` invocation, however
+#: many pairs are configured — the remainder are reported unchecked rather than probed.
+MODEL_PROBE_BUDGET_SEC = 2 * MODEL_PROBE_TIMEOUT_SEC
+
+#: Per-backend: the flags (everything *after* the binary name) that ask its CLI about one
+#: model id as cheaply as possible — a minimal one-word turn, always killed well before it
+#: could run for real — and the substring in its output that means "no, I don't know this
+#: model", printed locally, before any network attempt, by that backend's own CLI. A
+#: backend with no entry here is skipped by `_probe_model_id` rather than guessed at.
+#:
+#: Deliberately **not** a full `["claude", "-p", ...]` argv: `tests/test_one_shot_agent_
+#: calls.py` bans a literal backend name heading an argv list anywhere outside a driver,
+#: because that shape is what a *feature* looks like when it bypasses `maestro.agentcall`
+#: and hardcodes one backend. This probe is not that — it deliberately targets one named
+#: backend's own CLI to validate a model id configured *for that backend specifically* —
+#: but the fix is the same either way: the binary name comes from `registry.driver_ref`,
+#: not a literal here, exactly like `_check_backends` above already resolves it.
+_MODEL_PROBE_FLAGS: dict[str, Callable[[str], list[str]]] = {
+    "claude": lambda model: ["-p", "--model", model, "ping"],
+    "codex": lambda model: ["exec", "--model", model, "ping"],
+}
+_MODEL_PROBE_INVALID_MARKER: dict[str, str] = {
+    "claude": "claude-code:unrecognized_model",
+    "codex": "Model metadata for",
+}
+
+
+def _run_model_probe(argv: list[str], *, timeout: float) -> str:
+    """Real subprocess runner for `_probe_model_id`. Stdin is closed (`DEVNULL`) so a CLI
+    that would otherwise wait on interactive input fails fast instead of hanging for a
+    different reason. Always bounded by `timeout` and never raises: a `TimeoutExpired` is
+    caught and whatever text the process had already produced is returned (subprocess
+    captures partial output up to the kill, even though `text=True` does not decode it in
+    that path — decoded here by hand), and a missing binary or any other `OSError`
+    degrades to `""`, same as "no marker seen". The only thing in this module that
+    executes an agent CLI; `_probe_model_id`'s `run` parameter lets every test replace it
+    (no test may execute a real agent CLI, `maestro/backends/registry.py`'s rule)."""
+    try:
+        proc = subprocess.run(
+            argv, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout,
+        )
+        return (proc.stdout or "") + (proc.stderr or "")
+    except subprocess.TimeoutExpired as exc:
+        out, err = exc.stdout or "", exc.stderr or ""
+        if isinstance(out, bytes):
+            out = out.decode("utf-8", "replace")
+        if isinstance(err, bytes):
+            err = err.decode("utf-8", "replace")
+        return out + err
+    except OSError:
+        return ""
+
+
+def _probe_model_id(
+    backend: str, model: str, *, run: Optional[Callable[..., str]] = None,
+) -> tuple[bool, str]:
+    """Ask `backend`'s own CLI whether it recognises `model`. Returns `(invalid, detail)`:
+    `invalid=True` only when that CLI's own client-side rejection marker was seen in the
+    probe's output — every other outcome (an unsupported backend, a timeout, a clean exit
+    with nothing recognisable) reports `invalid=False`, because none of those is proof the
+    model is bad; this machine could simply be offline. `run` defaults to the real
+    `_run_model_probe` and is the seam every test injects a stub through."""
+    from maestro.backends import registry as _registry
+
+    build_flags = _MODEL_PROBE_FLAGS.get(backend)
+    marker = _MODEL_PROBE_INVALID_MARKER.get(backend)
+    if build_flags is None or marker is None:
+        return False, f"{backend}: no probe defined for this backend — skipped"
+    try:
+        binary = _registry.driver_ref(backend).binary
+    except _registry.UnknownBackend:
+        return False, f"{backend}: not a registered backend — skipped"
+    argv = [binary] + build_flags(model)
+    output = (run or _run_model_probe)(argv, timeout=MODEL_PROBE_TIMEOUT_SEC)
+    if marker in output:
+        return True, f"{backend} does not recognise model id {model!r}"
+    return False, ""
+
+
+def _check_model_ids(repo_root: Path, *, run: Optional[Callable[..., str]] = None) -> Check:
+    """`doctor`'s C7 check: probe each *configured* `(backend, model)` pair from
+    `project.yaml`'s `roles:` block against that backend's own CLI, so a typo fails here
+    instead of reaching `claude -p --model <typo>` mid-task. `run` is `_probe_model_id`'s
+    injectable subprocess seam (default: the real `_run_model_probe`); tests always pass a
+    stub, per this module's "no test may execute a real agent CLI" rule.
+
+    **Not `required`** (`Check.required` defaults to `False`, unset here exactly like the
+    pre-existing `_check_model_limits`), which is what makes this check's known blind spot
+    tolerable rather than merely disclosed: a false positive from either CLI's own
+    allowlist marker firing on a model it simply doesn't have cached metadata for yet
+    (observed for Codex; nothing rules out the identical failure mode for Claude's
+    `claude-code:unrecognized_model` marker, which is the same class of client-side
+    allowlist) prints as `[WARN]`, not `[FAIL]` — it never trips `cmd_doctor`'s
+    `if check.required and not check.ok` and never fails the pre-commit fast path (this
+    check does not run under `--pre-commit` at all).
+
+    **Bounded, and honest about what "clean" means.** At most `MODEL_PROBE_BUDGET_SEC`
+    worth of probing runs per invocation, however many pairs are configured — pairs beyond
+    that are reported unchecked, not probed. And because this probe can only ever *prove*
+    a model id is bad (its own CLI's rejection marker appeared) and never prove one is
+    good (a valid model gives no distinguishing signal before its real, network-bound turn
+    — see `_probe_model_id`), a clean result says exactly that: 0 confirmed invalid among
+    however many were actually checked, not "N confirmed working"."""
+    from maestro import config as _config
+    cfg = _config.load_project_yaml()
+    pairs: set[tuple[str, str]] = set()
+    for role in (cfg.get("roles") or {}).values():
+        if not isinstance(role, dict):
+            continue
+        for backend, model in (role.get("models") or {}).items():
+            if isinstance(backend, str) and isinstance(model, str) and model.strip():
+                pairs.add((backend.strip().lower(), model.strip()))
+    if not pairs:
+        return Check("model_ids", True, "no models declared in project.yaml roles — nothing to probe")
+
+    invalid: list[str] = []
+    notes: list[str] = []
+    unchecked: list[str] = []
+    start = time.monotonic()
+    for backend, model in sorted(pairs):
+        if time.monotonic() - start >= MODEL_PROBE_BUDGET_SEC:
+            unchecked.append(f"{backend}:{model}")
+            continue
+        bad, detail = _probe_model_id(backend, model, run=run)
+        if bad:
+            invalid.append(f"{backend}:{model}")
+        elif detail:
+            notes.append(detail)
+
+    if invalid:
+        return Check("model_ids", False, f"rejected by their own CLI: {', '.join(invalid)}")
+
+    checked = len(pairs) - len(unchecked)
+    detail = (
+        f"0 confirmed invalid among {checked} checked (a clean probe rules out a "
+        "known-bad id, it does not confirm a working one)"
+    )
+    if unchecked:
+        detail += f"; {len(unchecked)} not checked (probe time budget exhausted): {', '.join(unchecked)}"
+    if notes:
+        detail += f"; {len(notes)} note(s): {'; '.join(notes)}"
+    return Check("model_ids", True, detail)
+
+
 def _check_backends(repo_root: Path) -> Check:
     from maestro import config as _config
     from maestro import roles as _roles
@@ -679,6 +861,7 @@ def cmd_doctor(repo_root: Path, *, pre_commit: bool = False,
         cfg = _config.load_project_yaml()
         project_name = (cfg.get("project") or {}).get("name") or repo_root.name
         checks.append(_check_model_limits(repo_root))
+        checks.append(_check_model_ids(repo_root))
         checks.append(_check_backends(repo_root))
         checks.append(_check_telegram(repo_root, http_get))
         checks.append(_check_systemd_unit(repo_root, project_name))

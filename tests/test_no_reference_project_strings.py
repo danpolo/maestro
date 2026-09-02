@@ -115,6 +115,8 @@ import re
 import tokenize
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = REPO / "maestro"
 TESTS_DIR = REPO / "tests"
@@ -187,7 +189,12 @@ def _comment_texts(source: str) -> list[tuple[int, str]]:
         for tok in tokenize.generate_tokens(io.StringIO(source).readline):
             if tok.type == tokenize.COMMENT:
                 comments.append((tok.start[0], tok.string))
-    except (tokenize.TokenizeError, SyntaxError, IndentationError):
+    except (tokenize.TokenError, SyntaxError, IndentationError):
+        # `tokenize.TokenError` — NOT `TokenizeError`, which does not exist. Python only
+        # evaluates an `except` tuple when an exception actually reaches it, so the wrong
+        # spelling sat here inert: the first unparseable comment would have raised
+        # `AttributeError` out of the handler meant to swallow it. Reached by
+        # `test_comment_scanning_degrades_on_source_it_cannot_tokenize`.
         pass
     return comments
 
@@ -599,3 +606,49 @@ def test_orchestrator_proof_of_absence_still_exempt_after_both_fixes():
     docstring or a comment."""
     path = TESTS_DIR / "characterization" / "test_orchestrator.py"
     assert _scan_file(path, maestro_only=False) == []
+
+
+# ---------------------------------------------------------------------------
+# The comment scanner's own failure mode
+
+
+def test_tokenize_has_no_TokenizeError_which_is_why_the_handler_was_inert():
+    """The finding, stated as an assertion. `tokenize.TokenizeError` has never existed;
+    the real name is `TokenError`. Naming the wrong one in an `except` tuple is silent
+    until something is actually raised at it, at which point the handler that exists to
+    degrade gracefully raises `AttributeError` instead."""
+    assert not hasattr(tokenize, "TokenizeError")
+    assert issubclass(tokenize.TokenError, Exception)
+
+
+@pytest.mark.parametrize(
+    "label,source",
+    [
+        # `TokenError`: the tokenizer hits EOF inside an unclosed bracket.
+        ("unclosed bracket", "# a RAG archive comment\nx = (1,\n"),
+        # `IndentationError`: a dedent that matches no enclosing level.
+        ("dedent mismatch",
+         "# a RAG archive comment\nif x:\n    a = 1\n  b = 2\n"),
+    ],
+)
+def test_comment_scanning_degrades_on_source_it_cannot_tokenize(label, source):
+    """The handler, reached. Unparseable source must come back as a list, not as an
+    exception thrown out of a gate — and `tokenize.generate_tokens` is a generator, so
+    the comments it yielded *before* it gave up are kept rather than discarded. Both
+    halves are asserted: no raise, and the partial result is the useful one.
+
+    `_scan_file` runs `ast.parse` before it gets here and would reject both of these
+    sources earlier, so this calls `_comment_texts` directly — the function that owns the
+    handler. That is the point: a helper's failure path has to be exercised where it
+    lives, or it stays "unreachable" until the day something else calls it, and then it
+    raises `AttributeError` from inside the `except` meant to swallow it.
+    """
+    found = _comment_texts(source)                      # must not raise
+    assert [text for _, text in found] == ["# a RAG archive comment"]
+
+
+def test_comment_scanning_still_returns_comments_it_can_tokenize():
+    """The other direction, so the test above cannot be satisfied by a scanner that
+    returns `[]` for everything."""
+    found = _comment_texts("x = 1  # a RAG archive comment\n")
+    assert [text for _, text in found] == ["# a RAG archive comment"]

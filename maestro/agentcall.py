@@ -20,6 +20,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional, Sequence
 
+from maestro import quota
 from maestro import roles
 from maestro.backends import registry
 from maestro.backends.base import Completion, CompletionSpec
@@ -51,25 +52,27 @@ def resolve_call(role: object, *, model: str = "") -> tuple[str, str]:
     resolution itself is testable without a driver.
 
     The operator's `/backend <name>` leads and the role's fallback chain follows, via
-    `roles.resolve(role, preferred=operator_backend() or None)` — the same call
-    `implementer._implementer_backend` makes (C4, readiness queue). `orchestrator.
-    _launch_backend` produces the same *order of preference* today but not through this
-    function or that one: it still does `operator_backend() or backend_for(...)`, a hard
-    short-circuit on the pin rather than handing it to `resolve` as a preference. The
-    three agree only because none of them is fed `exhausted=`/`available=` data yet, so
-    `resolve` always returns its preferred head unchanged — the moment one of them is,
-    all three must move together (deferred item `A6`), or the `in_flight` entry
-    `_launch_backend` records can name a backend the task is not actually running on.
-    Honouring the order here matters regardless: an operator who switches backends
-    because one is rate limited means it for the judge and the diagnoser too, not just
-    the implementer.
+    `roles.resolve(role, preferred=operator_backend() or None, exhausted=...)` — the same
+    call `implementer._implementer_backend` and `orchestrator._launch_backend` make
+    (C4, then A6, readiness queue). **A6 (2026-09-02)** is what made all three actually
+    agree: `exhausted=quota.exhausted_backends()` is the timed per-backend record
+    `orchestrator.reconcile_in_flight` writes when a real exit is classified
+    `quota_exhausted`, so a pin currently recorded as exhausted is skipped here exactly
+    as it is on the other two paths, and the fallback chain is walked instead. All three
+    must keep reading that same set together — see `_launch_backend`'s own docstring for
+    why a divergence would make the `in_flight` entry it records name a backend the task
+    is not actually running on. Honouring the order here matters regardless: an operator
+    who switches backends because one is rate limited means it for the judge and the
+    diagnoser too, not just the implementer.
 
     An explicit `model` wins over the role's table — `/redo` and self-fix pin a model per
     task — and the role's model for the resolved backend fills in otherwise. Note that is
     the model for *the backend that won*, not for the configured one, so a call that falls
     through the chain does not carry the wrong CLI's model id with it.
     """
-    outcome = roles.resolve(role, preferred=operator_backend() or None)
+    outcome = roles.resolve(
+        role, preferred=operator_backend() or None, exhausted=quota.exhausted_backends()
+    )
     return outcome.backend, (model or outcome.model or "")
 
 

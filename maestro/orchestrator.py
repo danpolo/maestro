@@ -62,6 +62,7 @@ from maestro.implementer import (
     _synthesize_sentinel,
     launch_implementer,
     operator_backend,
+    resolve_launch_model,
 )
 from maestro.limits import resolve as resolve_model_limits
 from maestro import metrics
@@ -595,6 +596,26 @@ def _launch_backend() -> str:
         return ""
 
 
+def _launch_model(task: dict, backend: str) -> str:
+    """The model a fresh `launch_implementer(task, ..., backend)` will run under.
+
+    Recorded on the `in_flight` entry beside `backend`, and for the same reason: D4's
+    context ceiling is per *model*, so a record that named the wrong one would measure a
+    healthy conversation against a stranger's limit. Since C1 the role table alone is not
+    the answer — a task's own `model:` beats it — so this goes through the very function
+    the launch goes through (`implementer.resolve_launch_model`) rather than asking
+    `roles.model_for` a second, differently-shaped question.
+
+    `""` when resolution breaks, and `""` means *nothing was recorded*, never a guess:
+    `_context_rotations` then falls back to the role table exactly as it does for an
+    entry written before this key existed. Same degradation as `_launch_backend`.
+    """
+    try:
+        return resolve_launch_model(task, backend)[0] or ""
+    except Exception:
+        return ""
+
+
 def _entry_backend(entry: dict) -> str:
     """The backend an `in_flight` entry is running on.
 
@@ -1109,9 +1130,14 @@ def _context_rotations(in_flight: list, launch_times: dict,
     A2's per-poll usage memo, shared with the pressure check and the `usage.json` write,
     so this takes no third reading of any driver.
 
-    The ceiling is looked up **by the model the task was launched with** —
-    `roles.model_for`, the same resolution `launch_implementer` passes to `--model` — and
-    not by the model name the sample reports. A sample's `model` is a display name written
+    The ceiling is looked up **by the model the task was launched with** — the `model` the
+    launch stamped on the `in_flight` entry, falling back to `roles.model_for` for an entry
+    written before that key existed — and not by the model name the sample reports. The
+    role table is deliberately not the primary source: since C1 a task's own `model:`
+    overrides it at the launch site, so asking `roles.model_for` here measured every
+    overridden task against a model it was not running (`model: opus` on a sonnet role
+    default rotated ~20K early, discarding a healthy conversation). A sample's `model` is a
+    display name written
     for a human status line (`"Opus 5"`), which is in neither limits table and which no
     amount of normalising turns into the table's `"Claude Opus 5"`; keying on it made this
     trigger answer `False` on every claude task no matter how full the context was. The
@@ -1152,7 +1178,19 @@ def _context_rotations(in_flight: list, launch_times: dict,
                 )
         return rows[name]
 
-    def launch_model(backend: str) -> str:
+    def launch_model(entry: dict) -> str:
+        """The model this entry's agent is actually running under.
+
+        The entry's own `model` first — since C1 a task's `model:` beats the role table
+        at the launch site, so the role table is no longer the whole answer and asking it
+        would measure an overridden task against a model it is not running. `roles`
+        stands in only for an entry that predates the key: written before this shipped,
+        or hand-edited. Blank is "nothing recorded", not "a model called nothing".
+        """
+        recorded = str(entry.get("model") or "").strip()
+        if recorded:
+            return recorded
+        backend = _entry_backend(entry)
         if backend not in models:
             try:
                 models[backend] = model_for(ROLE_IMPLEMENTER, backend) or ""
@@ -1168,7 +1206,7 @@ def _context_rotations(in_flight: list, launch_times: dict,
         if sample is None:
             continue
         backend = _entry_backend(entry)
-        if not context_crossed(sample, launch_model(backend), resolve=resolve):
+        if not context_crossed(sample, launch_model(entry), resolve=resolve):
             continue
         if not _attributed_to(sample, entry):
             _rotation_notice(
@@ -1376,6 +1414,9 @@ def _do_retry(task_id: str, entry: dict, reason: str,
             # M2: which backend this retry actually runs on. `launch_implementer` was
             # handed the same name, so the record and the launch cannot diverge.
             "backend": carry_backend or _launch_backend(),
+            # D4/C1: and the model that name resolves to for *this* task — the retry may
+            # be staying on a non-default backend, and the task may override the table.
+            "model": _launch_model(task, carry_backend or _launch_backend()),
         }
         tried = entry.get("backends_tried")
         if isinstance(tried, (list, tuple)) and tried:
@@ -2043,6 +2084,10 @@ def main() -> int:
                 "worktree": str(worktree), "window": f"impl-{task_id}",
                 "branch": branch, "started_at": now_iso(), "status": "running",
                 "backend": _launch_backend(),   # M2: which backend this task runs on
+                # D4/C1: and which model on it — the ceiling this task's context is
+                # measured against. `launch_implementer` resolved the same answer through
+                # the same function, so the record and the launch cannot diverge.
+                "model": _launch_model(task, _launch_backend()),
             }
             in_flight.append(new_entry)
             running_task_ids.add(task_id)

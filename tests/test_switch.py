@@ -528,7 +528,13 @@ def test_journal_record_keeps_its_five_fields(dirty_worktree, previous_workspace
     switches = [r for r in records if r["event"] == switch.SWITCH_EVENT]
     assert len(switches) == 1
     assert set(switches[0]) == {"ts", "event", "agent", "session_id", "detail"}
-    assert switches[0]["detail"] == f"{TASK_ID} from={FROM} to={TO} reason=usage_threshold"
+    # Re-baselined when `model=` joined the flattened detail: one more field pinned,
+    # nothing relaxed. `reason=` is still last.
+    assert switches[0]["detail"] == (
+        # `config={}` declares no model for the target, so nothing resolves — recorded
+        # as `unset`, which is a value; blank would read as missing punctuation.
+        f"{TASK_ID} from={FROM} to={TO} model=unset reason=usage_threshold"
+    )
     assert switches[0]["session_id"] == OLD_SESSION
 
 
@@ -615,8 +621,10 @@ def test_an_existing_backend_key_is_read_as_the_source(dirty_worktree):
 
     assert outcome.from_backend == TO
     assert outcome.to_backend == FROM
+    # Re-baselined when `model=` joined the flattened detail: one more field pinned,
+    # nothing relaxed.
     assert recorder.events(switch.SWITCH_EVENT)[0][1] == (
-        f"{TASK_ID} from={TO} to={FROM} reason=quota_exhausted"
+        f"{TASK_ID} from={TO} to={FROM} model=claude-sonnet-5 reason=quota_exhausted"
     )
 
 
@@ -1168,8 +1176,11 @@ def test_a_rotation_is_journalled_distinctly_and_keeps_its_five_fields(
     rotations = [r for r in records if r["event"] == switch.ROTATE_EVENT]
     assert len(rotations) == 1
     assert set(rotations[0]) == {"ts", "event", "agent", "session_id", "detail"}
+    # Re-baselined when `model=` joined the flattened detail: one more field pinned,
+    # nothing relaxed.
     assert rotations[0]["detail"] == (
-        f"{TASK_ID} from={FROM} to={FROM} reason={switch.REASON_CONTEXT}"
+        f"{TASK_ID} from={FROM} to={FROM} model=claude-sonnet-5 "
+        f"reason={switch.REASON_CONTEXT}"
     )
     assert rotations[0]["session_id"] == OLD_SESSION
     assert [r for r in records if r["event"] == switch.SWITCH_EVENT] == []
@@ -1328,6 +1339,132 @@ def test_the_rotation_is_a_fourth_trigger_on_the_one_path(dirty_worktree, previo
     assert recorder.events(switch.ROTATE_EVENT)[0][1].endswith(
         f"reason={switch.REASON_CONTEXT}"
     )
+
+
+# ── which model a switch and a rotation launch under (C1 drift) ──
+#
+# Since C1 a task's `model:` key overrides the role table at the launch site, so the role
+# table is no longer the whole answer to "what is this task running on". A rotation's
+# contract is *same backend, fresh conversation* — the model is part of "same backend",
+# and re-resolving it from the role table quietly changes it. A cross-backend switch is
+# the opposite case: a model id is backend-specific, so the target's own must win.
+
+#: A role table that answers differently per backend, so "which one did it use" is visible.
+ROLE_MODELS = {
+    "roles": {"implementer": {"backend": FROM, "models": {FROM: "claude-sonnet-5",
+                                                          TO: "gpt-5-codex"}}}
+}
+
+
+def test_a_rotation_keeps_the_model_the_task_is_actually_running(
+    dirty_worktree, previous_workspace
+):
+    """The task carries a `model:` override, so the role table is not what it is running.
+
+    Re-resolving from the role table here would relaunch a rotation onto a *different*
+    model while telling the operator "same backend, fresh conversation" — and D4 measured
+    this task's ceiling against the overriding model, so the rotation would also land it
+    on a model whose ceiling nothing checked.
+    """
+    recorder = Recorder()
+    driver = FakeDriver(name=FROM)
+
+    outcome = switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM, model="claude-opus-5"),
+        config=ROLE_MODELS,
+        deps=_deps(recorder, driver),
+    )
+
+    assert driver.launched[0].model == "claude-opus-5"
+    assert outcome.entry["model"] == "claude-opus-5"
+
+
+def test_a_rotation_of_an_entry_with_no_model_falls_back_to_the_role_table(
+    dirty_worktree, previous_workspace
+):
+    """Entries written before the `model` key exists — already on disk when this ships,
+    or hand-edited — must rotate exactly as they did, on the role table's answer."""
+    recorder = Recorder()
+    driver = FakeDriver(name=FROM)
+
+    outcome = switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM),
+        config=ROLE_MODELS,
+        deps=_deps(recorder, driver),
+    )
+
+    assert driver.launched[0].model == "claude-sonnet-5"
+    # …and the entry it writes back records it, so the next rotation has an answer.
+    assert outcome.entry["model"] == "claude-sonnet-5"
+
+
+def test_a_cross_backend_switch_resolves_the_targets_own_model(
+    dirty_worktree, previous_workspace
+):
+    """The opposite case, and the reason the override is not simply carried everywhere:
+    a model id names a model on one backend and nothing at all on another. The entry the
+    switch writes back must name the model the *target* was launched with, not the stale
+    one copied off the outgoing entry."""
+    recorder = Recorder()
+    driver = FakeDriver(name=TO)
+
+    outcome = switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_QUOTA,
+        entry=_entry(dirty_worktree, backend=FROM, model="claude-opus-5"),
+        to_backend=TO,
+        config=ROLE_MODELS,
+        deps=_deps(recorder, driver),
+    )
+
+    assert outcome.to_backend == TO
+    assert driver.launched[0].model == "gpt-5-codex"
+    assert outcome.entry["model"] == "gpt-5-codex"
+
+
+def test_the_record_names_the_model_the_relaunch_ran_under(dirty_worktree):
+    """Nothing surfaced the model on this path, which is why a rotation could change it
+    unnoticed. `reason=` stays last so the flattened detail keeps its shape."""
+    recorder = Recorder()
+    driver = FakeDriver(name=FROM)
+
+    switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM, model="claude-opus-5"),
+        config=ROLE_MODELS,
+        deps=_deps(recorder, driver),
+    )
+
+    detail = recorder.events(switch.ROTATE_EVENT)[0][1]
+    assert detail == (
+        f"{TASK_ID} from={FROM} to={FROM} model=claude-opus-5 "
+        f"reason={switch.REASON_CONTEXT}"
+    )
+
+
+def test_an_unresolvable_model_is_recorded_as_unset_not_as_blank(dirty_worktree):
+    """`None` is not zero and it is not the empty string either: a model nothing could
+    resolve is *not measurable*, and the record says so rather than leaving `model=`
+    hanging where a real id would read as missing punctuation."""
+    recorder = Recorder()
+    driver = FakeDriver(name=TO)
+
+    switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=TO),
+        config={"roles": {"implementer": {"backend": TO, "models": {}}}},
+        deps=_deps(recorder, driver),
+    )
+
+    assert driver.launched[0].model == ""       # the driver picks its own default
+    detail = recorder.events(switch.ROTATE_EVENT)[0][1]
+    assert " model=unset " in detail
 
 
 def test_the_samples_display_name_is_not_a_table_key():

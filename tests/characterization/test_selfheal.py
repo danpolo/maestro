@@ -1790,12 +1790,28 @@ def test_main_notifies_on_a_successful_redo(redo_case):
 
 
 @REDO
-def test_main_success_notify_is_notebook_neutral_without_check_nb(redo_case):
+def test_main_success_notify_is_notebook_neutral_without_check_nb(
+    redo_case, monkeypatch, tmp_path
+):
     """B3: the success notify used to unconditionally say '(syntax-gated, re-uploaded)'
-    and 'Re-run the Colab' on every project, notebook or not. `redo_runner_subject` never
-    rebases `CHECK_NB` off the real worktree repo, which ships no `scripts/check_notebook.py`
-    — so `confinement.available(CHECK_NB)` is False here, and the notify must read like a
-    plain reship with no notebook/Colab/Drive wording."""
+    and 'Re-run the Colab' on every project, notebook or not. With
+    `confinement.available(CHECK_NB)` False, the notify must read like a plain reship with
+    no notebook/Colab/Drive wording.
+
+    `CHECK_NB` is pinned to a path that does not exist, the symmetric twin of the test
+    below pinning it to one that does. It used to assert instead that the *ambient* repo
+    ships no `scripts/check_notebook.py` — true of every maestro checkout, false of a
+    project that has one, which is precisely the configuration this branch exists to
+    serve. That made the test a statement about wherever pytest happened to be launched,
+    and `selfupdate.self_test` launched it (via a leaked `$MAESTRO_REPO`) inside the
+    orchestrated project: a live loop held 14 consecutive maestro versions red on this one
+    assertion from 2026-08-31. The leak is fixed at its root in
+    `maestro/selfupdate.py`; this test no longer depends on that fix, which is the point —
+    a branch's own precondition belongs to the test, not to the checkout around it.
+    """
+    monkeypatch.setattr(
+        redo_case.subject, "CHECK_NB", tmp_path / "absent" / "check_notebook.py"
+    )
     assert not redo_case.subject.CHECK_NB.exists()
     req_path, payload, _, _ = redo_case.write_request(task="P1")
     redo_case.state["commits"] = "abc1234 redo(P1): fix"

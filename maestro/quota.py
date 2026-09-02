@@ -5,6 +5,21 @@ import block, the derivation of the module-level path globals, and (since 2026-0
 the two thresholds that now come from `project.yaml` rather than being hardcoded, differ. Behavioural
 surprises are catalogued in `docs/FOUND_BUGS.md` and pinned by
 `tests/characterization/test_quota.py`; none of them is fixed here.
+
+**A6 (2026-09-02) adds one thing beside the extracted behaviour, not into it:**
+`record_backend_exhausted`/`exhausted_backends`, a timed *per-backend* record next to
+`paused_until`'s single global timestamp. `paused_until` cannot name a backend, so once
+the reactive net (`orchestrator.reconcile_in_flight`) discovers one is spent, every
+*later* fresh launch still resolves onto it and fails again until the pause's own reset —
+self-correcting each time, but one failed launch per new task instead of one per outage.
+`record_backend_exhausted` writes `backend -> reset_at` where that discovery already
+happens (no new detection: `reset_at` comes straight from the `ExitVerdict` the driver
+already returns); `exhausted_backends` reads it back as the `exhausted=` set
+`maestro.roles.resolve` already accepts, on the three fresh-launch call sites
+(`implementer._implementer_backend`, `orchestrator._launch_backend`,
+`agentcall.resolve_call`) that must move together. Expiry is automatic — once
+`now >= reset_at` a record is inert — and a missing/blank/unparseable `reset_at` is
+refused at write time and ignored at read time, never treated as "exhausted forever".
 """
 from __future__ import annotations
 
@@ -13,6 +28,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+from maestro.backends import registry
 from maestro.config import threshold
 from maestro.paths import Paths
 from maestro.pending import deferred
@@ -146,6 +162,92 @@ def _paused_until_epoch(state: dict) -> float:
             .replace(tzinfo=timezone.utc).timestamp()
     except Exception:
         return 0.0
+
+
+# ── Per-backend exhaustion record (A6) ──
+#
+# `state.json[EXHAUSTED_KEY]` is `{backend: reset_at}`, kept beside `paused_until`
+# rather than folded into it: `paused_until` has no backend name and this module's own
+# characterisation tests pin its exact shape (`tests/characterization/test_quota.py`),
+# so this is a new key, not a reinterpretation of the old one.
+
+#: state.json key for the record. Not declared in `project.yaml` — nothing here is
+#: operator configuration, it is bookkeeping the loop keeps for itself.
+EXHAUSTED_KEY = "backend_exhausted"
+
+
+def _exhaustion_epoch(reset_at: object) -> float:
+    """Epoch (UTC) for a Zulu ISO `reset_at`, or 0.0 when it cannot be trusted.
+
+    0.0 reads as "already in the past" everywhere this is compared against "now", which
+    is the fail-safe direction the binding constraint requires: a missing, blank,
+    non-string or malformed `reset_at` must never suppress a backend forever — it must
+    fail toward *not* suppressing it. A sibling of `_paused_until_epoch` rather than a
+    call to it: same shape, a different key, and kept separate so a future edit to one
+    can never accidentally move the other's pinned behaviour.
+    """
+    if not isinstance(reset_at, str) or not reset_at.strip():
+        return 0.0
+    try:
+        return datetime.strptime(reset_at, "%Y-%m-%dT%H:%M:%SZ")\
+            .replace(tzinfo=timezone.utc).timestamp()
+    except Exception:
+        return 0.0
+
+
+def record_backend_exhausted(backend: str, reset_at: str | None) -> None:
+    """Remember that `backend` is quota-exhausted until `reset_at`.
+
+    Called where `orchestrator.reconcile_in_flight` classifies a real exit as
+    `quota_exhausted` — no new detection, this only remembers the `ExitVerdict` the
+    driver already returned. Read back by `exhausted_backends`, so a *later* fresh
+    launch (`implementer._implementer_backend`, `orchestrator._launch_backend`,
+    `agentcall.resolve_call`) can skip this backend via `roles.resolve`'s `exhausted=`
+    instead of failing onto it again and rediscovering the same wall.
+
+    A blank, unparseable or already-past `reset_at` records nothing at all, rather than
+    a record that could never expire or that could never suppress anything: the first
+    would strand the backend forever, the second is just a wasted state write. A blank
+    `backend` name is refused the same way, before either check — `registry.
+    normalise_name` only folds case and whitespace, it does not validate membership, so
+    an unknown-but-non-blank name is still recorded; `exhausted_backends` comparing it
+    against a real fallback chain is what makes it inert. A hand-edited, non-mapping
+    `EXHAUSTED_KEY` on disk (a list, say) degrades to an empty table here exactly as it
+    already does on the read side, rather than raising.
+    """
+    name = registry.normalise_name(backend)
+    epoch = _exhaustion_epoch(reset_at)
+    if not name or epoch <= 0.0 or epoch <= datetime.now(timezone.utc).timestamp():
+        return
+    state = read_state()
+    existing = state.get(EXHAUSTED_KEY)
+    table = dict(existing) if isinstance(existing, dict) else {}
+    table[name] = reset_at
+    state[EXHAUSTED_KEY] = table
+    write_state(state)
+
+
+def exhausted_backends() -> frozenset[str]:
+    """Backends whose recorded exhaustion has not reset yet, right now.
+
+    Feeds `roles.resolve`'s `exhausted=` on every fresh-launch resolution. Fails toward
+    an empty set on anything that cannot be trusted — an unreadable or missing state
+    document, a table that is not a mapping, a name that is not a string, a `reset_at`
+    that is blank/unparseable/already past — because an empty set means "suppress
+    nothing", the direction the binding constraint requires; the opposite failure would
+    strand every future launch onto a backend that can never look cleared again.
+    """
+    try:
+        table = read_state().get(EXHAUSTED_KEY)
+    except Exception:
+        return frozenset()
+    if not isinstance(table, dict):
+        return frozenset()
+    now = datetime.now(timezone.utc).timestamp()
+    return frozenset(
+        name for name, reset_at in table.items()
+        if isinstance(name, str) and _exhaustion_epoch(reset_at) > now
+    )
 
 
 # ── Concurrency ──

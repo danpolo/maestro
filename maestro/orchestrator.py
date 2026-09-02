@@ -81,7 +81,9 @@ from maestro.quota import (
     PAUSE_PCT,
     _paused_until_epoch,
     _tail_text,
+    exhausted_backends,
     get_effective_cap,
+    record_backend_exhausted,
 )
 from maestro.roles import (
     ROLE_IMPLEMENTER,
@@ -565,33 +567,29 @@ def _available_backends() -> tuple[str, ...] | None:
 def _launch_backend() -> str:
     """The backend a fresh `launch_implementer` call runs on.
 
-    The operator's `/backend <name>` first, then `maestro.roles` — the same *order* that
-    `implementer._implementer_backend` resolves the launch itself in, but no longer
-    **through the same function** (C4, readiness queue): that call now goes through
-    `roles.resolve(ROLE_IMPLEMENTER, preferred=operator_backend() or None)`, while this
-    one still calls `operator_backend() or backend_for(ROLE_IMPLEMENTER)` — a hard
-    short-circuit on the operator's pin rather than handing it to `resolve` as a
-    preference. This one only *records* the answer on the `in_flight` entry, so if the
-    two ever diverged the entry would name a backend the task is not running on, and
-    every switch decision taken from that entry would be about the wrong agent.
+    **A6 (2026-09-02) unified this with `implementer._implementer_backend` and
+    `agentcall.resolve_call`.** Until then this hard-short-circuited on
+    `operator_backend() or backend_for(ROLE_IMPLEMENTER)`, agreeing with the other two
+    only because none of the three was ever fed `exhausted=`/`available=` — the moment
+    one gained real data the three could observably diverge, and this function only
+    *records* its answer on the `in_flight` entry, so a divergence would make every
+    switch decision taken from that entry about the wrong agent (see
+    `docs/PROGRESS.md`'s D3 entry for the pre-A6 history). Now all three call
+    `roles.resolve` (or its `backend_for` wrapper) the same way: the operator's pin as
+    `preferred=`, not a bypass of resolution, and `quota.exhausted_backends()` — the
+    timed per-backend record A6 adds — as `exhausted=`, so a pinned-but-still-exhausted
+    backend is skipped and the fallback chain is walked instead of failing onto it again.
 
-    **They agree today only because neither is fed anything to diverge on.** Both call
-    sites pass `resolve` (or its `backend_for` wrapper) with no `available=` and no
-    `exhausted=`, and `resolve` with neither set always returns the preferred/configured
-    head unchanged — so the two paths are observably identical for every input reachable
-    right now, not because they share code. **The moment either path gains real
-    availability or exhaustion data, they must be unified** — not merely re-verified —
-    into one function, along with `agentcall.resolve_call`'s own copy of this same
-    "operator's pin leads" order. That unification is the deferred item `A6`; it changes
-    all three call sites in one commit rather than three separate ones, precisely so this
-    docstring's warning can never again describe two paths that only look like one.
-
-    Still no binary probe and no subprocess: the state document is one small read on a
-    path that is about to start an agent. `""` when resolution itself breaks — an unknown
-    backend is better than a wrong one.
+    Still no binary probe and no subprocess: `exhausted_backends()` is one more small
+    state-document read, exactly like `operator_backend()` already was, on a path that
+    is about to start an agent. `""` when resolution itself breaks — an unknown backend
+    is better than a wrong one.
     """
     try:
-        return operator_backend() or backend_for(ROLE_IMPLEMENTER)
+        return backend_for(
+            ROLE_IMPLEMENTER, preferred=operator_backend() or None,
+            exhausted=exhausted_backends(),
+        )
     except Exception:
         return ""
 
@@ -887,14 +885,30 @@ def _switch_instead_of_waiting(entry: dict, reason: str,
     caller's signal to keep doing exactly what it did before M2. The relaunch happens in
     the *same* worktree (`maestro.switch` never calls `create_worktree`), so uncommitted
     work survives the move.
+
+    **A6 (round 1 fold-in):** the fallback is chosen against `tried` unioned with
+    `quota.exhausted_backends()`, not `tried` alone — a reroute triggered by *this*
+    task's own quota exit already rules out the backend it just left, but a *different*
+    task's earlier failure can have recorded another backend as globally spent since, and
+    a reroute must not land on it either. This never touches a `REASON_CONTEXT` rotation:
+    `switch_task` bypasses `target_backend` (and therefore `exhausted=`) entirely for that
+    reason, always targeting the backend the task is already on (D4) — `_rotate_session`
+    does not even pass `exhausted=`.
     """
     if not _handover_ready(entry):
         return None
     available = _available_backends()
     current   = _entry_backend(entry)
     tried     = _backends_tried(entry)
+    # A6 (round 1 fold-in) — a reroute must not land on a backend already known to be
+    # globally spent, only on one this *task* has not yet tried. `tried` alone is a
+    # per-task guard (the quota path's ping-pong prevention); `quota.exhausted_backends()`
+    # is the timed record a *different* task's failure may have written since. Union,
+    # not either alone: a backend this task has not tried but the record says is still
+    # exhausted must be skipped exactly as a tried one would be.
+    ruled_out = frozenset(tried) | exhausted_backends()
     if not fallback_backend(ROLE_IMPLEMENTER, current, available=available,
-                            exhausted=tried):
+                            exhausted=ruled_out):
         return None
     task_id = entry.get("task_id", "")
     sid     = entry.get("session_id", "")
@@ -905,7 +919,7 @@ def _switch_instead_of_waiting(entry: dict, reason: str,
     try:
         outcome = switch_task(task_id, reason=reason, entry=handover,
                               from_backend=current, available=available,
-                              exhausted=tried)
+                              exhausted=ruled_out)
     except Exception as exc:
         # A switch is an optimisation over waiting; failing at it must never cost the
         # loop the pause it was going to take instead.
@@ -1323,6 +1337,37 @@ def reconcile_in_flight(state: dict, launch_times: dict) -> list:
             # untouched.
             verdict = _reconcile_exit_verdict(entry, _tail_text(workspace / "impl.log", 25))
             if verdict is not None and verdict.kind == "quota_exhausted":
+                # A6 — remember which backend is spent and until when, straight from the
+                # `ExitVerdict` the driver already returned (no new detection, no new
+                # parsing). Read back by `exhausted_backends()` on every *fresh* launch
+                # (`_launch_backend`, `implementer._implementer_backend`,
+                # `agentcall.resolve_call`), so the *next* task skips this backend via
+                # `roles.resolve`'s `exhausted=` instead of failing onto it again and
+                # rediscovering the same wall. Best-effort exactly like the switch below:
+                # a broken recorder must not cost the loop the switch or pause it was
+                # about to do anyway.
+                #
+                # Deliberately `entry.get("backend")`, NOT `_entry_backend(entry)`:
+                # `_entry_backend` falls back to `_launch_backend()` for a legacy/
+                # hand-edited entry with no `backend` key — and `_launch_backend()` now
+                # *itself* consults this same record, via `exhausted_backends()`. Feeding
+                # its guess back in as the subject of a new record would close a feedback
+                # loop: an already-exhausted `claude` could make `_entry_backend` guess
+                # `codex` for a `backend`-less entry, and a real quota exit on that entry
+                # would then record *codex* as exhausted on no evidence at all. An entry
+                # with no recorded backend is not evidence about any named one, so the
+                # write is skipped rather than guessed — the same fail-safe direction as
+                # a missing `reset_at`.
+                recorded_backend = entry.get("backend")
+                if isinstance(recorded_backend, str) and recorded_backend.strip():
+                    try:
+                        record_backend_exhausted(recorded_backend, verdict.reset_at)
+                    except Exception as exc:
+                        print(f"  [reconcile] {task_id}: failed to record backend "
+                              f"exhaustion — {exc}")
+                else:
+                    print(f"  [reconcile] {task_id}: entry carries no backend — "
+                          f"skipping exhaustion record")
                 # M2/D3 — a limit on one backend is only a reason to pause everything if
                 # no other backend can take this task. When one can, the work moves
                 # instead of waiting for the reset: same worktree, uncommitted changes
@@ -1356,6 +1401,32 @@ def reconcile_in_flight(state: dict, launch_times: dict) -> list:
             launch_times.setdefault(sid, persisted.get(sid, time.time()))
 
     return surviving
+
+
+def _reconcile_and_persist_startup_state(state: dict, launch_times: dict) -> list:
+    """Reconcile `in_flight` against reality once at startup, then persist the result.
+
+    Round-1 review fix (A6, IMPORTANT 2): the previous inline version wrote the caller's
+    `state` back to disk *after* reconciling — but `reconcile_in_flight` can itself write
+    to disk mid-pass, through two of its own read-modify-write helpers that go straight
+    to `read_state()`/`write_state()` rather than through the `state` dict handed in
+    here: `quota.record_backend_exhausted` (this feature — the one this bug would have
+    silently defeated) and `quota._pause_for_usage_limit` (pre-existing, same class).
+    Writing the caller's now-stale `state` back over the top would clobber whatever
+    either of those wrote during the pass — exactly the "orchestrator restarted after a
+    quota kill" case A6 exists for, since that is precisely when this startup path (as
+    opposed to the per-poll one) runs. Re-reading immediately before the merge, instead
+    of writing back the copy read before reconcile ran, is what the per-poll loop already
+    does for every write that follows its own call to `reconcile_in_flight` (each reads
+    state fresh immediately before writing); this brings the once-at-startup call in
+    line with it rather than introducing a new pattern.
+    """
+    in_flight = reconcile_in_flight(state, launch_times)
+    state = read_state()
+    state["in_flight"] = in_flight
+    state["skeleton_version"] = "B7"
+    write_state(state)
+    return in_flight
 
 
 def _noop_merge_action(task_def: dict | None, task_id: str, retry_counts: dict) -> str:
@@ -1515,11 +1586,7 @@ def main() -> int:
     # B10 — reconcile in_flight against live tmux windows + workspace sentinels at startup
     # (also runs every poll cycle via reconcile_in_flight call inside the event loop)
     launch_times: dict[str, float] = {}
-    in_flight: list[dict] = reconcile_in_flight(state, launch_times)
-
-    state["in_flight"] = in_flight
-    state["skeleton_version"] = "B7"
-    write_state(state)
+    in_flight: list[dict] = _reconcile_and_persist_startup_state(state, launch_times)
     run_dep_map()
     run_status()
 

@@ -44,6 +44,7 @@ import uuid
 from pathlib import Path
 
 from maestro import confinement
+from maestro import quota
 from maestro import roles
 from maestro.backends import registry
 from maestro.backends.base import LaunchSpec
@@ -572,11 +573,22 @@ def _implementer_backend() -> tuple[str, dict]:
     choice with `operator_backend() or settings.backend`, which is why it could freeze
     every future launch onto a backend nothing could actually run on — with no way back
     short of `/backend auto` (`hitl/commands.py`), which clears the pin itself; this is
-    what stops honouring a live one blindly. With no availability measured and nothing
-    exhausted (`launch_implementer` probes neither today), `roles.resolve` still returns
-    the preferred backend unchanged, so an unpinned launch resolves exactly as it always
-    has: one read of `project.yaml`, degrading to the default backend on every malformed
-    `roles:` entry rather than raising, so a typo cannot stop a launch.
+    what stops honouring a live one blindly. `available=` is still never passed (no
+    binary is probed on this path), so an unpinned launch with nothing recorded as
+    exhausted resolves exactly as it always has: one read of `project.yaml`, degrading
+    to the default backend on every malformed `roles:` entry rather than raising, so a
+    typo cannot stop a launch.
+
+    **A6 (2026-09-02):** `exhausted=quota.exhausted_backends()` is now passed too — the
+    timed per-backend record `orchestrator.reconcile_in_flight` writes when a real exit
+    is classified `quota_exhausted`. `_skip_reason` treats a name in `exhausted` the same
+    way it treats one missing from `available` — so a pin that is *currently* recorded as
+    exhausted is skipped in favour of the rest of the role's fallback chain there too, and
+    the pin resumes by itself once the record expires — no `/backend auto`, no operator
+    action. `orchestrator._launch_backend` and `agentcall.resolve_call` read the same set
+    the same way, in the same commit: the three must move together or an `in_flight`
+    entry can name a backend the task is not actually running on (see `_launch_backend`'s
+    own docstring).
 
     The models table is the role's either way: a role declares its model *per backend*
     (`docs/DESIGN.md` §5), so the operator's choice picks a column out of the same table
@@ -584,7 +596,10 @@ def _implementer_backend() -> tuple[str, dict]:
     """
     settings = roles.role_config(roles.ROLE_IMPLEMENTER)
     pinned = operator_backend()
-    resolution = roles.resolve(roles.ROLE_IMPLEMENTER, preferred=pinned or None)
+    resolution = roles.resolve(
+        roles.ROLE_IMPLEMENTER, preferred=pinned or None,
+        exhausted=quota.exhausted_backends(),
+    )
     return resolution.backend, dict(settings.models)
 
 

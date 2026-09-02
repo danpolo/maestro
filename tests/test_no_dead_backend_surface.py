@@ -94,6 +94,7 @@ See `task-D2-report.md` for the full argument and the case for the other reading
 from __future__ import annotations
 
 import ast
+import sys
 from pathlib import Path
 
 import pytest
@@ -340,6 +341,65 @@ def test_the_walk_finds_the_known_real_readers():
     referenced = _core_referenced_attrs()
     for expected in ("usage_telemetry", "system_prompt_file", "native_resume"):
         assert expected in referenced, f"{expected} unexpectedly has no reader anymore"
+
+
+def test_the_real_aggregator_reports_a_provably_unreferenced_surface_member(
+    tmp_path, monkeypatch
+):
+    """Fix round 1, Important 1.
+
+    Every anti-vacuity test above drives `_referenced_attrs()` — the string-parsing
+    primitive — directly against a synthetic snippet. None of them ever call the real
+    `_core_referenced_attrs()` / `_core_maestro_files()` pair, which is the part that
+    actually walks disk under `maestro/` and actually excludes `maestro/backends/`. A
+    reviewer proved that gap is real: mutating `_core_referenced_attrs()` to
+    unconditionally `return set(_protocol_surface()) | set(_capabilities_surface())` —
+    "the aggregator silently claims everything is referenced," ignoring the disk walk
+    entirely — left 16 of 16 tests in this file passing. The only reason the suite went
+    red at all was that `sandbox`'s `xfail(strict=True)` happened to flip to an
+    unexpected pass. The day `sandbox` legitimately grows a real reader and that marker
+    is removed, that exact mutation would pass every test in this file in total
+    silence — the `parse_exit` failure mode, reproduced inside the gate meant to
+    prevent it.
+
+    This closes that hole by calling the real, unmodified `_core_referenced_attrs()` —
+    never a reimplementation of its logic — against two small controlled files, via
+    `monkeypatch` on `_core_maestro_files()` rather than the real `maestro/` tree. The
+    probe deliberately uses REAL protocol-surface member names (`launch`, present on
+    disk; `resume`, provably absent), not a made-up name: a made-up name would still
+    read as "missing" even under the reviewer's exact vacuous mutation (which only
+    ever returns members that ARE part of the real surface), so it would prove
+    nothing. Only a real surface member that the fixture provably does not mention can
+    tell the true implementation and the vacuous one apart — and here it does: the
+    vacuous mutation reports `resume` as referenced regardless of what
+    `_core_maestro_files()` was made to return, so it fails this test; the real
+    implementation, which actually reads the monkeypatched files, does not.
+
+    See `task-D2-report.md`'s fix-round-1 entry for the RED/GREEN proof against a
+    literal copy of the reviewer's mutation.
+    """
+    covered_file = tmp_path / "covered.py"
+    covered_file.write_text("driver.launch(spec)\n", encoding="utf-8")
+    # Deliberately does not reference `.resume(`, `.parse_exit(`, `.complete(`,
+    # `.capabilities(`, or `.usage(` — those are the surface members this fixture must
+    # provably NOT cover, so their absence from `referenced` below is the real signal.
+
+    monkeypatch.setattr(
+        sys.modules[__name__], "_core_maestro_files", lambda: [covered_file]
+    )
+
+    referenced = _core_referenced_attrs()
+    missing = _missing_readers(_protocol_surface(), referenced, PROTOCOL_ALLOWLIST)
+
+    assert "launch" not in missing, (
+        "launch IS on disk in the fixture — the real aggregator must see it"
+    )
+    assert "resume" in missing, (
+        "resume is absent from the fixture on disk. A vacuous _core_referenced_attrs() "
+        "that ignores _core_maestro_files() and just returns the real surface — the "
+        "reviewer's exact mutation — would wrongly report resume as covered here, "
+        "which is exactly what this assertion exists to catch."
+    )
 
 
 def test_capabilities_allowlist_is_empty_by_design():

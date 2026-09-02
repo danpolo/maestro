@@ -155,6 +155,50 @@ def test_self_test_reports_a_failing_worktree(tmp_path):
     assert "failed" in result.summary
 
 
+def test_self_test_does_not_leak_this_machines_operating_pointers(tmp_path, monkeypatch):
+    """The candidate's suite runs against **its own checkout**, never the project this
+    orchestrator happens to be driving.
+
+    `self_test` passes `cwd=worktree` to say exactly that, but `Paths.from_env()` prefers
+    `$MAESTRO_REPO` over cwd — and every live launch path sets that variable to the
+    consuming project on purpose (`templates/launch.sh.tmpl`, `watchdog.py`'s two tmux
+    spawns, every `cmd_*` in `cli.py`), because a fresh tmux window inherits the tmux
+    *server's* environment rather than its parent's. Inheriting it here silently repoints
+    the candidate's own tests at that project's filesystem: code from the worktree, paths
+    from somewhere else.
+
+    That is not hypothetical. From 2026-08-31 a live loop held **14 consecutive** candidate
+    versions red on one test asserting the repo under test ships no
+    `scripts/check_notebook.py` — true of every maestro checkout, false of the project that
+    loop was driving. The gate was reading the wrong repo, so that project stayed pinned to
+    a version from 2026-08-26 for two days.
+
+    `MAESTRO_HOME` is scrubbed for the same reason and not because it has ever leaked
+    (nothing sets it on this machine today): both variables name *where this machine's
+    maestro is operating*, and `self_test` is the one child spawn that is not operating
+    on anything.
+    """
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "test_it.py").write_text(
+        "import os\n"
+        "def test_no_operating_pointers():\n"
+        "    assert os.environ.get('MAESTRO_REPO') is None\n"
+        "    assert os.environ.get('MAESTRO_HOME') is None\n"
+    )
+    _git("add", "-A", cwd=repo)
+    _git("commit", "-q", "-m", "env probe", cwd=repo)
+    sha = _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+    worktree = selfupdate.materialize_worktree(repo, sha)
+
+    # What the live watchdog exports; `_sealed` above already exports MAESTRO_HOME.
+    monkeypatch.setenv("MAESTRO_REPO", str(tmp_path / "some" / "other" / "project"))
+
+    result = selfupdate.self_test(worktree)
+
+    assert result.passed is True, result.output_tail
+
+
 # --- maybe_self_update: the Done-when scenarios -----------------------------------------
 
 

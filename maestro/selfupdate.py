@@ -34,9 +34,19 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from maestro.paths import ENV_VAR as PROJECT_ENV_VAR
 from maestro.state import append_journal, read_state, write_state
 
 ENV_VAR = "MAESTRO_HOME"
+
+#: The environment variables naming *where this machine's maestro is operating*: the
+#: project being orchestrated (`maestro.paths.ENV_VAR`) and the self-update home
+#: (`ENV_VAR` above). Every live launch path exports the first deliberately — see
+#: `maestro/watchdog.py`'s module docstring on why a fresh tmux window cannot inherit it —
+#: so any subprocess spawned from the loop gets it for free. `self_test` is the one child
+#: spawn that is not orchestrating a project, so for it the correct value of both is
+#: *unset*; see `_self_test_env`.
+OPERATING_POINTERS = (PROJECT_ENV_VAR, ENV_VAR)
 
 # Bounded so a held-red journal entry (and any future alert built on it) stays a
 # reasonable size regardless of how chatty the candidate's test run was.
@@ -132,6 +142,27 @@ def materialize_worktree(repo: Path, sha: str) -> Path:
     return target
 
 
+def _self_test_env() -> dict:
+    """`os.environ` with `OPERATING_POINTERS` removed.
+
+    `cwd=worktree` alone does **not** make the candidate's suite run against the candidate:
+    `Paths.from_env()` prefers `$MAESTRO_REPO` and only falls back to `Path.cwd()` when it
+    is absent, so an inherited value wins over the cwd this module sets. The result is a
+    run with code from the worktree and paths from whichever project the loop is driving.
+    Observed for real: a live loop held 14 consecutive candidate versions red over two days
+    on one test that read the repo around it
+    (`tests/test_selfupdate.py::test_self_test_does_not_leak_this_machines_operating_pointers`).
+
+    Scrubbed rather than overridden: there is no correct project root for a checkout that
+    is being *evaluated* rather than run, so the honest value is absence — which is also
+    what makes `cwd=worktree` load-bearing again instead of decorative.
+    """
+    env = dict(os.environ)
+    for var in OPERATING_POINTERS:
+        env.pop(var, None)
+    return env
+
+
 def self_test(worktree: Path) -> SelfTestResult:
     """Runs maestro's own suite inside `worktree`.
 
@@ -139,10 +170,14 @@ def self_test(worktree: Path) -> SelfTestResult:
     checkout) already carries `addopts = "-q"`, so pytest applies that on its own; adding
     a second `-q` here would silently suppress the pass/fail summary line this function
     depends on to build `summary`.
+
+    The child's environment is built explicitly (`_self_test_env`), not inherited: this is
+    the only subprocess in maestro that evaluates a checkout instead of operating on a
+    project, and the difference is exactly the two variables it drops.
     """
     proc = subprocess.run(
         [sys.executable, "-m", "pytest"],
-        cwd=worktree, capture_output=True, text=True,
+        cwd=worktree, capture_output=True, text=True, env=_self_test_env(),
     )
     combined = proc.stdout + proc.stderr
     summary = _last_nonempty_line(proc.stdout) or _last_nonempty_line(proc.stderr)

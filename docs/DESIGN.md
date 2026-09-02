@@ -115,16 +115,28 @@ maestro/                        # ~/projects/maestro — installable, `maestro` 
 
 ### What each project keeps
 
-`project.yaml`, `adapters/`, `operating_preamble.md`, `profiles/`, `launch.sh`, `systemd/`, the
-`.orchestrator/` runtime directory, and its own docs. Nothing else. No orchestration code is copied
-into a project.
+Everything `maestro init` scaffolds is maestro-specific configuration, a generated wrapper
+script, or runtime state — **never a copy of `maestro/`'s own orchestration code.** That
+coupling claim is the point of this section; the list below illustrates it and is
+deliberately not asserted as complete, because it has been wrong three times from exactly
+this failure — an enumeration followed by "nothing else" rots the moment `init` scaffolds
+one more file, and nothing tests it. Confirmed examples, each unconditionally scaffolded by
+`cmd_init` (`maestro/cli.py`): `project.yaml` (the project's own settings), `adapters/` (its
+test/eval/smoke/deploy commands), `operating_preamble.md` and `profiles/` (what an
+implementer is told), `launch.sh` and `systemd/` (how the supervised loop runs unattended —
+`launch.sh` is the exact target of the generated unit's `ExecStart`), `.gitignore` and
+`.git/hooks/pre-commit` (both openly maestro-specific rather than generic hygiene:
+`_GITIGNORE_BLOCK` opens `# maestro (DESIGN.md §10 scaffolding)` and ignores
+`.orchestrator/`/`.env`; `templates/pre-commit` calls itself "the consistency hook
+DESIGN.md §10 mentions" and exists to run `maestro doctor --pre-commit`), the
+`.orchestrator/` runtime directory, and the project's own docs.
 
 `profiles/` sits at the project root, not under an `orchestrator/` directory — there is no
 `orchestrator/` in a scaffolded project at all. `maestro init`'s top-level *directories* are
 exactly `adapters/ docs/ profiles/ systemd/`, matching `maestro/templates/`'s own top-level
 directory entries one for one (its `launch.sh.tmpl`, `operating_preamble.md` and
 `project.yaml.tmpl` render to the loose root files named above; its `pre-commit` renders to
-`.git/hooks/pre-commit`, git's own hook location, not a project-root file this list covers).
+`.git/hooks/pre-commit`, git's own hook location, not a project-root directory entry).
 Confirmed by a fresh `maestro init` on a throwaway repo, and by
 `grep -rn 'REPO / "orchestrator"' maestro/` returning nothing.
 
@@ -288,9 +300,9 @@ switching works in both directions.
 
 ---
 
-## 7. Mid-work switching (D2, D3)
+## 7. Mid-work switching (D2, D3, D4)
 
-Three triggers, one path.
+Four triggers, one path.
 
 1. **Quota exhausted** — the process has already exited; nothing to interrupt.
 2. **Usage threshold crossed** — the orchestrator writes a `SWITCH` sentinel into the implementer's
@@ -298,16 +310,23 @@ Three triggers, one path.
    at the next tool boundary. After a grace period, the tmux window is killed as a fallback.
 3. **Manual** — `/backend codex` for future launches, or `/backend codex <task-id>` for one
    in-flight task. Same sentinel path.
+4. **Context ceiling crossed** — the running session's own live context crosses the model's
+   `prepare_handoff_high`. §8 covers attribution and the anti-loop guards; the two ways this
+   trigger's mechanics differ from the other three are called out in the steps below.
 
-The switch itself, in all three cases:
+The switch itself, in all four cases:
 
 ```
 1. Resolve target backend from fallback_chain; resolve the role's model under it.
+   (Trigger 4 skips the fallback-chain choice: its target is always the backend the task is
+   already running on, never a different one — a rotation, not a switch to elsewhere.)
 2. Build a handoff brief from the worktree:
      original task brief + commits made + `git diff --stat` + checkpoint notes
      + verification status + remaining steps.
 3. Launch the target backend FRESH in the SAME worktree with that brief.
-4. Journal `backend_switch {task, from, to, reason}`; notify via Telegram.
+4. Journal `backend_switch {task, from, to, reason}` (trigger 4 instead: `session_rotation`,
+   keeping the same five fields — a distinct event name rather than a `from == to` reading
+   that could pass for a bug); notify via Telegram.
 ```
 
 Uncommitted work survives because it is on disk. Conversation context does not, and is

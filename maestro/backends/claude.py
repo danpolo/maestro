@@ -20,8 +20,15 @@ Design authority is `docs/DESIGN.md` §6 as corrected by the M2 research pass re
   (mode 0o755) that holds the argv — and then runs that launcher inside a fresh tmux
   window. The launcher, not the caller, opens `<workspace>/impl.log` and **merges stderr
   into stdout** (`stderr=subprocess.STDOUT`), which is why every captured exhaustion
-  sample is stream-agnostic and why `impl.log` is the reactive net that
-  `maestro.quota._scan_impl_log_for_limit` reads after the fact.
+  sample is stream-agnostic and why `impl.log` is the reactive net `parse_exit` (below)
+  reads after the fact — over `quota._LIMIT_RE` and `quota._resolve_limit_reset`
+  directly, **not** via `maestro.quota._scan_impl_log_for_limit`. That helper looks like
+  the obvious reader of this net but isn't one: production exit classification goes
+  through `driver.parse_exit`, resolved per-entry and called from
+  `orchestrator._reconcile_exit_verdict` (A1, readiness queue), and `ClaudeBackend`'s
+  `parse_exit` was already written against the lower-level regex/reset helpers rather
+  than through that scanner. `_scan_impl_log_for_limit` is kept — nothing here deletes
+  it — but as of A1 it is reachable only from `tests/characterization/test_quota.py`.
 
 `launcher_source` reproduces that generated file **byte for byte** for the launch case —
 it is parsed by the existing characterisation suite, and the reactive quota net depends

@@ -115,8 +115,30 @@ maestro/                        # ~/projects/maestro — installable, `maestro` 
 
 ### What each project keeps
 
-`project.yaml`, `adapters/`, `operating_preamble.md`, `orchestrator/profiles/`, the `.orchestrator/`
-runtime directory, and its own docs. Nothing else. No orchestration code is copied into a project.
+Everything `maestro init` scaffolds is maestro-specific configuration, a generated wrapper
+script, or runtime state — **never a copy of `maestro/`'s own orchestration code.** That
+coupling claim is the point of this section; the list below illustrates it and is
+deliberately not asserted as complete, because it has been wrong three times from exactly
+this failure — an enumeration followed by "nothing else" rots the moment `init` scaffolds
+one more file, and nothing tests it. Confirmed examples, each unconditionally scaffolded by
+`cmd_init` (`maestro/cli.py`): `project.yaml` (the project's own settings), `adapters/` (its
+test/eval/smoke/deploy commands), `operating_preamble.md` and `profiles/` (what an
+implementer is told), `launch.sh` and `systemd/` (how the supervised loop runs unattended —
+`launch.sh` is the exact target of the generated unit's `ExecStart`), `.gitignore` and
+`.git/hooks/pre-commit` (both openly maestro-specific rather than generic hygiene:
+`_GITIGNORE_BLOCK` opens `# maestro (DESIGN.md §10 scaffolding)` and ignores
+`.orchestrator/`/`.env`; `templates/pre-commit` calls itself "the consistency hook
+DESIGN.md §10 mentions" and exists to run `maestro doctor --pre-commit`), the
+`.orchestrator/` runtime directory, and the project's own docs.
+
+`profiles/` sits at the project root, not under an `orchestrator/` directory — there is no
+`orchestrator/` in a scaffolded project at all. `maestro init`'s top-level *directories* are
+exactly `adapters/ docs/ profiles/ systemd/`, matching `maestro/templates/`'s own top-level
+directory entries one for one (its `launch.sh.tmpl`, `operating_preamble.md` and
+`project.yaml.tmpl` render to the loose root files named above; its `pre-commit` renders to
+`.git/hooks/pre-commit`, git's own hook location, not a project-root directory entry).
+Confirmed by a fresh `maestro init` on a throwaway repo, and by
+`grep -rn 'REPO / "orchestrator"' maestro/` returning nothing.
 
 **Nothing project-identifying crosses into maestro** — no tokens, chat IDs, bot names, domain
 vocabulary, or evaluation specifics. `.env` is per-project and `init` prompts for its contents.
@@ -278,9 +300,9 @@ switching works in both directions.
 
 ---
 
-## 7. Mid-work switching (D2, D3)
+## 7. Mid-work switching (D2, D3, D4)
 
-Three triggers, one path.
+Four triggers, one path.
 
 1. **Quota exhausted** — the process has already exited; nothing to interrupt.
 2. **Usage threshold crossed** — the orchestrator writes a `SWITCH` sentinel into the implementer's
@@ -288,16 +310,23 @@ Three triggers, one path.
    at the next tool boundary. After a grace period, the tmux window is killed as a fallback.
 3. **Manual** — `/backend codex` for future launches, or `/backend codex <task-id>` for one
    in-flight task. Same sentinel path.
+4. **Context ceiling crossed** — the running session's own live context crosses the model's
+   `prepare_handoff_high`. §8 covers attribution and the anti-loop guards; the two ways this
+   trigger's mechanics differ from the other three are called out in the steps below.
 
-The switch itself, in all three cases:
+The switch itself, in all four cases:
 
 ```
 1. Resolve target backend from fallback_chain; resolve the role's model under it.
+   (Trigger 4 skips the fallback-chain choice: its target is always the backend the task is
+   already running on, never a different one — a rotation, not a switch to elsewhere.)
 2. Build a handoff brief from the worktree:
      original task brief + commits made + `git diff --stat` + checkpoint notes
      + verification status + remaining steps.
 3. Launch the target backend FRESH in the SAME worktree with that brief.
-4. Journal `backend_switch {task, from, to, reason}`; notify via Telegram.
+4. Journal `backend_switch {task, from, to, reason}` (trigger 4 instead: `session_rotation`,
+   keeping the same five fields — a distinct event name rather than a `from == to` reading
+   that could pass for a bug); notify via Telegram.
 ```
 
 Uncommitted work survives because it is on disk. Conversation context does not, and is
@@ -335,6 +364,50 @@ failure on a machine that lacks these files.
 
 > Per the operator's delegate-to-agent rule, the `~/.codex/` side of this extraction is performed by
 > invoking the Codex CLI, not by writing into `~/.codex/` directly.
+
+### The rotation trigger — live on both backends (A4, A5, readiness queue)
+
+The ceiling table is not just a lookup library: the orchestrator's poll loop uses it to decide when
+to rotate an in-flight implementer onto a fresh session, through the same switch path §7 describes —
+`REASON_CONTEXT` (`switch.py`), a fourth trigger beside quota/threshold/manual, in the same worktree
+(no `create_worktree` call), always re-briefed rather than resumed, journalled distinctly. A4 built
+this trigger; **A5 is what makes it fire for real** — before A5, `Usage.session_id` was `""` on every
+real path, so the guard below never passed and the trigger, while fully wired, was correct but inert
+by construction.
+
+**Attribution is the precondition, not a formality.** A context reading means nothing without knowing
+which conversation it describes, so `AgentBackend.usage()` takes an optional session `Handle`
+(`backends/base.py`), and the orchestrator threads it through (`_sampled_usage`). Asked about a
+session, each driver must answer *that session's own record or nothing*: Claude reads the session's
+own transcript JSONL, located by the uuid **maestro minted at launch** — deliberately not by
+re-deriving Claude Code's own encoded-cwd directory name, which is lossy and ambiguous on real paths.
+Codex reads the session's own rollout by thread id, and no longer falls back to whatever thread the
+driver instance last happened to touch. Either way the returned `Usage` carries
+`session_id == handle.session_id`; an account-level sample (`usage()` with no handle — the operator's
+own interactive reading, say) leaves `session_id` empty by contract and can never be mistaken for an
+implementer's. `orchestrator._attributed_to` checks exactly that equality before any rotation is
+allowed to act, and **a reading it cannot attribute to a specific conversation still rotates nothing**
+— that refusal is the whole safety property this trigger is built on, not an incidental gap: acting
+on an unplaceable reading would mean throwing away a healthy implementer's session on evidence that
+could belong to a different agent, or to the operator's own interactive use, entirely.
+
+**The number.** What's compared against a model's `prepare_handoff_high` is one turn's live input
+side, not a running total. For Claude it is `input_tokens + cache_creation_input_tokens +
+cache_read_input_tokens` of the **last** assistant record in that session's transcript — reproduced
+independently against a live statusline reading and found exact to the token. Codex reads the
+equivalent figure its own rollout already reports for that thread. Both are read per-record, never
+summed across turns: a sum measures cumulative spend, which only ever grows, where a context is a
+size that can also come back down.
+
+**Two guards bound the rotation, and both now cover both backends.** *Freshness*
+(`_rotation_sample`): the sample must postdate the entry's own launch, checked against the session
+record's own mtime — real on Claude via the transcript's mtime, and, after A5's fix round, on Codex
+via the rollout's mtime on the handled path. Without this, a task that rotates and then re-reads the
+pre-rotation context on the very next poll would rotate again, forever, discarding each fresh agent's
+work in turn. *Count* (`MAX_CONTEXT_ROTATIONS = 3`, unchanged since A4): once a task has been rotated
+this many times it is left in the session it has — `TASK_TIMEOUT` and the ordinary failure paths
+still apply — because a task that needs more fresh sessions than this is one for the operator to look
+at, not one for the loop to keep restarting on its own.
 
 ---
 

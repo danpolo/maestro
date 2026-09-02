@@ -50,10 +50,19 @@ def resolve_call(role: object, *, model: str = "") -> tuple[str, str]:
     journal line, a `[model]` print — can ask without running anything, and so the
     resolution itself is testable without a driver.
 
-    The operator's `/backend <name>` leads and the role's fallback chain follows, which is
-    the same order `implementer._implementer_backend` and `orchestrator._launch_backend`
-    use. Honouring it here matters: an operator who switches backends because one is rate
-    limited means it for the judge and the diagnoser too, not just the implementer.
+    The operator's `/backend <name>` leads and the role's fallback chain follows, via
+    `roles.resolve(role, preferred=operator_backend() or None)` — the same call
+    `implementer._implementer_backend` makes (C4, readiness queue). `orchestrator.
+    _launch_backend` produces the same *order of preference* today but not through this
+    function or that one: it still does `operator_backend() or backend_for(...)`, a hard
+    short-circuit on the pin rather than handing it to `resolve` as a preference. The
+    three agree only because none of them is fed `exhausted=`/`available=` data yet, so
+    `resolve` always returns its preferred head unchanged — the moment one of them is,
+    all three must move together (deferred item `A6`), or the `in_flight` entry
+    `_launch_backend` records can name a backend the task is not actually running on.
+    Honouring the order here matters regardless: an operator who switches backends
+    because one is rate limited means it for the judge and the diagnoser too, not just
+    the implementer.
 
     An explicit `model` wins over the role's table — `/redo` and self-fix pin a model per
     task — and the role's model for the resolved backend fills in otherwise. Note that is

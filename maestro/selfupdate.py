@@ -34,10 +34,14 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
+from maestro import bootstrap
 from maestro.paths import ENV_VAR as PROJECT_ENV_VAR
 from maestro.state import append_journal, read_state, write_state
 
-ENV_VAR = "MAESTRO_HOME"
+#: Re-exported from `maestro.bootstrap`, which owns it. The resolver that reads `current`
+#: has to run before any `cmd_*` sets `$MAESTRO_REPO`, so it cannot live in a module that
+#: reaches `maestro.state` — this one does, two lines up.
+ENV_VAR = bootstrap.ENV_VAR
 
 #: The environment variables naming *where this machine's maestro is operating*: the
 #: project being orchestrated (`maestro.paths.ENV_VAR`) and the self-update home
@@ -61,9 +65,7 @@ class SelfUpdatePaths:
 
     @classmethod
     def from_env(cls) -> "SelfUpdatePaths":
-        raw = os.environ.get(ENV_VAR)
-        root = Path(raw).expanduser() if raw else (Path.home() / ".maestro")
-        return cls(home=root.resolve())
+        return cls(home=bootstrap.home())
 
     @property
     def versions_dir(self) -> Path:
@@ -156,10 +158,19 @@ def _self_test_env() -> dict:
     Scrubbed rather than overridden: there is no correct project root for a checkout that
     is being *evaluated* rather than run, so the honest value is absence — which is also
     what makes `cwd=worktree` load-bearing again instead of decorative.
+
+    `bootstrap.SENTINEL` is *set* rather than scrubbed, and it is the same defect from the
+    other direction. Any `maestro` subprocess the candidate's own tests spawn would otherwise
+    resolve `~/.maestro/current` and re-exec into the **deployed** checkout — so the gate
+    would run the candidate's test files against the code already in production and report
+    the verdict as the candidate's. A version could then be adopted on a green run that never
+    executed a line of it. Pinning the sentinel keeps the code under test in the worktree
+    under test, which is the entire claim `self_test` makes.
     """
     env = dict(os.environ)
     for var in OPERATING_POINTERS:
         env.pop(var, None)
+    env[bootstrap.SENTINEL] = "1"
     return env
 
 

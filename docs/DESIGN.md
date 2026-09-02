@@ -433,6 +433,38 @@ against the candidate worktree:
 Rollback is repointing `current`. Because the version is journaled per task, it is always possible to
 tell which maestro version ran a given piece of work.
 
+### How "projects import through this" is enforced (added 2026-09-03)
+
+`maestro/bootstrap.py` is what makes the pointer above load-bearing. Before it, `current` was
+written by `adopt()` and **read by nothing**: the adopted version was a record, and what a project
+actually ran was whatever its venv resolved `import maestro` to. For the editable install the
+reference project was cut over with, that was the maestro *working tree* — uncommitted edits
+included, with the self-test gate running after the deployment rather than before it.
+
+`cli.main()` now calls `bootstrap.reexec_into_adopted_version()` before argparse and before any
+`cmd_*` binds `$MAESTRO_REPO`. If a version is adopted and this process is not it, the process
+replaces itself (`os.execve`) with `python -m maestro.cli`, the adopted checkout leading
+`$PYTHONPATH`. One seam covers every entry point — the generated `launch.sh`, the watchdog's tmux
+spawns, the quota-reset cron, the pre-commit hook, and an operator's ad-hoc CLI — because they all
+funnel through `main()`.
+
+- **`PYTHONPATH` is sufficient**, and no symlink or reinstall is needed: an editable install appends
+  its `_EditableFinder` to `sys.meta_path`, *after* the `PathFinder` that reads `sys.path`. The
+  editable mapping is the fallback, not the winner. (Verify from a neutral cwd — `python -c` puts the
+  cwd on `sys.path` and will mask this if you test from inside the repo.)
+- **`$MAESTRO_BOOTSTRAPPED` is the guard and the opt-out**, one variable for one idea: *this process
+  is already the checkout it should be.* It makes the redirect single-shot, it is what pins a
+  candidate's suite inside the candidate (`selfupdate._self_test_env`, `tests/conftest.py`) so a gate
+  cannot grade the deployed code instead, and it is the escape hatch for anyone editing a checkout.
+- **Fail-open throughout.** No pointer, a pruned worktree, a path that is not a checkout, an `exec`
+  that will not start — each leaves the process running in place. `maestro doctor`'s `adopted_code`
+  check is the visibility half: it compares where maestro was *imported from* against what `current`
+  names, so a divergence is reported rather than assumed away.
+
+`bootstrap.py` imports nothing from `maestro`. It runs before `$MAESTRO_REPO` is set, and importing
+anything that reaches `maestro.state` at that moment would bind `Paths.from_env()` to the wrong root
+for the life of the process.
+
 ---
 
 ## 10. Setup (D6)

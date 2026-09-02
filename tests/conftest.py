@@ -35,6 +35,19 @@ def _scrub_environment() -> list[str]:
 # Runs at conftest import, i.e. before any test module or fixture snapshots os.environ.
 SCRUBBED = _scrub_environment()
 
+# Third net: no test may re-exec out of the tree under test.
+#
+# `maestro.bootstrap` redirects any `maestro` invocation into the checkout named by
+# `~/.maestro/current`, which on a developer machine is a *different* checkout than this one.
+# Without this line the slow-tier tests that drive real `maestro init`/`doctor` subprocesses
+# would silently exercise the deployed version and report the result as this tree's — a suite
+# grading code it never ran. Set here, at conftest import, so it is already in `os.environ`
+# before any fixture snapshots it and before any subprocess inherits it.
+#
+# `selfupdate._self_test_env` sets the same variable for the same reason one level up, where
+# the consequence is worse: there, a green run would adopt a version nothing had tested.
+os.environ.setdefault("MAESTRO_BOOTSTRAPPED", "1")
+
 
 def _agent_binaries() -> frozenset:
     """Every executable the registry knows how to drive.

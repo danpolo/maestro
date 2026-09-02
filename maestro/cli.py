@@ -84,6 +84,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+# Safe at module scope precisely because it imports nothing from `maestro` — see its
+# docstring, and this module's own note on why the `cmd_*` functions import lazily.
+from maestro import bootstrap
+
 #: This checkout's own root — the directory *containing* the `maestro` package — used to
 #: (a) find `templates/`, `skills/`, `scripts/telegram_creds.py` relative to this file rather
 #: than relative to whatever the caller's cwd happens to be, and (b) make `maestro.*` importable
@@ -949,6 +953,38 @@ def _check_journal_and_version(repo_root: Path) -> Check:
     return Check("journal_version", ok, "; ".join(details))
 
 
+def _check_adopted_code(repo_root: Path) -> Check:
+    """Is the maestro that is running the maestro that was adopted?
+
+    The gap this closes was invisible for as long as it existed: `adopt()` recorded a version
+    and wrote `~/.maestro/current`, nothing read the file, and the code that actually ran was
+    whatever `import maestro` resolved to — for an editable install, a working tree, edits and
+    all. Every other doctor check would pass while the deployed version was a fiction. So the
+    check is deliberately about *this process*, not about the file: it compares where maestro
+    was imported from against where `current` says it should have been.
+
+    A machine that has never self-updated is `OK`, not a failure — `current` is absent, there
+    is nothing to diverge from, and running the checkout you installed is correct. `WARN` is
+    for the two states worth acting on: a pointer that no longer resolves, and a running
+    checkout that is not the adopted one.
+    """
+    running = bootstrap.running_root()
+    pointer = bootstrap.current_file()
+    if not pointer.exists():
+        return Check("adopted_code", True,
+                     f"no {pointer} — never self-updated; running {running}")
+    adopted = bootstrap.adopted_root()
+    if adopted is None:
+        return Check("adopted_code", False,
+                     f"{pointer} does not name a maestro checkout — "
+                     f"running {running} unredirected")
+    if adopted != running:
+        return Check("adopted_code", False,
+                     f"running {running} but {adopted} is adopted — "
+                     f"`{bootstrap.SENTINEL}` set, or the re-exec did not happen")
+    return Check("adopted_code", True, f"running the adopted checkout: {adopted}")
+
+
 def cmd_doctor(repo_root: Path, *, pre_commit: bool = False,
                 http_get: Optional[Callable[[str], dict]] = None) -> int:
     """`maestro doctor [--pre-commit]` — DESIGN.md §10's checklist. `--pre-commit` runs only the
@@ -973,6 +1009,7 @@ def cmd_doctor(repo_root: Path, *, pre_commit: bool = False,
         checks.append(_check_telegram(repo_root, http_get))
         checks.append(_check_systemd_unit(repo_root, project_name))
         checks.append(_check_gate(repo_root))
+        checks.append(_check_adopted_code(repo_root))
         checks.append(_check_journal_and_version(repo_root))
 
     worst_ok = True
@@ -1295,6 +1332,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Optional[list] = None) -> int:
+    # First, before argparse and before any `cmd_*` binds `$MAESTRO_REPO`: if a version has
+    # been adopted and this is not it, hand over to the one that is. Usually a no-op (returns
+    # in place); when it acts, it never returns. See `maestro/bootstrap.py` — it imports
+    # nothing from `maestro`, which is what makes calling it this early safe.
+    bootstrap.reexec_into_adopted_version(argv)
+
     parser = build_parser()
     args = parser.parse_args(argv)
 

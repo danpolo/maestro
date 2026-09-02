@@ -3346,13 +3346,32 @@ and offline-tolerant; only the stated number is wrong.
 
 ---
 
-## 2026-09-01 — Pre-integration queue, wave 2c/2d (C4, D1, A5) + D3
+## 2026-09-01 — Pre-integration queue, wave 2c/2d (C4, D1, A5) + D2, D3
 
 Baseline `11a0fd1`, 3222 collected. Wave 2c (C4, D1) closed at `4c39978`, 3243 collected — arithmetic
 composes exactly (3222 + C4's 9 + D1's 12). Wave 2d (A5) closed at `7a4fab1`, 3278 collected — again
-exact (3243 + A5's 35). D3 (this entry) is documentation-only and adds no tests; suite count is
-unchanged by it. **D2 was dispatched alongside D3 in the same wave and is not part of this entry** —
-it owns `tests/` only and lands (or doesn't) independently; see its own report when it does.
+exact (3243 + A5's 35). D2 closed at `aef042a`, **3296 collected** (3278 + its new file's 17, + 1
+from its own fix round). D3 is documentation-only and adds no tests; the queue therefore closes at
+**3296, exit 0**.
+
+> *This paragraph originally said D2 "is not part of this entry — see its own report when it does
+> [land]". D2 landed one commit before D3, and its report lived only in the plan's scratch
+> directory, which is deleted when the queue closes. The D2 write-up below was added by the final
+> whole-branch review so the eighteenth item is in the permanent record with the other seventeen.*
+
+**The suite now ships one deliberate `xfail`, and it is the queue's one open production finding.**
+`tests/test_no_dead_backend_surface.py`'s `test_every_capabilities_field_has_a_core_reader[sandbox]`
+is `pytest.mark.xfail(strict=True)`: `Capabilities.sandbox` is advertised by both drivers, tested at
+the driver level on both, and **read by nothing in core**. `CompletionSpec`'s own docstring states
+the contract normatively — "drivers that can enforce that (`Capabilities.sandbox`) must" — so this is
+a core responsibility core has not implemented, not a driver-internal detail. Every `writable=` /
+`sandbox=` value at every call site in `switch.py`, `implementer.py`, `agentcall.py`,
+`selfheal/redo.py` and `selfheal/selffix.py` is a static `True`/`False` chosen by the caller's own
+judgement about the *kind* of call, never gated on the driver's declared confinement capability.
+`strict=True` is what keeps this from going stale: the day core reads `capabilities().sandbox` for
+real, the case flips to an unexpected pass and the suite goes red until the marker is deleted. **This
+is a deferred production item, not a resolved one** — the same standing as `A6`. It is deliberately
+not allow-listed: a gate whose allow-list absorbs its only finding is vacuous.
 
 **C4 (`2566cee`, `ce18509`) — the `/backend` pin stops bypassing `roles.resolve`.** `/backend auto`
 is a new clear verb (matched before the known-backend check, so `"auto"` can never collide with a
@@ -3409,6 +3428,51 @@ committed on any branch) tripped `test_purity.py` on two checks; Dan removed the
 name from it and the tree went green again — recorded as a live demonstration of D1's and
 `test_purity.py`'s working-tree scan doing exactly its job, not a defect in this queue's work.
 
+**D2 (`af8ca9c`, fix round `bb819ba`) — gate the whole backend capability surface.** New file
+`tests/test_no_dead_backend_surface.py`. It generalises the question `parse_exit` exposed a gap in —
+*"is this actually read by anything, or only implemented and driver-tested?"* — from one method to
+the whole `AgentBackend` contract. Both surfaces are **derived from the live objects, never
+hardcoded**: `_protocol_surface()` reads every non-dunder member off `vars(AgentBackend)` plus its
+class-level annotations, `_capabilities_surface()` reads `Capabilities._fields`. That is what makes
+the gate future-proof against a *second* `parse_exit` rather than merely aware of the first: a
+protocol method or capability field added later is picked up with no edit here. "Has a reader" is
+answered by one AST walk over every `.py` file under `maestro/` **excluding `maestro/backends/`**,
+collecting every `ast.Attribute`'s `.attr` — one pass covers both a method call and a plain field
+read. Two coverage tests plus fifteen supporting ones: two "guard the guard" pins, and anti-vacuity
+tests proving the checker fires on a synthetic violation, stays silent when fully covered, respects
+the allow-list, ignores prose and comment mentions (not `ast.Attribute` nodes at all), genuinely
+excludes `backends/`, reaches real core modules, and that every allow-list entry carries a real
+justification naming a real surface member.
+
+The gate found a real defect on its first run against real source — `Capabilities.sandbox`, written
+up in this wave's header above. That is the strongest anti-vacuity evidence available and it was not
+constructed: 16 of 17 passed, the one failure was `sandbox`, against the unmodified tree.
+`PROTOCOL_ALLOWLIST` has exactly one entry, `name`, argued rather than assumed: no core module reads
+`driver.name`, but each driver stamps it onto `Handle.backend` and core reads *that*
+(`switch.py`'s `registry.normalise_name(handle.backend) == target`) — a real reader path one hop
+removed. Independently sufficient: `.name` is among the most common attribute names in the codebase
+(`Path.name`, a task's, a role's, a window's), so an AST "hit" on it would demonstrate nothing, and a
+vacuously-always-true check is worse than an argued exemption. `CAPABILITIES_ALLOWLIST` is empty.
+
+**Fix round, and it mattered.** Review proved the gate's own anti-vacuity tests were themselves
+vacuous: all eight drove `_referenced_attrs()` directly on synthetic snippets and never the real
+`_core_referenced_attrs()`/`_core_maestro_files()` pipeline, so a mutant aggregator that ignored disk
+entirely and returned the full surface unconditionally passed 16 of 16 — red only by the accident of
+`sandbox`'s strict xfail flipping to an unexpected pass. Closed by
+`test_the_real_aggregator_reports_a_provably_unreferenced_surface_member`, which monkeypatches
+`_core_maestro_files()` to two controlled temp files and calls the **real** aggregator, asserting a
+real surface member the fixture provably omits (`resume`) is reported missing while one it contains
+(`launch`) is not. A made-up probe name would not have worked: the reviewer's mutation only ever
+returns members that already belong to the real surface, so only a real member the fixture omits can
+tell the true implementation from the vacuous one.
+
+**Known, stated imprecision** (documented in the file's own docstring rather than papered over): the
+walk matches attribute *names*, not types, so `Capabilities.sandbox` (bool) and `LaunchSpec.sandbox`
+(`str | None`) are indistinguishable to it. Verified not to matter today — neither is read by a
+`.sandbox` access outside `backends/` — and left as a stated boundary rather than a fragile
+call-chain heuristic, which is the same trade `test_no_reference_project_strings.py` made for its
+comment-scanning scope.
+
 **D3 (this item) — DESIGN.md §8 made true, plus five fold-in corrections from other items.** §8 gains
 a new subsection describing the rotation trigger A4 built and A5 armed: how attribution works on each
 backend, what the compared number means and why it's per-record rather than summed, and both
@@ -3455,4 +3519,6 @@ implies but doesn't spell out per-file; both docstrings were corrected according
 
 Files touched: `docs/DESIGN.md`, `docs/PROGRESS.md`, `maestro/backends/claude.py`,
 `maestro/cli.py`, `maestro/orchestrator.py`, `maestro/agentcall.py`. No behaviour changed anywhere —
-confirmed by re-reading the diff end to end and by the full suite's collected count staying at 3278.
+confirmed by re-reading the diff end to end and by the full suite's collected count staying at 3278
+on D3's own branch (which was cut before D2 merged; on master, where D2 landed first, the same
+"D3 adds no tests" statement reads 3296 → 3296).

@@ -81,7 +81,9 @@ from maestro.quota import (
     PAUSE_PCT,
     _paused_until_epoch,
     _tail_text,
+    exhausted_backends,
     get_effective_cap,
+    record_backend_exhausted,
 )
 from maestro.roles import (
     ROLE_IMPLEMENTER,
@@ -565,33 +567,29 @@ def _available_backends() -> tuple[str, ...] | None:
 def _launch_backend() -> str:
     """The backend a fresh `launch_implementer` call runs on.
 
-    The operator's `/backend <name>` first, then `maestro.roles` — the same *order* that
-    `implementer._implementer_backend` resolves the launch itself in, but no longer
-    **through the same function** (C4, readiness queue): that call now goes through
-    `roles.resolve(ROLE_IMPLEMENTER, preferred=operator_backend() or None)`, while this
-    one still calls `operator_backend() or backend_for(ROLE_IMPLEMENTER)` — a hard
-    short-circuit on the operator's pin rather than handing it to `resolve` as a
-    preference. This one only *records* the answer on the `in_flight` entry, so if the
-    two ever diverged the entry would name a backend the task is not running on, and
-    every switch decision taken from that entry would be about the wrong agent.
+    **A6 (2026-09-02) unified this with `implementer._implementer_backend` and
+    `agentcall.resolve_call`.** Until then this hard-short-circuited on
+    `operator_backend() or backend_for(ROLE_IMPLEMENTER)`, agreeing with the other two
+    only because none of the three was ever fed `exhausted=`/`available=` — the moment
+    one gained real data the three could observably diverge, and this function only
+    *records* its answer on the `in_flight` entry, so a divergence would make every
+    switch decision taken from that entry about the wrong agent (see
+    `docs/PROGRESS.md`'s D3 entry for the pre-A6 history). Now all three call
+    `roles.resolve` (or its `backend_for` wrapper) the same way: the operator's pin as
+    `preferred=`, not a bypass of resolution, and `quota.exhausted_backends()` — the
+    timed per-backend record A6 adds — as `exhausted=`, so a pinned-but-still-exhausted
+    backend is skipped and the fallback chain is walked instead of failing onto it again.
 
-    **They agree today only because neither is fed anything to diverge on.** Both call
-    sites pass `resolve` (or its `backend_for` wrapper) with no `available=` and no
-    `exhausted=`, and `resolve` with neither set always returns the preferred/configured
-    head unchanged — so the two paths are observably identical for every input reachable
-    right now, not because they share code. **The moment either path gains real
-    availability or exhaustion data, they must be unified** — not merely re-verified —
-    into one function, along with `agentcall.resolve_call`'s own copy of this same
-    "operator's pin leads" order. That unification is the deferred item `A6`; it changes
-    all three call sites in one commit rather than three separate ones, precisely so this
-    docstring's warning can never again describe two paths that only look like one.
-
-    Still no binary probe and no subprocess: the state document is one small read on a
-    path that is about to start an agent. `""` when resolution itself breaks — an unknown
-    backend is better than a wrong one.
+    Still no binary probe and no subprocess: `exhausted_backends()` is one more small
+    state-document read, exactly like `operator_backend()` already was, on a path that
+    is about to start an agent. `""` when resolution itself breaks — an unknown backend
+    is better than a wrong one.
     """
     try:
-        return operator_backend() or backend_for(ROLE_IMPLEMENTER)
+        return backend_for(
+            ROLE_IMPLEMENTER, preferred=operator_backend() or None,
+            exhausted=exhausted_backends(),
+        )
     except Exception:
         return ""
 
@@ -1323,6 +1321,20 @@ def reconcile_in_flight(state: dict, launch_times: dict) -> list:
             # untouched.
             verdict = _reconcile_exit_verdict(entry, _tail_text(workspace / "impl.log", 25))
             if verdict is not None and verdict.kind == "quota_exhausted":
+                # A6 — remember which backend is spent and until when, straight from the
+                # `ExitVerdict` the driver already returned (no new detection, no new
+                # parsing). Read back by `exhausted_backends()` on every *fresh* launch
+                # (`_launch_backend`, `implementer._implementer_backend`,
+                # `agentcall.resolve_call`), so the *next* task skips this backend via
+                # `roles.resolve`'s `exhausted=` instead of failing onto it again and
+                # rediscovering the same wall. Best-effort exactly like the switch below:
+                # a broken recorder must not cost the loop the switch or pause it was
+                # about to do anyway.
+                try:
+                    record_backend_exhausted(_entry_backend(entry), verdict.reset_at)
+                except Exception as exc:
+                    print(f"  [reconcile] {task_id}: failed to record backend "
+                          f"exhaustion — {exc}")
                 # M2/D3 — a limit on one backend is only a reason to pause everything if
                 # no other backend can take this task. When one can, the work moves
                 # instead of waiting for the reset: same worktree, uncommitted changes

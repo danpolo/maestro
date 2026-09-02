@@ -35,9 +35,12 @@ from types import SimpleNamespace
 
 import pytest
 
+from maestro import agentcall
 from maestro import config as config_module
 from maestro import implementer
 from maestro import orchestrator
+from maestro import quota as quota_module
+from maestro import roles as roles_module
 from maestro import state as state_module
 from maestro.backends.base import Capabilities, ExitVerdict, Usage, WindowUsage
 from maestro.backends.registry import get_backend as real_get_backend
@@ -154,6 +157,7 @@ def hooks(monkeypatch, tmp_path):
         journal=[],
         launch_times_persisted=[],
         pauses=[],
+        exhausted=[],
         outcome=None,
         raise_on_switch=None,
         available=(CLAUDE, CODEX),
@@ -203,6 +207,11 @@ def hooks(monkeypatch, tmp_path):
         orchestrator,
         "_persist_launch_time",
         lambda sid, ts: box.launch_times_persisted.append(sid),
+    )
+    monkeypatch.setattr(
+        orchestrator,
+        "record_backend_exhausted",
+        lambda backend, reset_at: box.exhausted.append((backend, reset_at)),
     )
     monkeypatch.setattr(orchestrator, "WORKSPACES", tmp_path / "workspaces")
     (tmp_path / "workspaces").mkdir(parents=True, exist_ok=True)
@@ -445,12 +454,25 @@ def no_probing(monkeypatch):
 def test_launch_backend_prefers_the_operators_recorded_choice(monkeypatch, tmp_path, no_probing):
     """Step 6's promise — `/backend <name>` "sets future launches" — is kept here.
 
-    The recorded key wins over the configured role, and resolving it stays a
-    configuration read: one small state document, no binary probe, no subprocess.
+    Re-baselined for A6: `_launch_backend` no longer hard-short-circuits past
+    `backend_for` on a recorded pin — it hands the pin to `backend_for` as `preferred=`,
+    the same seam `_implementer_backend` and `agentcall.resolve_call` already use, so a
+    *still-exhausted* pin can be skipped by all three together (A6's hard constraint).
+    The recorded choice still wins whenever nothing rules it out, which this proves by
+    checking `backend_for` actually receives it as `preferred=` and trusting its answer;
+    resolving it stays a configuration read: one small state document, no binary probe,
+    no subprocess.
     """
     _state_file(monkeypatch, tmp_path, **{commands.BACKEND_KEY: CODEX})
-    monkeypatch.setattr(orchestrator, "backend_for", lambda role: CLAUDE)
+    seen: dict = {}
+
+    def _backend_for(role, **kwargs):
+        seen.update(kwargs)
+        return kwargs.get("preferred") or CLAUDE
+
+    monkeypatch.setattr(orchestrator, "backend_for", _backend_for)
     assert orchestrator._launch_backend() == CODEX
+    assert seen["preferred"] == CODEX
 
 
 def test_launch_backend_falls_back_to_pure_configuration_with_no_choice_recorded(
@@ -459,7 +481,7 @@ def test_launch_backend_falls_back_to_pure_configuration_with_no_choice_recorded
     """With nothing recorded the pre-M2 answer stands: `maestro.roles`, unvalidated and
     unprobed, once per launch."""
     _state_file(monkeypatch, tmp_path)
-    monkeypatch.setattr(orchestrator, "backend_for", lambda role: f"resolved-{role}")
+    monkeypatch.setattr(orchestrator, "backend_for", lambda role, **kw: f"resolved-{role}")
     assert orchestrator._launch_backend() == "resolved-implementer"
 
 
@@ -475,7 +497,7 @@ def test_a_recorded_value_that_names_no_known_backend_is_ignored_silently(
     must not be able to send a launch at a driver that does not exist: anything the
     registry does not know reads as "no choice", with no exception on the way out."""
     _state_file(monkeypatch, tmp_path, **{commands.BACKEND_KEY: recorded})
-    monkeypatch.setattr(orchestrator, "backend_for", lambda role: f"resolved-{role}")
+    monkeypatch.setattr(orchestrator, "backend_for", lambda role, **kw: f"resolved-{role}")
     assert orchestrator._launch_backend() == "resolved-implementer"
 
 
@@ -486,18 +508,18 @@ def test_a_state_document_that_cannot_be_read_is_ignored_silently(
     path = tmp_path / "state.json"
     path.write_text(body, encoding="utf-8")
     monkeypatch.setattr(state_module, "STATE_JSON", path)
-    monkeypatch.setattr(orchestrator, "backend_for", lambda role: f"resolved-{role}")
+    monkeypatch.setattr(orchestrator, "backend_for", lambda role, **kw: f"resolved-{role}")
     assert orchestrator._launch_backend() == "resolved-implementer"
 
 
 def test_a_missing_state_document_is_ignored_silently(monkeypatch, tmp_path, no_probing):
     monkeypatch.setattr(state_module, "STATE_JSON", tmp_path / "never-written.json")
-    monkeypatch.setattr(orchestrator, "backend_for", lambda role: f"resolved-{role}")
+    monkeypatch.setattr(orchestrator, "backend_for", lambda role, **kw: f"resolved-{role}")
     assert orchestrator._launch_backend() == "resolved-implementer"
 
 
 def test_launch_backend_degrades_to_empty_when_resolution_breaks(monkeypatch, tmp_path):
-    def _boom(role):
+    def _boom(role, **kw):
         raise RuntimeError("no config")
 
     _state_file(monkeypatch, tmp_path)
@@ -531,6 +553,185 @@ def test_the_backend_recorded_and_the_backend_launched_cannot_drift(monkeypatch,
     _state_file(monkeypatch, tmp_path)          # the operator has chosen nothing
     assert orchestrator._launch_backend() == CLAUDE
     assert implementer._implementer_backend()[0] == CLAUDE
+
+
+# =======================================================================================
+# A6 — the timed per-backend exhaustion record: read side, all three sites together
+# =======================================================================================
+
+
+def test_the_three_backend_resolution_sites_all_skip_a_recorded_exhaustion(
+    monkeypatch, tmp_path
+):
+    """A6's hard constraint, proven rather than asserted by inspection: feeding
+    `exhausted=` into role resolution must reach `orchestrator._launch_backend`,
+    `implementer._implementer_backend` and `agentcall.resolve_call` in the same commit.
+
+    A pin recorded as exhausted must be skipped by all three, landing every one of them
+    on the same fallback — otherwise the `in_flight` entry `_launch_backend` records
+    would name a backend one of the other two is still willing to launch onto, which is
+    exactly the drift `_launch_backend`'s own docstring warns about. Reverting the
+    `exhausted=` wiring on any single call site (and only that one) fails this test,
+    because that site would keep returning the exhausted pin while its two siblings
+    fall through to the configured fallback.
+    """
+    monkeypatch.setattr(
+        config_module,
+        "load_project_yaml",
+        lambda: {
+            "roles": {"implementer": {"backend": CLAUDE}},
+            "fallback_chain": [CLAUDE, CODEX],
+        },
+    )
+    _state_file(
+        monkeypatch, tmp_path,
+        **{quota_module.EXHAUSTED_KEY: {CLAUDE: "2999-01-01T00:00:00Z"}},
+    )
+
+    assert orchestrator._launch_backend() == CODEX
+    assert implementer._implementer_backend()[0] == CODEX
+    assert agentcall.resolve_call(roles_module.ROLE_IMPLEMENTER)[0] == CODEX
+
+
+def test_an_exhausted_pin_is_skipped_by_the_launch_path(monkeypatch, tmp_path):
+    """The scenario A6 exists for: the operator pinned a backend, it later exhausted
+    itself, and the *next* fresh launch must not fail onto it a second time."""
+    monkeypatch.setattr(
+        config_module,
+        "load_project_yaml",
+        lambda: {
+            "roles": {"implementer": {"backend": CLAUDE}},
+            "fallback_chain": [CLAUDE, CODEX],
+        },
+    )
+    _state_file(
+        monkeypatch, tmp_path,
+        **{
+            commands.BACKEND_KEY: CLAUDE,
+            quota_module.EXHAUSTED_KEY: {CLAUDE: "2999-01-01T00:00:00Z"},
+        },
+    )
+    assert orchestrator._launch_backend() == CODEX
+    assert implementer._implementer_backend()[0] == CODEX
+
+
+def test_an_exhaustion_record_for_a_different_backend_does_not_touch_the_pin(
+    monkeypatch, tmp_path
+):
+    _state_file(
+        monkeypatch, tmp_path,
+        **{
+            commands.BACKEND_KEY: CLAUDE,
+            quota_module.EXHAUSTED_KEY: {CODEX: "2999-01-01T00:00:00Z"},
+        },
+    )
+    assert orchestrator._launch_backend() == CLAUDE
+    assert implementer._implementer_backend()[0] == CLAUDE
+
+
+def test_an_expired_exhaustion_record_no_longer_suppresses_the_pin(monkeypatch, tmp_path):
+    """Expiry is automatic and needs no operator action: once `now >= reset_at` the
+    record is inert and the pin is honoured again exactly as if nothing were ever
+    recorded — the clock half of the observable-acceptance scenario."""
+    monkeypatch.setattr(
+        config_module,
+        "load_project_yaml",
+        lambda: {
+            "roles": {"implementer": {"backend": CLAUDE}},
+            "fallback_chain": [CLAUDE, CODEX],
+        },
+    )
+    _state_file(
+        monkeypatch, tmp_path,
+        **{
+            commands.BACKEND_KEY: CLAUDE,
+            quota_module.EXHAUSTED_KEY: {CLAUDE: "2000-01-01T00:00:00Z"},
+        },
+    )
+    assert orchestrator._launch_backend() == CLAUDE
+    assert implementer._implementer_backend()[0] == CLAUDE
+
+
+def test_an_exhausted_pin_with_no_fallback_still_reports_the_pin(monkeypatch, tmp_path):
+    """`roles.resolve` returns the preferred backend, marked unusable, when nothing in
+    the chain can run — the caller's cue to keep waiting rather than switch. A single
+    exhausted entry with no configured fallback must behave exactly the same way, not
+    raise and not silently invent a different backend."""
+    monkeypatch.setattr(
+        config_module,
+        "load_project_yaml",
+        lambda: {
+            "roles": {"implementer": {"backend": CLAUDE}},
+            "fallback_chain": [CLAUDE],
+        },
+    )
+    _state_file(
+        monkeypatch, tmp_path,
+        **{
+            commands.BACKEND_KEY: CLAUDE,
+            quota_module.EXHAUSTED_KEY: {CLAUDE: "2999-01-01T00:00:00Z"},
+        },
+    )
+    assert orchestrator._launch_backend() == CLAUDE
+    assert implementer._implementer_backend()[0] == CLAUDE
+
+
+def test_the_observable_acceptance_scenario_end_to_end(monkeypatch, tmp_path):
+    """The brief's own acceptance demonstration, run against the real functions (no
+    stubbing of `roles.resolve`, `backend_for`, `quota.exhausted_backends` or
+    `quota.record_backend_exhausted`):
+
+    1. A backend is pinned.
+    2. Its next launch fails with an exhaustion verdict carrying a `reset_at` an hour
+       out — recorded exactly where `reconcile_in_flight` already records it.
+    3. The *next* task launches on the fallback, on every one of the three call sites,
+       without first failing on the pinned one.
+    4. The clock moves past `reset_at`; the pin is honoured again with no operator
+       action.
+    """
+    monkeypatch.setattr(
+        config_module,
+        "load_project_yaml",
+        lambda: {
+            "roles": {"implementer": {"backend": CLAUDE}},
+            "fallback_chain": [CLAUDE, CODEX],
+        },
+    )
+    _state_file(monkeypatch, tmp_path, **{commands.BACKEND_KEY: CLAUDE})
+
+    class _Before(quota_module.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return quota_module.datetime(2026, 1, 1, 0, 0, 0, tzinfo=quota_module.timezone.utc)
+
+    class _After(quota_module.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return quota_module.datetime(2026, 1, 1, 2, 0, 0, tzinfo=quota_module.timezone.utc)
+
+    monkeypatch.setattr(quota_module, "datetime", _Before)
+
+    # Step 1 — pinned, nothing exhausted yet: every site launches on the pin.
+    assert orchestrator._launch_backend() == CLAUDE
+    assert implementer._implementer_backend()[0] == CLAUDE
+    assert agentcall.resolve_call(roles_module.ROLE_IMPLEMENTER)[0] == CLAUDE
+
+    # Step 2 — the pinned backend's launch fails on quota, reset an hour out (01:00,
+    # clock frozen at 00:00).
+    quota_module.record_backend_exhausted(CLAUDE, "2026-01-01T01:00:00Z")
+
+    # Step 3 — the next task launches on the fallback everywhere, without first
+    # failing on the pinned backend.
+    assert orchestrator._launch_backend() == CODEX
+    assert implementer._implementer_backend()[0] == CODEX
+    assert agentcall.resolve_call(roles_module.ROLE_IMPLEMENTER)[0] == CODEX
+
+    # Step 4 — the clock crosses reset_at; the pin is honoured again, no operator
+    # action taken in between.
+    monkeypatch.setattr(quota_module, "datetime", _After)
+    assert orchestrator._launch_backend() == CLAUDE
+    assert implementer._implementer_backend()[0] == CLAUDE
+    assert agentcall.resolve_call(roles_module.ROLE_IMPLEMENTER)[0] == CLAUDE
 
 
 class _SpecRecorder:
@@ -823,6 +1024,48 @@ def test_reconcile_still_pauses_when_the_switch_fails(reconcile_env):
     assert surviving == []
     assert [p[0] for p in reconcile_env.pauses] == ["T1"]
     assert "backend_switch_failed" in [event for event, _, _ in reconcile_env.journal]
+
+
+# =======================================================================================
+# A6 — the timed per-backend exhaustion record: write side
+# =======================================================================================
+
+
+def test_reconcile_records_the_exhausted_backend_and_its_reset_time(reconcile_env):
+    """The write half of A6: a `quota_exhausted` verdict records `backend -> reset_at`
+    from the `ExitVerdict` the driver already returned — no new detection, no new
+    parsing. This is what lets a *later* fresh launch skip the same wall instead of
+    rediscovering it."""
+    orchestrator.reconcile_in_flight({"in_flight": [reconcile_env.entry]}, {})
+    assert reconcile_env.exhausted == [(CLAUDE, "2026-08-12T18:00:00Z")]
+
+
+def test_reconcile_records_the_exhaustion_even_when_no_fallback_exists(reconcile_env):
+    """The backend is exhausted regardless of whether *this* task could be switched off
+    it — recording it must not depend on a switch having succeeded."""
+    reconcile_env.available = (CLAUDE,)
+    orchestrator.reconcile_in_flight({"in_flight": [reconcile_env.entry]}, {})
+    assert reconcile_env.exhausted == [(CLAUDE, "2026-08-12T18:00:00Z")]
+
+
+def test_reconcile_records_the_exhaustion_even_when_the_switch_fails(reconcile_env):
+    reconcile_env.raise_on_switch = RuntimeError("relaunch failed")
+    orchestrator.reconcile_in_flight({"in_flight": [reconcile_env.entry]}, {})
+    assert reconcile_env.exhausted == [(CLAUDE, "2026-08-12T18:00:00Z")]
+
+
+def test_a_recording_failure_does_not_cost_the_switch_or_the_pause(reconcile_env, monkeypatch):
+    """Best-effort: a broken recorder must not cost the loop the switch (or, with no
+    fallback, the pause) it was about to do anyway — the same standard
+    `_switch_instead_of_waiting` already holds itself to for `switch_task`."""
+    monkeypatch.setattr(
+        orchestrator,
+        "record_backend_exhausted",
+        lambda *a, **k: (_ for _ in ()).throw(RuntimeError("state.json is corrupt")),
+    )
+    surviving = orchestrator.reconcile_in_flight({"in_flight": [reconcile_env.entry]}, {})
+    assert reconcile_env.pauses == []
+    assert [e["session_id"] for e in surviving] == ["impl-T1-2"]
 
 
 def test_reconcile_classifies_a_codex_quota_exit_through_its_own_driver(

@@ -132,3 +132,56 @@ the true probe bound is ~24s not ~16s, with a worked example.
 
 Pre-judging would have produced the same fix with a weaker justification, and would have skipped the
 independent check that the fix was even the right one.
+
+## 2026-09-02 — "Mutate a copy, not the checkout" is not enough; name the isolation
+
+Two reviewers mutated state they were told not to. The first edited its worktree directly and
+restored it correctly, so I added "mutate a copy, never the checkout" to every later dispatch. The
+second *followed that rule* and still detached the worktree's HEAD two merges backwards — its scratch
+copies shared the worktree's gitdir, so git commands run from them acted on the real repository. It
+then died mid-restore.
+
+Nothing was lost, but only because the commits already existed: the branch still pointed at the fix
+head, every tracked file already matched it, and both untracked files were verified byte-identical to
+their committed blobs by `sha256` before restoring.
+
+A copy is not isolated because it is a copy — it is isolated when no `.git` resolves above it. Say
+that explicitly: *copy to `/tmp/<name>/`, outside the repository, and never run a git command from
+there.* The durable fix is smaller still: a reviewer's job is reading and running tests. Any
+experiment that needs mutation should be run by the implementer under the controller's direction, so
+that mutation only ever happens where a commit already protects it.
+
+## 2026-09-02 — Tell the implementer to re-verify the line, not to apply the token
+
+Three times I folded a one-token correction into a documentation line and added "re-check the whole
+line/paragraph against primary evidence rather than applying my token." Every time it found something
+I had missed: `launch.sh` alongside the `systemd/` I had named; `.gitignore` and the pre-commit hook
+alongside those; and two further places a paragraph silently assumed three switch triggers where the
+code has four. A fourth pass found two more over-broad sentences beside the one under repair.
+
+The instruction costs one clause and repeatedly outperformed my own reading of the same line.
+
+## 2026-09-02 — A roll-up built by grepping the ledger inherits the ledger's phrasing drift
+
+I built the final review's deferred-minors list by grepping ~2000 ledger lines for the phrases I
+thought I had used. It missed 13 of ~32 findings, because three sessions had written that ledger and
+the wording drifted. The final reviewer found and triaged them anyway, and told me.
+
+Build the triage list incrementally as each finding is deferred. A retrospective pattern-match over
+your own prose is not a record; it is a guess about how consistent you were.
+
+## 2026-09-02 — The same question, asked about the neighbouring axis
+
+The one defect this queue's process missed came from a ruling that was correct but under-scoped. When
+item C4 made the *backend*-resolution paths diverge, I split the finding properly — docstring to the
+documentation item, code to a filed follow-up — and judged the hazard latent because nothing yet fed
+either path divergent data. Right answer.
+
+I never asked the same question about *model* resolution. There it was already live: item C1 had made
+a task's `model:` win at the launch site while the context-ceiling lookup still used the role table,
+so a task pinned to a larger model was measured against a smaller model's ceiling and had its
+conversation discarded ~20K early. Two of the final review's five Important findings were that one
+unasked question.
+
+When a ruling establishes "two paths that only look like one," immediately ask which *other* values
+travel those same two paths.

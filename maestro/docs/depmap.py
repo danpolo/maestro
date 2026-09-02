@@ -25,6 +25,18 @@ hook's own invocation was "relevant" to `docs/dependency_map.md`); a plain Pytho
 has no stdin payload and no hook registration of its own — its caller decides when to call
 it — so there is nothing for that branch to gate. Every other line of the render step's
 logic is preserved.
+
+**MMDC resolution is a deliberate deviation, added after Wave B landed.** The reference (and
+this module, originally) hard-coded a per-repo local install at `.mermaid/node_modules/.bin/
+mmdc` — the shape `scripts/render_dependency_map.sh` used. `mmdc` is not project-specific, so
+maintaining a full mermaid-cli + puppeteer + Chromium `node_modules` tree per maestro-scaffolded
+repo is pure duplication; `maestro init` now installs it once, globally, via `scripts/
+ensure_mermaid.sh` (see `_run_ensure_mermaid` in `maestro/cli.py`). MMDC below prefers a global
+`mmdc` on `$PATH` and falls back to the old local path only for a repo that already has one
+(e.g. one scaffolded before this change) — never both, and never re-installing over a working
+local one. `PUPPETEER_CFG` is unaffected: it is still a small per-repo config file (now
+scaffolded by `maestro init` itself rather than shipped inside a local mermaid-cli install),
+since the browser binary it points at can differ machine to machine.
 """
 from __future__ import annotations
 
@@ -34,6 +46,7 @@ import io
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -51,7 +64,15 @@ COMPLETED_TASKS = REPO_ROOT / ".orchestrator" / "completed_tasks.json"
 
 # New globals for render_png() (not present in the reference gen_dependency_map.py;
 # these were shell variables local to render_dependency_map.sh's own scope).
-MMDC          = REPO_ROOT / ".mermaid" / "node_modules" / ".bin" / "mmdc"
+#
+# MMDC: global `mmdc` on $PATH first (the normal case — see the module docstring's "MMDC
+# resolution" note), falling back to a legacy per-repo local install so a repo scaffolded
+# before this change keeps working without re-running `init`. Resolved once at import time,
+# like every other path global here — a global install added *after* this process started
+# would need a fresh `maestro` invocation to be picked up, same as any other env change
+# `Paths.from_env()` reads at import.
+_GLOBAL_MMDC  = shutil.which("mmdc")
+MMDC          = Path(_GLOBAL_MMDC) if _GLOBAL_MMDC else REPO_ROOT / ".mermaid" / "node_modules" / ".bin" / "mmdc"
 PUPPETEER_CFG = REPO_ROOT / ".mermaid" / "puppeteer-config.json"
 DEP_MAP_PNG   = REPO_ROOT / "docs" / "dependency_map.png"
 

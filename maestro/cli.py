@@ -571,7 +571,7 @@ def _check_model_limits(repo_root: Path) -> Check:
 # asks the CLI directly, closing that gap independently of the ceiling table.
 #
 # **Cheap and offline-tolerant by construction.** Both real CLIs (verified by hand while
-# building this check, see `task-C7-report.md`) print a client-side "I don't recognise
+# building this check, see `docs/plans/2026-08-30-pre-integration-c7-report.md`) print a client-side "I don't recognise
 # this model" marker within a couple of seconds, *before* attempting any network call —
 # offline or online makes no difference to whether that marker appears. A **valid** model,
 # by contrast, prints nothing distinguishing before the CLI moves on to its real (network)

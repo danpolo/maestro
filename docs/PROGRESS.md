@@ -3529,3 +3529,62 @@ Files touched: `docs/DESIGN.md`, `docs/PROGRESS.md`, `maestro/backends/claude.py
 confirmed by re-reading the diff end to end and by the full suite's collected count staying at 3278
 on D3's own branch (which was cut before D2 merged; on master, where D2 landed first, the same
 "D3 adds no tests" statement reads 3296 → 3296).
+
+## 2026-09-02 — A6: a timed per-backend exhaustion record (closes the constraint D3 recorded)
+
+**A6 is no longer deferred.** The wave-2c/2d entry above says the three backend-resolution call sites
+were deliberately left un-unified because "that belongs to the deferred item `A6`". This is that item.
+It was filed during C4's review, rewritten after the operator corrected its framing, approved, and
+built here. Merged as `sdd/A6`; suite 3335 → **3376 collected, exit 0**, the one documented `xfail`
+still the only non-dot.
+
+**The defect.** Exhaustion was discovered per task and then forgotten. `parse_exit` has returned
+`ExitVerdict(kind="quota_exhausted", reset_at=…)` since A1, and `orchestrator` has rerouted on it since
+M2 — but nothing recorded *which* backend was spent. `quota.paused_until` is a single global timestamp
+and cannot name one. So every subsequent task launched onto the same spent backend, failed, and
+rerouted again: one wasted launch per task instead of one per outage, repeating for the length of a
+five-hour window.
+
+**The shape, in the operator's words:** "not before every session but rather after it fails
+specifically on tool exhaustion" — reactive, never proactive. The documented policy that no
+`--version` probe runs on the launch path (`orchestrator.py`) stands, and a review check confirmed the
+diff adds no subprocess, binary check or network call to that path.
+
+**What was built.** `quota.record_backend_exhausted` / `exhausted_backends` / `EXHAUSTED_KEY`, beside
+`paused_until` rather than folded into it. The write sits inside the existing `quota_exhausted` branch
+and takes `reset_at` straight from the driver's verdict — no new detection, no new parsing. The read
+feeds `roles.resolve`'s **pre-existing** `exhausted=` parameter, which `roles._skip_reason` already
+honoured; C4 had wired the launch path through `roles.resolve` but had nothing to put in that set.
+`maestro/roles.py` has a zero-diff. Records expire against the wall clock on every read — no clear
+command, no flag, nothing for an operator to remember.
+
+**The constraint D3 recorded is now discharged.** All three sites — `implementer._implementer_backend`,
+`orchestrator._launch_backend`, `agentcall.resolve_call` — moved in one commit, and `_launch_backend`'s
+hard short-circuit was *removed* rather than decorated, which is what makes a pinned-but-spent backend
+skippable at all. The three are now identical functions of identical state. A test pins it, and the
+review proved that test genuine by reverting each site individually on an out-of-repo copy: 2, 3 and 4
+failures respectively, the constraint test red in all three.
+
+**Fail direction, which is the whole safety story here.** A missing, blank, malformed, non-string or
+past `reset_at` must leave a backend *usable*; suppressing on garbage would strand every task on the
+machine. The review swept 22 malformed values, 8 malformed table shapes and missing/corrupt state
+documents: zero suppressions, zero exceptions. The write side refuses independently of the read side.
+
+**Two defects the review found and the fix round closed.** A **feedback loop**: the write named the
+backend via `_entry_backend`, whose fallback is `_launch_backend()` — which now consults the record —
+so an entry carrying no `backend` key could record a *healthy* backend as exhausted using another
+backend's reset time. Now the write reads `entry.get("backend")` directly and skips entirely when
+absent: an unknown backend is not evidence about a named one. And a **startup clobber**: `main()` wrote
+back a state snapshot taken before `reconcile_in_flight`, dropping any record written in between —
+FOUND_BUGS #6's read-modify-write class, which already lost `paused_until` the same way. Extracted as
+`_reconcile_and_persist_startup_state`, which re-reads before merging. The reviewer reproduced the old
+bug manually to confirm the fix was load-bearing rather than incidental.
+
+**Folded in by ruling:** `_switch_instead_of_waiting` now passes `frozenset(tried) | exhausted_backends()`,
+so a reroute cannot land on a backend another task already proved spent. Guardrail, verified by
+experiment against the real `switch_task` rather than by reading: a `REASON_CONTEXT` rotation is
+unaffected even when its own backend is passed as exhausted, because a rotation targets `current` and
+never calls `target_backend`. D4's safety symbols are untouched by the diff.
+
+**Known and deliberate:** expired records are never pruned from `state.json` — bounded by the number of
+backends, so the table only ever grows a key per backend. Not worth a sweeper.

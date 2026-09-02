@@ -274,6 +274,73 @@ def _run_telegram_creds(repo_root: Path, *, script_override: Optional[Path] = No
     return f"skipped ({reason[-1] if reason else f'exit {proc.returncode}'})"
 
 
+#: Same candidate list `scripts/ensure_mermaid.sh` checks — kept in sync by hand, not derived
+#: from the shell script (the two run in different processes and neither shells out to the
+#: other for this one lookup). Used to fill `.mermaid/puppeteer-config.json`'s
+#: `executablePath` so `mmdc` reuses whatever headless-capable browser is already on the box
+#: instead of downloading its own.
+_CHROMIUM_CANDIDATES = (
+    "/usr/bin/chromium", "/usr/bin/chromium-browser",
+    "/usr/bin/google-chrome", "/usr/bin/google-chrome-stable",
+)
+
+
+def _detect_chromium_path() -> Optional[str]:
+    """First executable in `_CHROMIUM_CANDIDATES`, or `None` if none is installed — in which
+    case the scaffolded puppeteer config omits `executablePath` entirely and `mmdc` falls back
+    to whatever Chromium puppeteer itself bundled/downloaded."""
+    for candidate in _CHROMIUM_CANDIDATES:
+        if os.access(candidate, os.X_OK):
+            return candidate
+    return None
+
+
+def _puppeteer_config_json() -> str:
+    """Content for `.mermaid/puppeteer-config.json` — the `-p` config `maestro.docs.depmap.
+    render_png()` passes to `mmdc`. `--no-sandbox`/`--disable-setuid-sandbox` are required for
+    headless Chromium under a root-less container or CI runner; `--disable-dev-shm-usage`
+    avoids `/dev/shm` running out on a small instance. Matches the reference project's own
+    `.mermaid/puppeteer-config.json` shape."""
+    config: dict = {
+        "args": ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
+    }
+    chromium = _detect_chromium_path()
+    if chromium:
+        config = {"executablePath": chromium, **config}
+    return json.dumps(config, indent=2) + "\n"
+
+
+def _run_ensure_mermaid(repo_root: Path, *, script_override: Optional[Path] = None) -> str:
+    """Invoke `scripts/ensure_mermaid.sh` as a subprocess — best-effort, exactly like
+    `_run_telegram_creds`: any non-zero exit (no npm, no network, install failure) or the
+    script simply not being present is treated the same way — skip, keep going, never fail
+    `init` over it. The script itself is check-then-install (a no-op if `mmdc` already
+    resolves, globally or from a legacy per-repo `.mermaid/` install) so re-running `init`
+    never reinstalls anything that already works.
+
+    `script_override` exists purely for tests, mirroring `_run_telegram_creds`'
+    `script_override`: it lets a test point this at a small stand-in script instead of the
+    real `scripts/ensure_mermaid.sh`, so a test can never end up shelling out to real `npm`
+    (which would hit the network) regardless of what happens to already be on the machine's
+    `$PATH`.
+    """
+    script = script_override or (_MAESTRO_SOURCE_ROOT / "scripts" / "ensure_mermaid.sh")
+    if not script.is_file():
+        return "skipped (scripts/ensure_mermaid.sh not found)"
+    try:
+        proc = subprocess.run(
+            ["bash", str(script), str(repo_root)],
+            capture_output=True, text=True, timeout=180,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return f"skipped (could not run ensure_mermaid.sh: {exc})"
+    if proc.returncode == 0:
+        last = (proc.stdout or "").strip().splitlines()
+        return last[-1] if last else "ok"
+    reason = (proc.stderr or proc.stdout or "").strip().splitlines()
+    return f"skipped ({reason[-1] if reason else f'exit {proc.returncode}'})"
+
+
 def _ensure_agents_tmux_session(*, tmux_bin: str = "tmux") -> bool:
     """Ensure the shared `"agents"` tmux session `orchestrator.main()` hard-requires exists.
     Creates it if absent; never kills a pre-existing one (see this module's docstring — other
@@ -357,10 +424,16 @@ def _run_noop_supervised_loop_check(
     return proc.returncode == 0, detail
 
 
-def cmd_init(repo_root: Path, *, telegram_script_override: Optional[Path] = None) -> int:
+def cmd_init(
+    repo_root: Path, *,
+    telegram_script_override: Optional[Path] = None,
+    mermaid_script_override: Optional[Path] = None,
+) -> int:
     """`maestro init [path]` — DESIGN.md §10. Idempotent (see `_scaffold_file`); Telegram setup
-    is best-effort (see `_run_telegram_creds`); ends with a dry-run `status` and the no-op
-    supervised loop check before reporting success (see this module's docstring)."""
+    and mermaid-cli installation are both best-effort (see `_run_telegram_creds` and
+    `_run_ensure_mermaid` respectively — same shape, same "never fail init over it" contract);
+    ends with a dry-run `status` and the no-op supervised loop check before reporting success
+    (see this module's docstring)."""
     repo_root = repo_root.resolve()
     if not (repo_root / ".git").exists() and not _git(repo_root, "rev-parse", "--git-dir"):
         print(f"[init] {repo_root} is not a git repository — run `git init` first.")
@@ -434,6 +507,12 @@ def cmd_init(repo_root: Path, *, telegram_script_override: Optional[Path] = None
 
     outcomes.append(_scaffold_file(repo_root / ".gitignore", _GITIGNORE_BLOCK))
 
+    # `-p` config `maestro.docs.depmap.render_png()` passes to `mmdc` when it renders
+    # docs/dependency_map.md's mermaid block — scaffolded regardless of whether `mmdc` itself
+    # is installed yet (see the ensure-mermaid step below), so it's already in place the
+    # moment it becomes available.
+    outcomes.append(_scaffold_file(repo_root / ".mermaid" / "puppeteer-config.json", _puppeteer_config_json()))
+
     outcomes.extend(_ensure_orchestrator_dirs(repo_root))
     _ensure_venv_python_symlink(repo_root)
 
@@ -448,6 +527,9 @@ def cmd_init(repo_root: Path, *, telegram_script_override: Optional[Path] = None
 
     telegram_result = _run_telegram_creds(repo_root, script_override=telegram_script_override)
     print(f"[init] Telegram setup: {telegram_result}")
+
+    mermaid_result = _run_ensure_mermaid(repo_root, script_override=mermaid_script_override)
+    print(f"[init] mermaid-cli (dependency-map PNG rendering): {mermaid_result}")
 
     print("\n[init] dry-run `maestro status`:")
     status_rc = cmd_status(repo_root)
@@ -801,6 +883,24 @@ def _check_telegram(repo_root: Path, http_get: Callable[[str], dict]) -> Check:
     return Check("telegram", False, f"getMe failed: {response}")
 
 
+def _check_mermaid(repo_root: Path) -> Check:
+    """Optional — a missing `mmdc` only means `docs/dependency_map.png` stays stale/absent
+    (`maestro.docs.depmap.render_png()` swallows the failure, see `maestro/docs/roadmap.py`'s
+    `run_dep_map`), never that orchestration itself is broken. Checks the same two locations
+    `scripts/ensure_mermaid.sh` and `maestro.docs.depmap.MMDC` do: global PATH first, then a
+    legacy per-repo `.mermaid/node_modules/.bin/mmdc`."""
+    if shutil.which("mmdc"):
+        return Check("mermaid", True, f"mmdc on PATH: {shutil.which('mmdc')}")
+    local = repo_root / ".mermaid" / "node_modules" / ".bin" / "mmdc"
+    if local.is_file() and os.access(local, os.X_OK):
+        return Check("mermaid", True, f"mmdc installed locally: {local}")
+    return Check(
+        "mermaid", False,
+        "mmdc not found (global or local) — dependency_map.png will not render; "
+        "run `scripts/ensure_mermaid.sh` or re-run `maestro init`",
+    )
+
+
 def _check_systemd_unit(repo_root: Path, project_name: str) -> Check:
     systemd_dir = Path(os.environ.get("MAESTRO_SYSTEMD_DIR", "/etc/systemd/system"))
     unit = systemd_dir / f"{project_name}-watchdog.service"
@@ -869,6 +969,7 @@ def cmd_doctor(repo_root: Path, *, pre_commit: bool = False,
         checks.append(_check_model_limits(repo_root))
         checks.append(_check_model_ids(repo_root))
         checks.append(_check_backends(repo_root))
+        checks.append(_check_mermaid(repo_root))
         checks.append(_check_telegram(repo_root, http_get))
         checks.append(_check_systemd_unit(repo_root, project_name))
         checks.append(_check_gate(repo_root))

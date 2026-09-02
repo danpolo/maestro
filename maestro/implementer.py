@@ -581,13 +581,14 @@ def _implementer_backend() -> tuple[str, dict]:
 
     **A6 (2026-09-02):** `exhausted=quota.exhausted_backends()` is now passed too — the
     timed per-backend record `orchestrator.reconcile_in_flight` writes when a real exit
-    is classified `quota_exhausted`. A pin that is *currently* recorded as exhausted is
-    therefore skipped in favour of the rest of the role's fallback chain, exactly like an
-    uninstalled binary would be, and the pin resumes by itself once the record expires —
-    no `/backend auto`, no operator action. `orchestrator._launch_backend` and
-    `agentcall.resolve_call` read the same set the same way, in the same commit: the
-    three must move together or an `in_flight` entry can name a backend the task is not
-    actually running on (see `_launch_backend`'s own docstring).
+    is classified `quota_exhausted`. `_skip_reason` treats a name in `exhausted` the same
+    way it treats one missing from `available` — so a pin that is *currently* recorded as
+    exhausted is skipped in favour of the rest of the role's fallback chain there too, and
+    the pin resumes by itself once the record expires — no `/backend auto`, no operator
+    action. `orchestrator._launch_backend` and `agentcall.resolve_call` read the same set
+    the same way, in the same commit: the three must move together or an `in_flight`
+    entry can name a backend the task is not actually running on (see `_launch_backend`'s
+    own docstring).
 
     The models table is the role's either way: a role declares its model *per backend*
     (`docs/DESIGN.md` §5), so the operator's choice picks a column out of the same table

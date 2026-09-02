@@ -89,7 +89,8 @@ contributor pays, forever, for one already-known, already-reported finding. So
 * it is not a `pytest.mark.skip`/`skipif`, so `tests/test_no_name_branching.py`'s own
   skip-construct gate does not need to (and does not) treat it as a name-branching skip.
 
-See `task-D2-report.md` for the full argument and the case for the other reading.
+See `docs/plans/2026-08-30-pre-integration-d2-report.md` for the full argument and the
+case for the other reading.
 """
 from __future__ import annotations
 
@@ -215,7 +216,8 @@ def test_every_protocol_member_has_a_core_reader():
 
 _SANDBOX_XFAIL_REASON = (
     "Capabilities.sandbox has no core reader outside maestro/backends/ — a real, "
-    "reported finding (task-D2-report.md), not a synthetic case. Deliberately NOT "
+    "reported finding (docs/plans/2026-08-30-pre-integration-d2-report.md), not a "
+    "synthetic case. Deliberately NOT "
     "allow-listed (see this file's module docstring). strict=True: the day core reads "
     "capabilities().sandbox for real, this flips to an unexpected pass and the suite "
     "goes red until the marker is removed."
@@ -375,7 +377,8 @@ def test_the_real_aggregator_reports_a_provably_unreferenced_surface_member(
     `_core_maestro_files()` was made to return, so it fails this test; the real
     implementation, which actually reads the monkeypatched files, does not.
 
-    See `task-D2-report.md`'s fix-round-1 entry for the RED/GREEN proof against a
+    See `docs/plans/2026-08-30-pre-integration-d2-report.md`'s fix-round-1 entry for the
+    RED/GREEN proof against a
     literal copy of the reviewer's mutation.
     """
     covered_file = tmp_path / "covered.py"

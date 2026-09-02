@@ -13,6 +13,18 @@ Two tiers:
   extracted from. They are not part of the maestro deliverable. Everything
   else, including all of ``maestro/``, ``tests/`` and ``templates/``, stays strict,
   so a new file is always caught.
+
+A third check, ``test_no_pointers_into_the_build_scratch_directory``, is about rot
+rather than identity: ``EPHEMERAL_PATH_PATTERNS``. Maestro is built by short-lived
+plan directories under ``/home/dan/.maestro-sdd/``, each holding per-item briefs and
+reports, and each **deleted when its plan closes**. A citation of one from
+``maestro/`` or ``tests/`` is a pointer that is guaranteed to rot — the 2026-08-30
+pre-integration queue shipped six of them, in production and test source, two
+carrying evidence found nowhere else in the tree. Content worth citing gets copied
+into ``docs/plans/`` (which is where the surviving two now live) and cited there.
+The scaffold exemption applies here too: ``handoffs/`` and ``docs/plans/`` are
+allowed to name the directory, because a handoff is written *while* it exists and a
+copied report has to say where it came from.
 """
 import re
 from pathlib import Path
@@ -31,6 +43,22 @@ CREDENTIAL_PATTERNS = [
 ]
 
 LEGACY_PATH = "/home/dan/projects/AbuAli"
+
+#: Paths that exist only while a build plan is open and are deleted when it closes.
+#: Anything outside the scaffold that cites one is a pointer with an expiry date.
+EPHEMERAL_PATH_PATTERNS = [
+    # A path *into* the scratch root, not the root itself. The root is persistent and is
+    # named as a live operational rule in `tasks/lessons.md` ("uncommitted work goes on
+    # persistent storage, outside the repo"); what expires is each plan directory under
+    # it. The character class deliberately excludes the closing backtick, so
+    # ``` `/home/dan/.maestro-sdd/` ``` reads as the root and
+    # `/home/dan/.maestro-sdd/2026-08-30-pre-integration/` does not.
+    r"/home/dan/\.maestro-sdd/[\w.-]",
+    # A per-item brief or report by bare filename — `task-C7-report.md`. These only ever
+    # live in the scratch directory above, so a bare reference is the same rot without
+    # the leading path to make it obvious.
+    r"\btask-[A-Z]+\d*-(?:report|brief)\.md\b",
+]
 
 SKIP_DIRS = {".git", ".venv", "__pycache__", ".pytest_cache", ".run", "node_modules"}
 
@@ -116,3 +144,58 @@ def test_no_hardcoded_legacy_repo_path():
         if LEGACY_PATH in text:
             violations.append(_rel(path))
     assert not violations, f"hardcoded legacy path in: {violations}"
+
+
+def test_no_pointers_into_the_build_scratch_directory():
+    """Nothing shipped may cite a file that is deleted when its build plan closes.
+
+    Six of these shipped in the 2026-08-30 pre-integration queue — `maestro/limits.py`,
+    `maestro/cli.py`, `tests/test_cli.py` and `tests/test_no_dead_backend_surface.py`
+    (three times) — all naming `task-C7-report.md` / `task-D2-report.md`, which existed
+    only under `/home/dan/.maestro-sdd/2026-08-30-pre-integration/`. Two carried the sole
+    record of a hand-run experiment. The fix was to copy those two reports into
+    `docs/plans/` and cite them there; this stops the sixth-time-lucky version.
+
+    Scaffold-exempt by the same rule as the tier above: `handoffs/` is written while the
+    directory exists and `docs/plans/` copies have to state where they came from.
+    """
+    paths = [p for p in _scanned_files() if not _is_scaffold(p)]
+    violations = _violations(paths, EPHEMERAL_PATH_PATTERNS)
+    assert not violations, (
+        "pointer into a build scratch directory that will be deleted:\n"
+        + "\n".join(violations)
+        + "\n\nCopy what is worth keeping into docs/plans/ and cite it there."
+    )
+
+
+def test_the_ephemeral_pointer_patterns_bite_the_six_shapes_that_shipped():
+    """The gate above, proven against the exact citations it was written for, and
+    against the two shapes it must NOT bite.
+
+    `tests/test_purity.py` is itself scaffold-exempt (`BUILD_SCAFFOLD`), which is what
+    lets this file spell the patterns' own subject matter in plain sight — the same
+    self-exemption `tests/test_no_reference_project_strings.py` grants itself.
+    """
+    import re
+
+    bites = [
+        "see `task-C7-report.md`",
+        "reported finding (task-D2-report.md), not a synthetic case",
+        "See `task-D2-report.md`'s fix-round-1 entry",
+        "`/home/dan/.maestro-sdd/2026-08-30-pre-integration/progress.md`",
+        "git worktree add /home/dan/.maestro-sdd/wt-C7",
+        "`task-A5-brief.md`",
+    ]
+    for text in bites:
+        assert any(re.search(pat, text, re.IGNORECASE)
+                   for pat in EPHEMERAL_PATH_PATTERNS), text
+
+    survives = [
+        # The persistent root as an operational rule — `tasks/lessons.md`'s two mentions.
+        "The workspace now lives at `/home/dan/.maestro-sdd/`.",
+        # A citation that was repointed at the durable copy.
+        "see `docs/plans/2026-08-30-pre-integration-c7-report.md`",
+    ]
+    for text in survives:
+        assert not any(re.search(pat, text, re.IGNORECASE)
+                       for pat in EPHEMERAL_PATH_PATTERNS), text

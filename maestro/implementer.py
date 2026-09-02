@@ -588,6 +588,35 @@ def _implementer_backend() -> tuple[str, dict]:
     return resolution.backend, dict(settings.models)
 
 
+def resolve_launch_model(task: dict, backend: str,
+                         backend_models: dict | None = None) -> tuple[str, str]:
+    """The model a launch of `task` on `backend` hands to `--model`, plus any warning.
+
+    **One resolution, two readers.** `launch_implementer` calls this to build the launch;
+    `orchestrator._launch_model` calls it to stamp `model` on the `in_flight` entry, which
+    is what D4's context-ceiling lookup is keyed on. Written twice they would drift — and
+    they did: A4 keyed the ceiling on `roles.model_for`, C1 then made a task's `model:`
+    beat the role table *here* and nowhere else, so from that commit every task with an
+    override was measured against a model it was not running. This is the same reason
+    `_launch_backend` and `_implementer_backend` are held together for the `backend` key.
+
+    C1/R2: the task's `model:` overrides the role table; the role table (falling back to
+    the hardcoded default) is only what applies when the task has no opinion — either
+    because it declared no `model:` at all, or because it named a size keyword with no
+    entry for `backend`. That case yields a non-empty warning, which `launch_implementer`
+    surfaces rather than drops; a caller that only wants the id ignores it.
+
+    `backend_models` is the role's model table, passed in by the caller that already has
+    it (`_implementer_backend` returns it alongside the backend). Omitted, it is read the
+    same way `_implementer_backend` reads it, so both call paths answer identically.
+    """
+    if backend_models is None:
+        backend_models = dict(roles.role_config(roles.ROLE_IMPLEMENTER).models)
+    role_default = backend_models.get(backend) or _DEFAULT_IMPLEMENTER_MODEL
+    task_model, warning = resolve_implementer_model(task, backend)
+    return (task_model or role_default), warning
+
+
 def _implementer_driver(backend: str, session_uuid: str):
     """The driver for `backend`, told where this orchestrator's python and tmux live.
 
@@ -623,13 +652,7 @@ def launch_implementer(task: dict, session_id: str, workspace: Path,
     resolved, backend_models = _implementer_backend()
     pinned = registry.normalise_name(backend) if backend else ""
     backend = pinned if pinned in registry.known_backends() else resolved
-    # C1/R2: the task's `model:` overrides the role table; the role table (falling back
-    # to the hardcoded default) is only what applies when the task has no opinion — either
-    # because it declared no `model:` at all, or because it named a size keyword with no
-    # entry for `backend` (`task_model_warning`, surfaced below rather than dropped).
-    role_default = backend_models.get(backend) or _DEFAULT_IMPLEMENTER_MODEL
-    task_model, task_model_warning = resolve_implementer_model(task, backend)
-    model_id = task_model or role_default
+    model_id, task_model_warning = resolve_launch_model(task, backend, backend_models)
     if task_model_warning:
         print(f"  [model] {task_id}: {task_model_warning}")
         append_journal("implementer_model_ignored", f"{task_id} {task_model_warning}")

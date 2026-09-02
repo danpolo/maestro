@@ -421,7 +421,8 @@ def test_check_backends_passes_when_every_chain_backend_is_present(monkeypatch, 
 def test_probe_model_id_reports_invalid_when_the_cli_prints_its_own_rejection_marker():
     """The offline-safe signal this probe is built on: both real CLIs print a
     client-side "I don't know this model" marker before ever reaching the network
-    (verified by hand, offline, while designing this check — see task-C7-report.md).
+    (verified by hand, offline, while designing this check — see
+    `docs/plans/2026-08-30-pre-integration-c7-report.md`).
     Presence of that marker is the ONLY thing that marks a model invalid."""
     from maestro import cli
 

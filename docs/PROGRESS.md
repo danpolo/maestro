@@ -3588,3 +3588,85 @@ never calls `target_backend`. D4's safety symbols are untouched by the diff.
 
 **Known and deliberate:** expired records are never pruned from `state.json` — bounded by the number of
 backends, so the table only ever grows a key per backend. Not worth a sweeper.
+
+## 2026-09-02 — the self-update gate was reading the wrong repo (`ff895ba`)
+
+**Found while answering the standing question "can I start using maestro in real projects?"** — the
+same question that produced the 2026-08-30 pre-integration queue, asked again now that all eighteen of
+its items are closed. The readiness answer itself was *yes, with this one thing fixed first*; this is
+that thing, and it was live, not theoretical.
+
+**The symptom.** The live `AbuAliArchive` loop had held **14 consecutive candidate versions** red
+between 2026-08-31T17:31Z and 2026-09-02T20:32Z, every one on the same assertion:
+
+```
+tests/characterization/test_selfheal.py::test_main_success_notify_is_notebook_neutral_without_check_nb
+>       assert not redo_case.subject.CHECK_NB.exists()
+E       AssertionError: assert not True
+```
+
+So production sat on `c78ddd5` (2026-08-26) for a week while `master` moved through wave 2, 2c/2d,
+C4, D1, D2, A5, D3 and A6. None of it reached the project maestro actually runs. The journal recorded
+`self_update_held` every ~11 minutes the whole time and nothing escalated — a held candidate is a
+*correct* outcome for a red suite, so the gate had no reason to complain about doing its job.
+
+**The defect, and it is not in that test.** `selfupdate.self_test` passes `cwd=worktree` to say the
+candidate's suite runs against the candidate's own checkout. It didn't. `Paths.from_env()` prefers
+`$MAESTRO_REPO` and falls back to `Path.cwd()` *only when it is absent* — and every live launch path
+exports that variable to the orchestrated project on purpose (`templates/launch.sh.tmpl`,
+`watchdog.py`'s two tmux spawns, every `cmd_*` in `cli.py`), because a fresh tmux window inherits the
+tmux *server's* environment rather than its parent's, which `watchdog.py`'s module docstring has said
+since M4b. `self_test` was the one child spawn that neither builds an environment nor clears one, so
+it silently received the project's. Code from the worktree, paths from somewhere else.
+
+`CHECK_NB = REPO / "scripts" / "check_notebook.py"` is then asking about `AbuAliArchive`, which ships
+one. The assertion was true of every maestro checkout and false of the project being orchestrated —
+which is precisely the configuration that branch exists to serve.
+
+**Why nothing caught it, which is the part worth keeping.** The gate is the only place in the system
+that runs maestro's suite inside another project's environment, and no test reproduced that
+environment. Every developer run, every session, every CI-shaped invocation had `MAESTRO_REPO` unset
+or pointing here, so the assertion held. This is the D2 failure mode one layer out: not a surface
+implemented and never read, but a code path exercised **only** in a configuration the suite never
+constructs. `tests/test_purity.py` and `tests/test_no_reference_project_strings.py` were never at risk
+— both anchor on `Path(__file__).resolve().parents[1]`, deliberately not on `REPO` — so the genericness
+gates did exactly what they were built to do; the test that broke was an ordinary behaviour test for a
+runtime branch that happened to read `REPO` at all.
+
+**Fixed in two halves, and the second is required rather than cosmetic.**
+
+| Half | Change |
+|---|---|
+| Root cause | `_self_test_env()` returns `os.environ` minus `OPERATING_POINTERS = (MAESTRO_REPO, MAESTRO_HOME)`; `self_test` passes it as `env=`. Scrubbed rather than overridden — there is no correct project root for a checkout being *evaluated* rather than run, so the honest value is absence, which also makes `cwd=worktree` load-bearing again instead of decorative. Pinned by `test_self_test_does_not_leak_this_machines_operating_pointers`: a candidate whose only test asserts both variables are unset, run with `MAESTRO_REPO` exported. |
+| Deadlock | The gate that must approve a new version is the **deployed** `self_test`, which still had the leak — so the root fix could never adopt itself. `test_main_success_notify_is_notebook_neutral_without_check_nb` therefore stops depending on the ambient repo too: it now `monkeypatch`es `CHECK_NB` to a path that does not exist, exactly as its sibling twelve lines below already pinned one that does. A branch's precondition belongs to the test, not to the checkout around it. |
+
+**Verification.** Suite **3376 → 3377 collected, exit 0** (one new test; the documented `xfail` still
+the only non-dot). The whole suite also exits 0 with `MAESTRO_REPO=/home/dan/projects/AbuAliArchive`
+exported — which is the evidence that this test was the *only* one binding to the ambient repo, not
+merely the first to trip. And the decisive one: the **currently-deployed `c78ddd5` gate**, run
+directly against the fixed tree with the leak in place, returned `passed=True, 3376 passed, 1 xfailed`
+— proving the deadlock broken before committing rather than hoping it was.
+
+**Adopted on the first cycle after the commit, verified live.** Journal: `self_update_held sha=722cd25`
+at 20:32:19Z, then `self_update_adopted sha=ff895ba` at 20:42:48Z. Confirmed from four independent
+places, not just the journal line: `~/.maestro/current`, `state.json`'s `maestro_version`,
+`git -C <deployed worktree> rev-parse HEAD`, and `env=_self_test_env()` present at
+`selfupdate.py:180` in the deployed worktree. `abuali-watchdog.service` active, `in_flight: []`.
+Because `candidate_version()` returns HEAD rather than replaying each commit, adoption jumped
+`c78ddd5` → `ff895ba` in one step: the entire held backlog went live together rather than being worked
+through one version at a time.
+
+**Known and deliberate.** `MAESTRO_HOME` is scrubbed alongside `MAESTRO_REPO` even though nothing sets
+it on this machine today — it is the same kind of pointer (*where is this machine's maestro
+operating*), it is a documented override (§9 / this module's docstring), and it would fail the same way
+the day someone uses it. Scrubbing it now costs one tuple entry; discovering it later costs another
+week of held versions.
+
+**Still open after this, unchanged by it** — the readiness answer's remaining caveats, none of them
+blockers: maestro has still never been `maestro init`'d onto a fresh second project (the queue put that
+explicitly out of scope, and `AbuAliArchive` arrived by *cutover*, not by `init`); no real
+LLM-implemented task has run end to end since cutover, only the two synthetic scratch tasks
+`M5SCRATCH1`/`M6SCRATCH1`; `Capabilities.sandbox` remains the strict `xfail` with its design prepared
+but unbuilt (`docs/plans/2026-09-02-filesystem-confinement-for-implementers.md`);
+`SWITCH_THRESHOLD_PCT` is still calibrated on one real switch; and the four `known_dead` template keys
+still read by nothing.

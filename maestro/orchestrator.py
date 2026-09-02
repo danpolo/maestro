@@ -1136,8 +1136,8 @@ def _context_rotations(in_flight: list, launch_times: dict,
     role table is deliberately not the primary source: since C1 a task's own `model:`
     overrides it at the launch site, so asking `roles.model_for` here measured every
     overridden task against a model it was not running (`model: opus` on a sonnet role
-    default rotated ~20K early, discarding a healthy conversation). A sample's `model` is a
-    display name written
+    default rotated ~20K early, discarding a healthy conversation). A sample's `model` is
+    a display name written
     for a human status line (`"Opus 5"`), which is in neither limits table and which no
     amount of normalising turns into the table's `"Claude Opus 5"`; keying on it made this
     trigger answer `False` on every claude task no matter how full the context was. The
@@ -1402,6 +1402,8 @@ def _do_retry(task_id: str, entry: dict, reason: str,
     task = tasks_by_id.get(task_id,
         {"id": task_id, "title": task_id, "short_desc": "", "mode": "autonomous"})
     carry_backend = _entry_backend(entry)
+    # One read, used for both the pin and the record — see the main-loop site.
+    retry_backend = carry_backend or _launch_backend()
     try:
         create_worktree(task_id, worktree, new_branch)
         launch_implementer(task, new_sid, new_ws, worktree,
@@ -1413,10 +1415,10 @@ def _do_retry(task_id: str, entry: dict, reason: str,
             "branch": new_branch, "started_at": now_iso(), "status": "running",
             # M2: which backend this retry actually runs on. `launch_implementer` was
             # handed the same name, so the record and the launch cannot diverge.
-            "backend": carry_backend or _launch_backend(),
+            "backend": retry_backend,
             # D4/C1: and the model that name resolves to for *this* task — the retry may
             # be staying on a non-default backend, and the task may override the table.
-            "model": _launch_model(task, carry_backend or _launch_backend()),
+            "model": _launch_model(task, retry_backend),
         }
         tried = entry.get("backends_tried")
         if isinstance(tried, (list, tuple)) and tried:
@@ -2079,15 +2081,18 @@ def main() -> int:
                 continue
 
             launch_implementer(task, sid, workspace, worktree)
+            # Resolved once, not once per key: `_launch_backend` re-reads the state
+            # document, and the model must be the model *for the backend recorded*.
+            launched_on = _launch_backend()
             new_entry = {
                 "session_id": sid, "task_id": task_id, "role": "implementer",
                 "worktree": str(worktree), "window": f"impl-{task_id}",
                 "branch": branch, "started_at": now_iso(), "status": "running",
-                "backend": _launch_backend(),   # M2: which backend this task runs on
+                "backend": launched_on,         # M2: which backend this task runs on
                 # D4/C1: and which model on it — the ceiling this task's context is
                 # measured against. `launch_implementer` resolved the same answer through
                 # the same function, so the record and the launch cannot diverge.
-                "model": _launch_model(task, _launch_backend()),
+                "model": _launch_model(task, launched_on),
             }
             in_flight.append(new_entry)
             running_task_ids.add(task_id)

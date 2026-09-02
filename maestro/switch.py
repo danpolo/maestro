@@ -49,10 +49,10 @@ Three rules this module exists to hold:
 * **The journal record keeps its five fields.** `append_journal` writes
   `{ts, event, agent, session_id, detail}` and that shape is pinned by
   `tests/characterization/test_state.py`. A switch is therefore journalled by *flattening*
-  into `detail`: `"<task_id> from=<a> to=<b> reason=<r>"`. No sixth field is added — a
-  rotation, whose `from` and `to` are necessarily the same backend, is distinguished by
-  its own event name (`session_rotation`) rather than by a sixth field, so that
-  `from=X to=X` under `backend_switch` never reads as a bug in the switch.
+  into `detail`: `"<task_id> from=<a> to=<b> model=<m> reason=<r>"`. No sixth field is
+  added — a rotation, whose `from` and `to` are necessarily the same backend, is
+  distinguished by its own event name (`session_rotation`) rather than by a sixth field,
+  so that `from=X to=X` under `backend_switch` never reads as a bug in the switch.
 
 Every seam that touches the world — the driver factory, the journal, Telegram, the state
 document, tmux, git, the clock — is injectable through `SwitchDeps`, whose fields all
@@ -965,13 +965,31 @@ def switch_task(
         deps=deps,
     )
 
+    # Which model the relaunch runs under (C1 drift, found in the final whole-branch
+    # review). Two cases, and they are not the same question:
+    #
+    # * **Same backend** — a D4 rotation. Its whole contract is "same backend, fresh
+    #   conversation", and since C1 the model a task runs is not necessarily the role
+    #   table's: a `model:` on the task beats it at the launch site. Re-resolving from
+    #   the table here would quietly change the model while announcing that nothing but
+    #   the conversation changed — and D4 chose to rotate by measuring against the
+    #   *entry's* model, so the relaunch would land on a ceiling nothing had checked.
+    # * **A different backend** — a switch. A model id is backend-specific (`opus` names
+    #   nothing on codex), so carrying the outgoing one across would pin a model the
+    #   target cannot run. The target's own table wins, exactly as it always has.
+    #
+    # An entry written before the `model` key existed carries none, and falls back to the
+    # role table in both cases — which is what it was launched from.
+    carried_model = _text(entry.get("model")) if target == current else ""
+    model_id = carried_model or _text(roles.model_for(role_name, target, config=config))
+
     try:
         driver = deps.make_driver(target)
         capabilities = driver.capabilities()
         spec = LaunchSpec(
             task_id=task_id,
             session_id=new_session_id,
-            model=roles.model_for(role_name, target, config=config) or "",
+            model=model_id,
             brief=brief_with_profile(brief, capabilities.system_prompt_file, SYS_PROMPT),
             workspace=new_workspace,
             worktree=path,
@@ -1024,14 +1042,25 @@ def switch_task(
             "started_at": deps.now(),
             "status": "running",
             "backend": target,
+            # Set explicitly, never inherited: `dict(entry)` above copies the *outgoing*
+            # model, which for a cross-backend switch names a model the incoming agent is
+            # not running.
+            "model": model_id,
         }
     )
 
     # Five fields, flattened into `detail` (F5). Do not add a sixth — a rotation is told
     # apart by its event name, not by an extra column.
+    #
+    # `model=` is part of the flattening, not a sixth field, and it is here because
+    # nothing on this path surfaced the model: a rotation could change it and no record
+    # would show that it had. `reason=` stays last — it is what the journal is read by.
+    # An unresolvable model reads `unset`, not blank: "not measurable" is a value, and an
+    # empty `model=` would read as missing punctuation next to a real id.
     deps.record(
         ROTATE_EVENT if rotation else SWITCH_EVENT,
-        f"{task_id} from={current} to={target} reason={reason}",
+        f"{task_id} from={current} to={target} model={model_id or 'unset'} "
+        f"reason={reason}",
         session_id,
     )
     headline = (

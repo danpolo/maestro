@@ -115,6 +115,8 @@ import re
 import tokenize
 from pathlib import Path
 
+import pytest
+
 REPO = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = REPO / "maestro"
 TESTS_DIR = REPO / "tests"
@@ -129,9 +131,21 @@ ALLOWLIST = frozenset({"tests/test_no_reference_project_strings.py"})
 # ---------------------------------------------------------------------------
 # Term categories. See the module docstring above for why each is scoped as it is.
 
+# Broadened in the pre-integration queue's final whole-branch review (Minor 3). The
+# original pair were literal to the one spelling each term happened to have when the gate
+# was written: `RAG\s+archive` and `Arabic\s*/\s*Hebrew`. Reproduced by the reviewer,
+# `Hebrew/Arabic`, `Arabic and Hebrew`, `RAG-archive` and `rag_archive` all scanned clean
+# — four ways to write the same reference-project term, past a gate whose whole job is to
+# catch it. The dict *keys* are unchanged: they are the labels this gate reports and two
+# tests pin them by name.
 EVERYWHERE_PATTERNS = {
-    "RAG archive": re.compile(r"RAG\s+archive", re.IGNORECASE),
-    "Arabic/Hebrew": re.compile(r"Arabic\s*/\s*Hebrew", re.IGNORECASE),
+    # Any separator run, or none: `RAG archive`, `RAG-archive`, `rag_archive`.
+    "RAG archive": re.compile(r"RAG[\s_-]*archive", re.IGNORECASE),
+    # Either order, any of the separators these two get written with, with or without an
+    # `and`: `Arabic/Hebrew`, `Hebrew/Arabic`, `Arabic and Hebrew`, `Hebrew, Arabic`.
+    "Arabic/Hebrew": re.compile(
+        r"(?:Arabic|Hebrew)[\s/&,+-]*(?:and\s+)?(?:Arabic|Hebrew)", re.IGNORECASE
+    ),
 }
 
 MAESTRO_ONLY_PATTERNS = {
@@ -187,7 +201,12 @@ def _comment_texts(source: str) -> list[tuple[int, str]]:
         for tok in tokenize.generate_tokens(io.StringIO(source).readline):
             if tok.type == tokenize.COMMENT:
                 comments.append((tok.start[0], tok.string))
-    except (tokenize.TokenizeError, SyntaxError, IndentationError):
+    except (tokenize.TokenError, SyntaxError, IndentationError):
+        # `tokenize.TokenError` — NOT `TokenizeError`, which does not exist. Python only
+        # evaluates an `except` tuple when an exception actually reaches it, so the wrong
+        # spelling sat here inert: the first unparseable comment would have raised
+        # `AttributeError` out of the handler meant to swallow it. Reached by
+        # `test_comment_scanning_degrades_on_source_it_cannot_tokenize`.
         pass
     return comments
 
@@ -599,3 +618,98 @@ def test_orchestrator_proof_of_absence_still_exempt_after_both_fixes():
     docstring or a comment."""
     path = TESTS_DIR / "characterization" / "test_orchestrator.py"
     assert _scan_file(path, maestro_only=False) == []
+
+
+# ---------------------------------------------------------------------------
+# The comment scanner's own failure mode
+
+
+def test_tokenize_has_no_TokenizeError_which_is_why_the_handler_was_inert():
+    """The finding, stated as an assertion. `tokenize.TokenizeError` has never existed;
+    the real name is `TokenError`. Naming the wrong one in an `except` tuple is silent
+    until something is actually raised at it, at which point the handler that exists to
+    degrade gracefully raises `AttributeError` instead."""
+    assert not hasattr(tokenize, "TokenizeError")
+    assert issubclass(tokenize.TokenError, Exception)
+
+
+@pytest.mark.parametrize(
+    "label,source",
+    [
+        # `TokenError`: the tokenizer hits EOF inside an unclosed bracket.
+        ("unclosed bracket", "# a RAG archive comment\nx = (1,\n"),
+        # `IndentationError`: a dedent that matches no enclosing level.
+        ("dedent mismatch",
+         "# a RAG archive comment\nif x:\n    a = 1\n  b = 2\n"),
+    ],
+)
+def test_comment_scanning_degrades_on_source_it_cannot_tokenize(label, source):
+    """The handler, reached. Unparseable source must come back as a list, not as an
+    exception thrown out of a gate — and `tokenize.generate_tokens` is a generator, so
+    the comments it yielded *before* it gave up are kept rather than discarded. Both
+    halves are asserted: no raise, and the partial result is the useful one.
+
+    `_scan_file` runs `ast.parse` before it gets here and would reject both of these
+    sources earlier, so this calls `_comment_texts` directly — the function that owns the
+    handler. That is the point: a helper's failure path has to be exercised where it
+    lives, or it stays "unreachable" until the day something else calls it, and then it
+    raises `AttributeError` from inside the `except` meant to swallow it.
+    """
+    found = _comment_texts(source)                      # must not raise
+    assert [text for _, text in found] == ["# a RAG archive comment"]
+
+
+def test_comment_scanning_still_returns_comments_it_can_tokenize():
+    """The other direction, so the test above cannot be satisfied by a scanner that
+    returns `[]` for everything."""
+    found = _comment_texts("x = 1  # a RAG archive comment\n")
+    assert [text for _, text in found] == ["# a RAG archive comment"]
+
+
+# ---------------------------------------------------------------------------
+# Pattern breadth (final whole-branch review, Minor 3)
+
+
+@pytest.mark.parametrize(
+    "spelling",
+    [
+        "RAG archive",
+        "RAG-archive",
+        "rag_archive",
+        "RAGarchive",
+        "Arabic/Hebrew",
+        "Hebrew/Arabic",
+        "Arabic and Hebrew",
+        "Hebrew and Arabic",
+        "Hebrew, Arabic",
+        "arabic / hebrew",
+    ],
+)
+def test_the_everywhere_patterns_catch_every_spelling_of_the_same_term(spelling, tmp_path):
+    """Four of these scanned clean before the review broadened the patterns. A gate that
+    catches one spelling of a term is not a gate against the term."""
+    synthetic = tmp_path / "synthetic_module.py"
+    synthetic.write_text(f'NOTE = "{spelling} lives here"\n', encoding="utf-8")
+    for maestro_only in (True, False):
+        assert _scan_file(synthetic, maestro_only=maestro_only), (spelling, maestro_only)
+
+
+@pytest.mark.parametrize(
+    "innocent",
+    [
+        # `RAG` with no `archive` after it is not this term.
+        "a RAG pipeline over the roadmap",
+        "the archive is a RAG-adjacent idea",
+        # One language alone is not the pair, and the gate is deliberately not a
+        # single-language scan — it is the pair that identifies the reference project.
+        "the Hebrew calendar",
+        "an Arabic numeral",
+    ],
+)
+def test_the_broadened_patterns_do_not_fire_on_innocent_prose(innocent, tmp_path):
+    """The other half of broadening: verified against the working tree too, including
+    the untracked research note `test_purity.py` scans, before this landed."""
+    synthetic = tmp_path / "synthetic_module.py"
+    synthetic.write_text(f'NOTE = "{innocent}"\n', encoding="utf-8")
+    for maestro_only in (True, False):
+        assert _scan_file(synthetic, maestro_only=maestro_only) == [], innocent

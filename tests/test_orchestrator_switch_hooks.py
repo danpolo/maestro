@@ -237,14 +237,21 @@ def _launch_site_entries() -> list[ast.Dict]:
     return found
 
 
-def test_both_implementer_launch_sites_record_a_backend():
+def test_both_implementer_launch_sites_record_a_backend_and_a_model():
+    """Re-baselined from `test_both_implementer_launch_sites_record_a_backend` when the
+    `model` key was added: one more required key, nothing relaxed.
+
+    The `model` key is what D4 measures a task's context ceiling against. Since C1 the
+    role table is not that answer — a task's own `model:` overrides it — so the launch
+    has to record what it resolved, exactly as it already records the backend.
+    """
     sites = _launch_site_entries()
     assert len(sites) == 2, "expected exactly the retry and the main-loop launch sites"
     for site in sites:
         keys = [k.value for k in site.keys if isinstance(k, ast.Constant)]
         assert keys == [
             "session_id", "task_id", "role", "worktree", "window",
-            "branch", "started_at", "status", "backend",
+            "branch", "started_at", "status", "backend", "model",
         ]
 
 
@@ -262,6 +269,16 @@ def _retry_box(monkeypatch, tmp_path, *, default_backend=CODEX):
     monkeypatch.setattr(orchestrator, "read_state", lambda: state)
     monkeypatch.setattr(orchestrator, "write_state", lambda new: state.update(new))
     monkeypatch.setattr(orchestrator, "_launch_backend", lambda: default_backend)
+    # The retry's entry now records a model too, and that resolution reads the role
+    # table. Pinned here rather than left to the repository's own `project.yaml`, so no
+    # test in this helper depends on a file outside its sandbox.
+    monkeypatch.setattr(
+        config_module,
+        "load_project_yaml",
+        lambda: {"roles": {"implementer": {"backend": default_backend,
+                                           "models": {CLAUDE: "claude-sonnet-5",
+                                                      CODEX: "gpt-5-codex"}}}},
+    )
     return seen
 
 
@@ -278,7 +295,9 @@ def test_do_retry_records_the_backend_the_retry_runs_on(monkeypatch, tmp_path):
     assert new["role"] == "implementer"
     assert new["status"] == "running"
     assert new["window"] == "impl-T1"
-    assert list(new)[-1] == "backend"          # appended, nothing reordered
+    # Re-baselined from `list(new)[-1] == "backend"` when `model` joined it: both new
+    # keys are appended, in order, and nothing before them moved.
+    assert list(new)[-2:] == ["backend", "model"]
 
 
 def test_do_retry_stays_on_the_backend_the_dying_attempt_was_running_on(monkeypatch, tmp_path):
@@ -297,6 +316,63 @@ def test_do_retry_stays_on_the_backend_the_dying_attempt_was_running_on(monkeypa
 
     assert in_flight[-1]["backend"] == CODEX, "retry walked back the switch"
     assert seen == [CODEX], "the launch must be pinned to the same backend it is recorded as"
+
+
+def test_do_retry_records_the_model_it_resolves_for_the_backend_it_carries(
+    monkeypatch, tmp_path
+):
+    """The `model` key exists for D4, which measures a context ceiling per model. A retry
+    that stays on `codex` must record `codex`'s model — recording the default backend's
+    would key the ceiling on a model the task is not running."""
+    _retry_box(monkeypatch, tmp_path, default_backend=CLAUDE)
+
+    old = _entry(tmp_path, backend=CODEX)
+    in_flight = [old]
+    orchestrator._do_retry("T1", old, "boom", {}, in_flight)
+
+    assert in_flight[-1]["backend"] == CODEX
+    assert in_flight[-1]["model"] == "gpt-5-codex"
+
+
+def test_do_retry_records_the_tasks_own_model_override(monkeypatch, tmp_path):
+    """C1: a task's `model:` beats the role table at the launch site, so it has to beat
+    it in the record too — otherwise D4 measures the retry against the role table's
+    model while the agent runs on the task's."""
+    _retry_box(monkeypatch, tmp_path, default_backend=CODEX)
+    monkeypatch.setattr(
+        orchestrator, "parse_runnable_tasks",
+        lambda: [{"id": "T1", "title": "T1", "short_desc": "", "model": "gpt-5.6-sol"}],
+    )
+
+    old = _entry(tmp_path, backend=CODEX)
+    in_flight = [old]
+    orchestrator._do_retry("T1", old, "boom", {}, in_flight)
+
+    assert in_flight[-1]["model"] == "gpt-5.6-sol"
+
+
+def test_launch_model_degrades_to_empty_when_resolution_breaks(monkeypatch):
+    """G6: a missing reading is "not measurable", never a stand-in value. A resolution
+    that blows up records nothing, and `_context_rotations` then falls back to the role
+    table exactly as a pre-`model` entry does — the same shape `_launch_backend` has.
+    """
+    def boom(*_args, **_kwargs):
+        raise RuntimeError("project.yaml is unreadable")
+
+    monkeypatch.setattr(config_module, "load_project_yaml", boom)
+    assert orchestrator._launch_model({"id": "T1"}, CLAUDE) == ""
+
+
+def test_launch_model_degrades_to_empty_on_a_malformed_task_model(monkeypatch):
+    """A non-string `model:` raises out of `resolve_implementer_model` by design (R2's
+    documented edge). The *record* must not take the process down with it — the launch
+    that would have raised for real ran first."""
+    monkeypatch.setattr(
+        config_module,
+        "load_project_yaml",
+        lambda: {"roles": {"implementer": {"backend": CLAUDE, "models": {}}}},
+    )
+    assert orchestrator._launch_model({"id": "T1", "model": 7}, CLAUDE) == ""
 
 
 def test_do_retry_falls_back_to_the_role_default_when_the_entry_names_no_backend(
@@ -455,6 +531,56 @@ def test_the_backend_recorded_and_the_backend_launched_cannot_drift(monkeypatch,
     _state_file(monkeypatch, tmp_path)          # the operator has chosen nothing
     assert orchestrator._launch_backend() == CLAUDE
     assert implementer._implementer_backend()[0] == CLAUDE
+
+
+class _SpecRecorder:
+    """A driver that records the `LaunchSpec` instead of starting anything."""
+
+    def __init__(self):
+        self.specs: list = []
+
+    def capabilities(self) -> Capabilities:
+        return Capabilities(system_prompt_file=False)
+
+    def launch(self, spec):
+        self.specs.append(spec)
+        return SimpleNamespace(window=f"impl-{spec.task_id}")
+
+
+@pytest.mark.parametrize("task_model", [None, "opus", "haiku", "gpt-5.6-sol", ""])
+def test_the_model_recorded_and_the_model_launched_cannot_drift(
+    monkeypatch, tmp_path, task_model
+):
+    """The `backend` key's story, one commit later, for the `model` key.
+
+    `launch_implementer` resolves the model that reaches `--model`; the orchestrator
+    stamps a model on the `in_flight` entry, and D4 measures that task's context ceiling
+    against it. If the two resolutions were written twice they would drift — which is
+    precisely what happened when C1 changed one of them and left `roles.model_for`
+    standing as the other. They are one function, and this asserts it against the value
+    a real launch actually hands the driver.
+    """
+    monkeypatch.setattr(
+        config_module,
+        "load_project_yaml",
+        lambda: {"roles": {"implementer": {"backend": CLAUDE,
+                                           "models": {CLAUDE: "claude-sonnet-5"}}}},
+    )
+    monkeypatch.setattr(implementer, "append_journal", lambda *a, **k: None)
+    driver = _SpecRecorder()
+    monkeypatch.setattr(implementer, "_implementer_driver", lambda backend, uuid_: driver)
+
+    task = {"id": "T1", "title": "T1", "short_desc": "d"}
+    if task_model is not None:
+        task["model"] = task_model
+    workspace = tmp_path / "ws"
+    workspace.mkdir(exist_ok=True)
+
+    implementer.launch_implementer(task, "impl-T1-1", workspace, tmp_path / "wt")
+
+    assert driver.specs[0].model == orchestrator._launch_model(task, CLAUDE)
+    # …and it is a real answer, not two empties agreeing with each other.
+    assert driver.specs[0].model
 
 
 # =======================================================================================
@@ -1202,6 +1328,71 @@ def test_the_display_name_alone_would_not_have_resolved(rotation, tmp_path):
     assert orchestrator._context_rotations([_entry(tmp_path)], {}, {}) == 0
     assert rotation.resolved == ["Opus 5"]
     assert rotation.switches == []
+
+
+# ── A4 fix round 2: C1 made the role table stop being the answer ──
+#
+# C1 landed after A4 and made a task's `model:` key override the role table at the launch
+# site (`implementer.launch_implementer`). The ceiling this trigger measures against is
+# per *model*, so from that commit on it was measuring a task with an override against a
+# model the task is not running — rotating early on a bigger model (discarding a healthy
+# conversation) and late on a smaller one (letting it fill past its handoff mark).
+
+#: A second row, smaller than `ROW`, so "which model was the ceiling taken from" is
+#: visible in the *decision* and not only in what got looked up.
+SMALL_ROW = ModelLimits("Claude Haiku 4.5", 45_000, 65_000, 90_000, 110_000, 140_000)
+
+
+def test_the_ceiling_is_keyed_on_the_model_the_task_is_running_not_the_role_default(
+    rotation, tmp_path
+):
+    """A task pinned to a smaller model than the role's default fills up sooner.
+
+    130K is under the role default's 120K handoff mark only if you ask the wrong model:
+    on the model this task is actually running it is double the mark. Keyed on the role
+    table this task would run on past its ceiling until it died of it.
+    """
+    rotation.rows = {"claude-opus-5": ROW, "claude-haiku-4-5": SMALL_ROW}
+    rotation.context_tokens = 70_000            # under ROW's 120K, over SMALL_ROW's 65K
+    entry = _entry(tmp_path, model="claude-haiku-4-5")
+
+    assert orchestrator._context_rotations([entry], {}, {}) == 1
+    assert rotation.resolved == ["claude-haiku-4-5"]
+
+
+def test_a_bigger_model_than_the_role_default_is_not_rotated_early(rotation, tmp_path):
+    """The costly half. A rotation discards a running agent's conversation, so measuring
+    a task against a *smaller* model's ceiling throws away a session that had ~50K of
+    headroom left."""
+    rotation.launch_model = "claude-haiku-4-5"  # the role table's answer
+    rotation.rows = {"claude-opus-5": ROW, "claude-haiku-4-5": SMALL_ROW}
+    rotation.context_tokens = 70_000            # over SMALL_ROW's 65K, under ROW's 120K
+    entry = _entry(tmp_path, model="claude-opus-5")
+
+    assert orchestrator._context_rotations([entry], {}, {}) == 0
+    assert rotation.resolved == ["claude-opus-5"]
+    assert rotation.switches == []
+
+
+def test_an_entry_written_before_the_model_key_still_rotates(rotation, tmp_path):
+    """Entries already on disk when this ships carry no `model`. They must keep working:
+    the role table is exactly what they were launched from, so it is the right stand-in.
+    """
+    rotation.rows = {"claude-opus-5": ROW}
+    entry = _entry(tmp_path)
+    assert "model" not in entry
+
+    assert orchestrator._context_rotations([entry], {}, {}) == 1
+    assert rotation.resolved == ["claude-opus-5"]
+
+
+def test_a_blank_model_on_an_entry_is_not_treated_as_a_model(rotation, tmp_path):
+    """`""` is "nothing recorded", not "a model called nothing" — the same reading the
+    `backend` key gets. It falls through to the role table rather than resolving blank."""
+    rotation.rows = {"claude-opus-5": ROW}
+
+    assert orchestrator._context_rotations([_entry(tmp_path, model="  ")], {}, {}) == 1
+    assert rotation.resolved == ["claude-opus-5"]
 
 
 def test_an_unresolved_model_is_announced_once(rotation, tmp_path, capsys):

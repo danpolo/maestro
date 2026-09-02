@@ -86,10 +86,20 @@ contributor pays, forever, for one already-known, already-reported finding. So
   **unexpected pass**, which `pytest` reports as a hard failure — forcing whoever fixes
   the underlying defect to notice and delete the marker, rather than the fix landing
   silently while a stale xfail keeps quietly expecting brokenness;
-* it is not a `pytest.mark.skip`/`skipif`, so `tests/test_no_name_branching.py`'s own
-  skip-construct gate does not need to (and does not) treat it as a name-branching skip.
+* `tests/test_no_name_branching.py`'s skip-construct gate does not fire on it — but not
+  for the reason an earlier draft of this docstring gave. That gate's `_SKIP_MARKS`
+  **includes `mark.xfail`**, so "it is not a skip/skipif" was simply false. What it
+  actually checks is whether a *backend name* appears in `ast.unparse` of the skip call,
+  and two things independently keep this one clean: the reason is passed as the named
+  constant `_SANDBOX_XFAIL_REASON`, so `ast.unparse` renders the identifier and never the
+  string behind it; and that string names no backend anyway. The first is what does the
+  work — verified by running `_scan_skips` against both shapes — so **inlining the reason
+  and naming a driver in it would turn the suite red**, and this finding is literally
+  about which driver declares `sandbox=True`. Keep the reason a named constant, and keep
+  it name-free, for two separate reasons.
 
-See `task-D2-report.md` for the full argument and the case for the other reading.
+See `docs/plans/2026-08-30-pre-integration-d2-report.md` for the full argument and the
+case for the other reading.
 """
 from __future__ import annotations
 
@@ -114,13 +124,21 @@ BACKENDS_DIR = MAESTRO_DIR / "backends"
 
 
 def _protocol_surface() -> tuple[str, ...]:
-    """Every non-dunder method `AgentBackend` declares, plus every class-level
-    annotation (`name: str`). A member added to the Protocol later is picked up here
-    automatically."""
+    """Every non-dunder method or property `AgentBackend` declares, plus every
+    class-level annotation (`name: str`). A member added to the Protocol later is picked
+    up here automatically — which is this file's whole claim to being future-proof, so
+    the membership test has to cover every shape a Protocol member can take.
+
+    `property` is accepted explicitly because a `property` object is **not** callable and
+    contributes no `__annotations__` entry, so a `@property` added to `AgentBackend`
+    would otherwise be invisible to this gate and the automatic-pickup claim above would
+    be false for it. None exists today; the point is that one added tomorrow is covered.
+    """
     methods = {
         attr
         for attr, value in vars(backend_base.AgentBackend).items()
-        if not attr.startswith("_") and callable(value)
+        if not attr.startswith("_")
+        and (callable(value) or isinstance(value, property))
     }
     attrs = set(backend_base.AgentBackend.__annotations__)
     return tuple(sorted(methods | attrs))
@@ -215,7 +233,8 @@ def test_every_protocol_member_has_a_core_reader():
 
 _SANDBOX_XFAIL_REASON = (
     "Capabilities.sandbox has no core reader outside maestro/backends/ — a real, "
-    "reported finding (task-D2-report.md), not a synthetic case. Deliberately NOT "
+    "reported finding (docs/plans/2026-08-30-pre-integration-d2-report.md), not a "
+    "synthetic case. Deliberately NOT "
     "allow-listed (see this file's module docstring). strict=True: the day core reads "
     "capabilities().sandbox for real, this flips to an unexpected pass and the suite "
     "goes red until the marker is removed."
@@ -269,6 +288,34 @@ def test_protocol_surface_includes_the_methods_the_task_brief_names():
 
 # ---------------------------------------------------------------------------
 # anti-vacuity: the checker itself must be shown to fire, and to stay silent correctly
+
+
+def test_the_protocol_surface_would_pick_up_a_property(monkeypatch):
+    """The automatic-pickup claim, tested for the one member shape that used to fall
+    through. A `property` is not callable and adds nothing to `__annotations__`, so the
+    old `callable(value)` filter would have reported it as not part of the surface — and
+    a capability member that the gate cannot see is a capability the gate cannot prove is
+    read, which is the exact defect class this file exists to catch."""
+
+    class _WithProperty:
+        __annotations__ = {"name": str}
+
+        def launch(self):           # an ordinary method, for contrast
+            ...
+
+        @property
+        def confinement(self):      # the shape under test
+            ...
+
+        @property
+        def _private(self):         # dunder/underscore members stay excluded
+            ...
+
+    monkeypatch.setattr(backend_base, "AgentBackend", _WithProperty)
+    surface = _protocol_surface()
+    assert "confinement" in surface
+    assert "launch" in surface and "name" in surface
+    assert "_private" not in surface
 
 
 def test_the_gate_actually_bites():
@@ -375,7 +422,8 @@ def test_the_real_aggregator_reports_a_provably_unreferenced_surface_member(
     `_core_maestro_files()` was made to return, so it fails this test; the real
     implementation, which actually reads the monkeypatched files, does not.
 
-    See `task-D2-report.md`'s fix-round-1 entry for the RED/GREEN proof against a
+    See `docs/plans/2026-08-30-pre-integration-d2-report.md`'s fix-round-1 entry for the
+    RED/GREEN proof against a
     literal copy of the reviewer's mutation.
     """
     covered_file = tmp_path / "covered.py"

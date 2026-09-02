@@ -324,6 +324,45 @@ def test_doctor_telegram_check_never_touches_the_real_network(tmp_path):
     assert calls == ["https://api.telegram.org/botfake-test-token/getMe"]
 
 
+def test_doctor_reports_when_the_running_code_is_not_the_adopted_code(tmp_path, monkeypatch):
+    """The visibility half of the adopted-code fix.
+
+    For as long as `~/.maestro/current` was written and never read, every doctor check could
+    pass while the "deployed" version was a fiction and a working tree was what actually ran.
+    This check is therefore about *this process* — where maestro was imported from — not about
+    whether the pointer file looks tidy.
+    """
+    from maestro import bootstrap, cli
+
+    home = tmp_path / "maestro_home"
+    home.mkdir()
+    monkeypatch.setenv(bootstrap.ENV_VAR, str(home))
+    root = tmp_path / "proj"
+    root.mkdir()
+
+    # Never self-updated: nothing to diverge from, so running what you installed is correct.
+    assert cli._check_adopted_code(root).ok
+
+    # A pointer at a real, different checkout: the running code is not the adopted code.
+    other = tmp_path / "other"
+    (other / "maestro").mkdir(parents=True)
+    (other / "maestro" / "__init__.py").write_text("", encoding="utf-8")
+    (home / "current").write_text(str(other), encoding="utf-8")
+    stale = cli._check_adopted_code(root)
+    assert not stale.ok
+    assert str(other.resolve()) in stale.detail
+
+    # A pointer that no longer resolves is also actionable, and distinctly worded.
+    (home / "current").write_text(str(tmp_path / "pruned"), encoding="utf-8")
+    pruned = cli._check_adopted_code(root)
+    assert not pruned.ok
+    assert "does not name a maestro checkout" in pruned.detail
+
+    # And the healthy case: the pointer names the checkout this process is running.
+    (home / "current").write_text(str(bootstrap.running_root()), encoding="utf-8")
+    assert cli._check_adopted_code(root).ok
+
+
 def test_doctor_telegram_check_skips_cleanly_with_no_token_configured(tmp_path):
     from maestro import cli
 

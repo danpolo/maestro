@@ -199,6 +199,33 @@ def test_self_test_does_not_leak_this_machines_operating_pointers(tmp_path, monk
     assert result.passed is True, result.output_tail
 
 
+def test_self_test_pins_the_candidate_in_place_against_the_adopted_version(tmp_path):
+    """The gate must grade the candidate, not whatever is already deployed.
+
+    `maestro.bootstrap` redirects any `maestro` invocation into the checkout named by
+    `~/.maestro/current`. A candidate's own suite spawns real `maestro` subprocesses (the
+    slow tier in `tests/test_cli.py`), so without `bootstrap.SENTINEL` those would re-exec
+    into the **deployed** version and the gate would report its verdict as the candidate's —
+    adopting a version on a green run that never executed a line of it. The failure mode is
+    the same one that made this gate read the wrong repo, one level up.
+    """
+    repo = tmp_path / "repo"
+    _init_repo(repo)
+    (repo / "test_it.py").write_text(
+        "import os\n"
+        "def test_pinned_in_place():\n"
+        "    assert os.environ.get('MAESTRO_BOOTSTRAPPED')\n"
+    )
+    _git("add", "-A", cwd=repo)
+    _git("commit", "-q", "-m", "sentinel probe", cwd=repo)
+    sha = _git("rev-parse", "HEAD", cwd=repo).stdout.strip()
+    worktree = selfupdate.materialize_worktree(repo, sha)
+
+    result = selfupdate.self_test(worktree)
+
+    assert result.passed is True, result.output_tail
+
+
 # --- maybe_self_update: the Done-when scenarios -----------------------------------------
 
 

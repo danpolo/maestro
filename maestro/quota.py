@@ -211,14 +211,17 @@ def record_backend_exhausted(backend: str, reset_at: str | None) -> None:
     `backend` name is refused the same way, before either check — `registry.
     normalise_name` only folds case and whitespace, it does not validate membership, so
     an unknown-but-non-blank name is still recorded; `exhausted_backends` comparing it
-    against a real fallback chain is what makes it inert.
+    against a real fallback chain is what makes it inert. A hand-edited, non-mapping
+    `EXHAUSTED_KEY` on disk (a list, say) degrades to an empty table here exactly as it
+    already does on the read side, rather than raising.
     """
     name = registry.normalise_name(backend)
     epoch = _exhaustion_epoch(reset_at)
     if not name or epoch <= 0.0 or epoch <= datetime.now(timezone.utc).timestamp():
         return
     state = read_state()
-    table = dict(state.get(EXHAUSTED_KEY) or {})
+    existing = state.get(EXHAUSTED_KEY)
+    table = dict(existing) if isinstance(existing, dict) else {}
     table[name] = reset_at
     state[EXHAUSTED_KEY] = table
     write_state(state)

@@ -1151,6 +1151,36 @@ def test_a_rotation_targets_its_own_backend_without_consulting_the_chain(
     assert outcome.entry["backend"] == FROM
 
 
+def test_a_rotation_succeeds_even_when_its_own_backend_is_passed_as_exhausted(
+    dirty_worktree, previous_workspace
+):
+    """A6 round-1 fold-in guardrail: `_switch_instead_of_waiting` now unions
+    `quota.exhausted_backends()` into the `exhausted=` it passes `switch_task` for the
+    quota/threshold reroutes -- and a *different* task's failure could, in principle,
+    have recorded the very backend this task is rotating on as globally exhausted. A
+    rotation must be completely unaffected regardless: `target = current` for
+    `REASON_CONTEXT` is chosen *before* `exhausted` is ever consulted (`target_backend`
+    is bypassed outright -- see the sibling test above), so passing the current backend
+    itself as `exhausted` here proves the union could not have blocked this rotation even
+    in the case that would most look like it should.
+    """
+    recorder = Recorder()
+    driver = FakeDriver(name=FROM)
+
+    outcome = switch.switch_task(
+        TASK_ID,
+        reason=switch.REASON_CONTEXT,
+        entry=_entry(dirty_worktree, backend=FROM),
+        config={},
+        exhausted=[FROM],          # the task's own current backend, named exhausted
+        deps=_deps(recorder, driver),
+    )
+
+    assert outcome.switched is True
+    assert outcome.from_backend == FROM
+    assert outcome.to_backend == FROM
+
+
 def test_a_rotation_is_journalled_distinctly_and_keeps_its_five_fields(
     dirty_worktree, previous_workspace
 ):

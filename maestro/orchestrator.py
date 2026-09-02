@@ -885,14 +885,30 @@ def _switch_instead_of_waiting(entry: dict, reason: str,
     caller's signal to keep doing exactly what it did before M2. The relaunch happens in
     the *same* worktree (`maestro.switch` never calls `create_worktree`), so uncommitted
     work survives the move.
+
+    **A6 (round 1 fold-in):** the fallback is chosen against `tried` unioned with
+    `quota.exhausted_backends()`, not `tried` alone — a reroute triggered by *this*
+    task's own quota exit already rules out the backend it just left, but a *different*
+    task's earlier failure can have recorded another backend as globally spent since, and
+    a reroute must not land on it either. This never touches a `REASON_CONTEXT` rotation:
+    `switch_task` bypasses `target_backend` (and therefore `exhausted=`) entirely for that
+    reason, always targeting the backend the task is already on (D4) — `_rotate_session`
+    does not even pass `exhausted=`.
     """
     if not _handover_ready(entry):
         return None
     available = _available_backends()
     current   = _entry_backend(entry)
     tried     = _backends_tried(entry)
+    # A6 (round 1 fold-in) — a reroute must not land on a backend already known to be
+    # globally spent, only on one this *task* has not yet tried. `tried` alone is a
+    # per-task guard (the quota path's ping-pong prevention); `quota.exhausted_backends()`
+    # is the timed record a *different* task's failure may have written since. Union,
+    # not either alone: a backend this task has not tried but the record says is still
+    # exhausted must be skipped exactly as a tried one would be.
+    ruled_out = frozenset(tried) | exhausted_backends()
     if not fallback_backend(ROLE_IMPLEMENTER, current, available=available,
-                            exhausted=tried):
+                            exhausted=ruled_out):
         return None
     task_id = entry.get("task_id", "")
     sid     = entry.get("session_id", "")
@@ -903,7 +919,7 @@ def _switch_instead_of_waiting(entry: dict, reason: str,
     try:
         outcome = switch_task(task_id, reason=reason, entry=handover,
                               from_backend=current, available=available,
-                              exhausted=tried)
+                              exhausted=ruled_out)
     except Exception as exc:
         # A switch is an optimisation over waiting; failing at it must never cost the
         # loop the pause it was going to take instead.
@@ -1330,11 +1346,28 @@ def reconcile_in_flight(state: dict, launch_times: dict) -> list:
                 # rediscovering the same wall. Best-effort exactly like the switch below:
                 # a broken recorder must not cost the loop the switch or pause it was
                 # about to do anyway.
-                try:
-                    record_backend_exhausted(_entry_backend(entry), verdict.reset_at)
-                except Exception as exc:
-                    print(f"  [reconcile] {task_id}: failed to record backend "
-                          f"exhaustion — {exc}")
+                #
+                # Deliberately `entry.get("backend")`, NOT `_entry_backend(entry)`:
+                # `_entry_backend` falls back to `_launch_backend()` for a legacy/
+                # hand-edited entry with no `backend` key — and `_launch_backend()` now
+                # *itself* consults this same record, via `exhausted_backends()`. Feeding
+                # its guess back in as the subject of a new record would close a feedback
+                # loop: an already-exhausted `claude` could make `_entry_backend` guess
+                # `codex` for a `backend`-less entry, and a real quota exit on that entry
+                # would then record *codex* as exhausted on no evidence at all. An entry
+                # with no recorded backend is not evidence about any named one, so the
+                # write is skipped rather than guessed — the same fail-safe direction as
+                # a missing `reset_at`.
+                recorded_backend = entry.get("backend")
+                if isinstance(recorded_backend, str) and recorded_backend.strip():
+                    try:
+                        record_backend_exhausted(recorded_backend, verdict.reset_at)
+                    except Exception as exc:
+                        print(f"  [reconcile] {task_id}: failed to record backend "
+                              f"exhaustion — {exc}")
+                else:
+                    print(f"  [reconcile] {task_id}: entry carries no backend — "
+                          f"skipping exhaustion record")
                 # M2/D3 — a limit on one backend is only a reason to pause everything if
                 # no other backend can take this task. When one can, the work moves
                 # instead of waiting for the reset: same worktree, uncommitted changes
@@ -1368,6 +1401,32 @@ def reconcile_in_flight(state: dict, launch_times: dict) -> list:
             launch_times.setdefault(sid, persisted.get(sid, time.time()))
 
     return surviving
+
+
+def _reconcile_and_persist_startup_state(state: dict, launch_times: dict) -> list:
+    """Reconcile `in_flight` against reality once at startup, then persist the result.
+
+    Round-1 review fix (A6, IMPORTANT 2): the previous inline version wrote the caller's
+    `state` back to disk *after* reconciling — but `reconcile_in_flight` can itself write
+    to disk mid-pass, through two of its own read-modify-write helpers that go straight
+    to `read_state()`/`write_state()` rather than through the `state` dict handed in
+    here: `quota.record_backend_exhausted` (this feature — the one this bug would have
+    silently defeated) and `quota._pause_for_usage_limit` (pre-existing, same class).
+    Writing the caller's now-stale `state` back over the top would clobber whatever
+    either of those wrote during the pass — exactly the "orchestrator restarted after a
+    quota kill" case A6 exists for, since that is precisely when this startup path (as
+    opposed to the per-poll one) runs. Re-reading immediately before the merge, instead
+    of writing back the copy read before reconcile ran, is what the per-poll loop already
+    does for every write that follows its own call to `reconcile_in_flight` (each reads
+    state fresh immediately before writing); this brings the once-at-startup call in
+    line with it rather than introducing a new pattern.
+    """
+    in_flight = reconcile_in_flight(state, launch_times)
+    state = read_state()
+    state["in_flight"] = in_flight
+    state["skeleton_version"] = "B7"
+    write_state(state)
+    return in_flight
 
 
 def _noop_merge_action(task_def: dict | None, task_id: str, retry_counts: dict) -> str:
@@ -1527,11 +1586,7 @@ def main() -> int:
     # B10 — reconcile in_flight against live tmux windows + workspace sentinels at startup
     # (also runs every poll cycle via reconcile_in_flight call inside the event loop)
     launch_times: dict[str, float] = {}
-    in_flight: list[dict] = reconcile_in_flight(state, launch_times)
-
-    state["in_flight"] = in_flight
-    state["skeleton_version"] = "B7"
-    write_state(state)
+    in_flight: list[dict] = _reconcile_and_persist_startup_state(state, launch_times)
     run_dep_map()
     run_status()
 

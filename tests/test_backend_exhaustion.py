@@ -77,6 +77,17 @@ def test_leaves_other_backends_records_alone(monkeypatch, tmp_path):
     }
 
 
+def test_a_hand_edited_list_shaped_table_degrades_instead_of_raising(monkeypatch, tmp_path):
+    """Round-1 review Minor: the read side (`exhausted_backends`) already degrades a
+    non-mapping table to empty; the write side must not crash on the same hand-edited
+    shape -- `dict(state.get(EXHAUSTED_KEY) or {})` raises `ValueError` on a list of
+    plain strings, which a bad hand-edit is exactly as likely to leave behind as a bad
+    `reset_at`."""
+    path = _state_file(monkeypatch, tmp_path, **{quota.EXHAUSTED_KEY: ["not", "a", "mapping"]})
+    quota.record_backend_exhausted(CLAUDE, "2999-01-01T00:00:00Z")
+    assert _read(path)[quota.EXHAUSTED_KEY] == {CLAUDE: "2999-01-01T00:00:00Z"}
+
+
 @pytest.mark.parametrize(
     "reset_at",
     [None, "", "   ", "not-a-timestamp", "2026-13-40T99:99:99Z"],

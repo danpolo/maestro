@@ -3361,17 +3361,22 @@ from its own fix round). D3 is documentation-only and adds no tests; the queue t
 
 **The suite now ships one deliberate `xfail`, and it is the queue's one open production finding.**
 `tests/test_no_dead_backend_surface.py`'s `test_every_capabilities_field_has_a_core_reader[sandbox]`
-is `pytest.mark.xfail(strict=True)`: `Capabilities.sandbox` is advertised by both drivers, tested at
-the driver level on both, and **read by nothing in core**. `CompletionSpec`'s own docstring states
-the contract normatively — "drivers that can enforce that (`Capabilities.sandbox`) must" — so this is
-a core responsibility core has not implemented, not a driver-internal detail. Every `writable=` /
-`sandbox=` value at every call site in `switch.py`, `implementer.py`, `agentcall.py`,
-`selfheal/redo.py` and `selfheal/selffix.py` is a static `True`/`False` chosen by the caller's own
-judgement about the *kind* of call, never gated on the driver's declared confinement capability.
-`strict=True` is what keeps this from going stale: the day core reads `capabilities().sandbox` for
-real, the case flips to an unexpected pass and the suite goes red until the marker is deleted. **This
-is a deferred production item, not a resolved one** — the same standing as `A6`. It is deliberately
-not allow-listed: a gate whose allow-list absorbs its only finding is vacuous.
+is `pytest.mark.xfail(strict=True)`: `Capabilities.sandbox` is declared by both drivers (`True` on
+one, `False` on the other — a statement about the driver, not a claim either way that confinement
+happens), asserted at the driver level on both, and **read by nothing in core**. `CompletionSpec`'s
+own docstring states the contract normatively — "drivers that can enforce that
+(`Capabilities.sandbox`) must" — so this is a core responsibility core has not implemented, not a
+driver-internal detail. `LaunchSpec.sandbox` and `CompletionSpec.writable` are never derived from
+`capabilities().sandbox` anywhere in core —
+`switch.py` and `implementer.py` never set `sandbox` at all (it stays at its `None` default),
+`agentcall.py` forwards its caller's `writable` flag, and the only real values are the static
+`writable=True` in `selfheal/redo.py` and `selfheal/selffix.py`. `strict=True` is what keeps this
+from going stale: the day core reads the capability for real, the case flips to an unexpected pass
+and the suite goes red until the marker is deleted. (Strictly, what flips it is *any* `.sandbox`
+attribute read under `maestro/` outside `maestro/backends/` — the gate matches attribute names, not
+types, a limitation stated in its own docstring and in D2's write-up below.) **This is a deferred
+production item, not a resolved one** — the same standing as `A6`. It is deliberately not
+allow-listed: a gate whose allow-list absorbs its only finding is vacuous.
 
 **C4 (`2566cee`, `ce18509`) — the `/backend` pin stops bypassing `roles.resolve`.** `/backend auto`
 is a new clear verb (matched before the known-backend check, so `"auto"` can never collide with a
@@ -3438,11 +3443,13 @@ the gate future-proof against a *second* `parse_exit` rather than merely aware o
 protocol method or capability field added later is picked up with no edit here. "Has a reader" is
 answered by one AST walk over every `.py` file under `maestro/` **excluding `maestro/backends/`**,
 collecting every `ast.Attribute`'s `.attr` — one pass covers both a method call and a plain field
-read. Two coverage tests plus fifteen supporting ones: two "guard the guard" pins, and anti-vacuity
-tests proving the checker fires on a synthetic violation, stays silent when fully covered, respects
-the allow-list, ignores prose and comment mentions (not `ast.Attribute` nodes at all), genuinely
-excludes `backends/`, reaches real core modules, and that every allow-list entry carries a real
-justification naming a real surface member.
+read. Fourteen test functions, seventeen collected cases — the coverage test for `Capabilities` is
+parametrised over the four fields: two coverage tests, two "guard the guard" pins, seven
+anti-vacuity tests (the checker fires on a synthetic violation, stays silent when fully covered,
+respects the allow-list, ignores prose and comment mentions — not `ast.Attribute` nodes at all —
+genuinely excludes `backends/`, reaches real core modules, and finds the known real readers), and
+three allow-list hygiene tests pinning that every entry carries a real justification and names a
+real surface member.
 
 The gate found a real defect on its first run against real source — `Capabilities.sandbox`, written
 up in this wave's header above. That is the strongest anti-vacuity evidence available and it was not

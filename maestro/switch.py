@@ -51,8 +51,8 @@ Three rules this module exists to hold:
   `tests/characterization/test_state.py`. A switch is therefore journalled by *flattening*
   into `detail`: `"<task_id> from=<a> to=<b> model=<m> reason=<r>"`. No sixth field is
   added — a rotation, whose `from` and `to` are necessarily the same backend, is
-  distinguished by its own event name (`session_rotation`) rather than by a sixth field, so that
-  `from=X to=X` under `backend_switch` never reads as a bug in the switch.
+  distinguished by its own event name (`session_rotation`) rather than by a sixth field,
+  so that `from=X to=X` under `backend_switch` never reads as a bug in the switch.
 
 Every seam that touches the world — the driver factory, the journal, Telegram, the state
 document, tmux, git, the clock — is injectable through `SwitchDeps`, whose fields all

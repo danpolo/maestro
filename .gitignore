@@ -7,3 +7,7 @@ __pycache__/
 .legacy_repo
 *.egg-info/
 .pytest_cache/
+
+# Local research drafts; preserve them on disk but keep them out of portfolio commits.
+docs/DEEP_RESEARCH_PROMPT.md
+docs/graph-engineering/

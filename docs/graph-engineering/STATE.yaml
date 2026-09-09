@@ -1,0 +1,15 @@
+# Maestro Graph Engineering Implementation State
+# This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
+schema_version: 1
+last_updated: "2026-09-08T19:50:00Z"
+current_phase: "P00"
+status: "not_started"  # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+
+completed_phases: []
+
+in_progress_details:
+  what_was_done: []
+  whats_left: []
+  relevant_context: []
+  blockers: []
+  active_branch: "feat/graph-engineering-foundation"

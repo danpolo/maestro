@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Maestro Graph Engineering — Grounded Integration Plan</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2315343d'/%3E%3Cpath d='M14 20h16l8 12h12M14 44h16l8-12' fill='none' stroke='%23e5a853' stroke-width='5' stroke-linecap='round'/%3E%3Ccircle cx='14' cy='20' r='5' fill='%2354a99c'/%3E%3Ccircle cx='14' cy='44' r='5' fill='%2354a99c'/%3E%3Ccircle cx='50' cy='32' r='5' fill='%23e5a853'/%3E%3C/svg%3E">
+  <style>
+    :root {
+      --font-body: "Trebuchet MS", "Aptos", sans-serif;
+      --font-display: Georgia, "Times New Roman", serif;
+      --font-mono: "Cascadia Code", "SFMono-Regular", Consolas, monospace;
+      --bg: #edf3f3;
+      --surface: #ffffff;
+      --surface-2: #e3ecec;
+      --surface-3: #f6f9f8;
+      --border: #c8d7d5;
+      --border-strong: #93aba8;
+      --text: #183138;
+      --text-dim: #577078;
+      --navy: #15343d;
+      --teal: #147d75;
+      --teal-soft: #d9eeeb;
+      --amber: #b96825;
+      --amber-soft: #f7e9d6;
+      --red: #a4473b;
+      --red-soft: #f4dfdc;
+      --green: #487657;
+      --green-soft: #e1eee5;
+      --shadow: 0 18px 50px rgba(21, 52, 61, 0.08);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #0e1b20;
+        --surface: #14262c;
+        --surface-2: #1b3137;
+        --surface-3: #112229;
+        --border: #2d484f;
+        --border-strong: #547078;
+        --text: #e5efee;
+        --text-dim: #a2babd;
+        --navy: #d9eceb;
+        --teal: #66c2b6;
+        --teal-soft: #173d3b;
+        --amber: #edac60;
+        --amber-soft: #422f1c;
+        --red: #ed8b7d;
+        --red-soft: #452622;
+        --green: #8cc59c;
+        --green-soft: #203b2a;
+        --shadow: 0 18px 50px rgba(0, 0, 0, 0.22);
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html { font-size: 16px; scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      color: var(--text);
+      background-color: var(--bg);
+      background-image:
+        linear-gradient(rgba(20, 125, 117, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(20, 125, 117, 0.045) 1px, transparent 1px);
+      background-size: 28px 28px;
+      font-family: var(--font-body);
+      line-height: 1.58;
+      overflow-wrap: break-word;
+    }
+
+    a { color: inherit; }
+    button, a { -webkit-tap-highlight-color: transparent; }
+    :focus-visible { outline: 3px solid var(--amber); outline-offset: 3px; }
+    .wrap {
+      max-width: 1440px;
+      margin: 0 auto;
+      padding: 28px 34px 72px;
+      display: grid;
+      grid-template-columns: 190px minmax(0, 1fr);
+      gap: 0 42px;
+    }
+    .main { min-width: 0; }
+
+    .toc {
+      position: sticky;
+      top: 20px;
+      align-self: start;
+      grid-row: 1 / -1;
+      max-height: calc(100dvh - 40px);
+      overflow-y: auto;
+      padding: 16px 0;
+    }
+    .toc-title {
+      padding-bottom: 10px;
+      margin-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-dim);
+      font: 700 0.7rem/1.2 var(--font-mono);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .toc a {
+      display: block;
+      padding: 7px 10px;
+      margin: 2px 0;
+      border-left: 2px solid transparent;
+      border-radius: 0 6px 6px 0;
+      color: var(--text-dim);
+      font-size: 0.78rem;
+      line-height: 1.35;
+      text-decoration: none;
+    }
+    .toc a:hover { color: var(--text); background: var(--surface-2); }
+    .toc a.active { color: var(--teal); border-left-color: var(--teal); background: var(--teal-soft); }
+
+    .hero {
+      position: relative;
+      overflow: hidden;
+      padding: 42px 44px 36px;
+      border: 1px solid var(--border);
+      border-top: 5px solid var(--teal);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .hero::after {
+      content: "";
+      position: absolute;
+      right: -80px;
+      top: -90px;
+      width: 280px;
+      height: 280px;
+      border: 38px solid var(--teal-soft);
+      border-radius: 50%;
+      opacity: 0.8;
+    }
+    .eyebrow {
+      position: relative;
+      z-index: 1;
+      color: var(--teal);
+      font: 700 0.72rem/1.2 var(--font-mono);
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+    }
+    h1, h2, h3 { text-wrap: balance; }
+    h1 {
+      position: relative;
+      z-index: 1;
+      max-width: 850px;
+      margin: 12px 0 14px;
+      color: var(--navy);
+      font: 700 clamp(2.2rem, 5vw, 4.35rem)/0.98 var(--font-display);
+      letter-spacing: -0.035em;
+    }
+    .hero-copy {
+      position: relative;
+      z-index: 1;
+      max-width: 760px;
+      margin: 0;
+      color: var(--text-dim);
+      font-size: 1.05rem;
+    }
+    .decision-strip {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      margin-top: 28px;
+    }
+    .decision {
+      min-width: 0;
+      padding: 13px 14px;
+      border: 1px solid var(--border);
+      background: var(--surface-3);
+    }
+    .decision b { display: block; color: var(--text); font-size: 0.88rem; }
+    .decision span { color: var(--text-dim); font-size: 0.76rem; }
+
+    .section { margin-top: 48px; scroll-margin-top: 26px; }
+    .sec-head {
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 14px;
+      align-items: baseline;
+      margin-bottom: 16px;
+    }
+    .sec-num {
+      color: var(--amber);
+      font: 700 0.8rem/1 var(--font-mono);
+      letter-spacing: 0.1em;
+    }
+    h2 { margin: 0; color: var(--navy); font: 700 1.75rem/1.15 var(--font-display); }
+    .section-lead { max-width: 74ch; margin: 0 0 20px; color: var(--text-dim); }
+
+    .callout {
+      padding: 18px 20px;
+      border-left: 4px solid var(--teal);
+      background: var(--surface);
+      box-shadow: 0 8px 24px rgba(21, 52, 61, 0.05);
+    }
+    .callout strong { color: var(--teal); }
+    code, .mono { font-family: var(--font-mono); }
+    code { padding: 0.08em 0.34em; border-radius: 3px; background: var(--surface-2); font-size: 0.86em; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); background: var(--surface); }
+    table { width: 100%; min-width: 820px; border-collapse: collapse; font-size: 0.86rem; }
+    caption { padding: 13px 16px; text-align: left; color: var(--text-dim); font-size: 0.76rem; }
+    th, td { padding: 13px 15px; border-bottom: 1px solid var(--border); text-align: left; vertical-align: top; }
+    th { color: var(--text-dim); background: var(--surface-2); font: 700 0.69rem/1.3 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; }
+    tbody tr:last-child td { border-bottom: 0; }
+    tbody tr:hover { background: var(--surface-3); }
+    td:first-child { color: var(--navy); font-weight: 700; }
+    .status {
+      display: inline-block;
+      padding: 3px 7px;
+      border-radius: 999px;
+      font: 700 0.68rem/1.2 var(--font-mono);
+      white-space: nowrap;
+    }
+    .status.exists { color: var(--green); background: var(--green-soft); }
+    .status.deepen { color: var(--amber); background: var(--amber-soft); }
+    .status.new { color: var(--teal); background: var(--teal-soft); }
+
+    .diagram-shell {
+      position: relative;
+      padding: 20px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .diagram-shell figcaption { margin-top: 15px; color: var(--text-dim); font-size: 0.79rem; }
+    .architecture { display: grid; gap: 12px; }
+    .arch-row { display: grid; gap: 12px; min-width: 0; }
+    .arch-row.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .arch-row.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .arch-node {
+      min-width: 0;
+      padding: 15px 16px;
+      border: 1px solid var(--border-strong);
+      background: var(--surface-3);
+    }
+    .arch-node h3 { margin: 0 0 5px; font-size: 0.94rem; color: var(--navy); }
+    .arch-node p { margin: 0; color: var(--text-dim); font-size: 0.77rem; }
+    .arch-node.source { border-top: 4px solid var(--amber); }
+    .arch-node.graph { border-top: 4px solid var(--teal); }
+    .arch-node.runner { border-top: 4px solid var(--green); background: var(--green-soft); }
+    .arch-node.evidence { border-top: 4px solid var(--red); }
+    .connector {
+      display: grid;
+      justify-items: center;
+      color: var(--text-dim);
+      font: 600 0.7rem/1.25 var(--font-mono);
+      text-align: center;
+    }
+    .connector::after { content: "↓"; color: var(--teal); font-size: 1.3rem; line-height: 1; }
+    .flow-note {
+      padding: 9px 12px;
+      border: 1px dashed var(--border-strong);
+      color: var(--text-dim);
+      background: var(--surface-2);
+      font-size: 0.77rem;
+      text-align: center;
+    }
+
+    .principles {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .principle { min-width: 0; padding: 18px; border: 1px solid var(--border); background: var(--surface); }
+    .principle .label { color: var(--teal); font: 700 0.67rem/1 var(--font-mono); letter-spacing: 0.1em; text-transform: uppercase; }
+    .principle h3 { margin: 9px 0 7px; color: var(--navy); font-size: 1rem; }
+    .principle p { margin: 0; color: var(--text-dim); font-size: 0.82rem; }
+
+    .timeline { position: relative; display: grid; gap: 14px; margin-left: 16px; }
+    .timeline::before { content: ""; position: absolute; left: 18px; top: 12px; bottom: 12px; width: 2px; background: var(--border-strong); }
+    .wave {
+      position: relative;
+      display: grid;
+      grid-template-columns: 38px minmax(0, 1fr);
+      gap: 18px;
+      align-items: start;
+    }
+    .wave-num {
+      z-index: 1;
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border: 2px solid var(--teal);
+      border-radius: 50%;
+      color: var(--teal);
+      background: var(--bg);
+      font: 700 0.75rem/1 var(--font-mono);
+    }
+    .wave-card { min-width: 0; padding: 16px 18px; border: 1px solid var(--border); background: var(--surface); }
+    .wave-card h3 { margin: 0 0 5px; color: var(--navy); font-size: 1rem; }
+    .wave-card p { margin: 0; color: var(--text-dim); font-size: 0.82rem; }
+    .wave-card .outcome { display: block; margin-top: 8px; color: var(--green); font: 600 0.73rem/1.35 var(--font-mono); }
+
+    .guard-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .guard-card { min-width: 0; padding: 18px 20px; border: 1px solid var(--border); background: var(--surface); }
+    .guard-card.keep { border-top: 4px solid var(--green); }
+    .guard-card.reject { border-top: 4px solid var(--red); }
+    .guard-card h3 { margin: 0 0 10px; color: var(--navy); font-size: 1rem; }
+    .guard-card ul { margin: 0; padding-left: 1.1rem; color: var(--text-dim); font-size: 0.82rem; }
+    .guard-card li + li { margin-top: 5px; }
+
+    .decision-box {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: center;
+      padding: 24px;
+      border: 2px solid var(--amber);
+      background: var(--amber-soft);
+    }
+    .decision-box h3 { margin: 0 0 6px; color: var(--navy); font: 700 1.25rem/1.2 var(--font-display); }
+    .decision-box p { max-width: 70ch; margin: 0; color: var(--text-dim); font-size: 0.88rem; }
+    .recommendation { padding: 8px 10px; border: 1px solid var(--amber); color: var(--amber); background: var(--surface); font: 700 0.72rem/1.2 var(--font-mono); white-space: nowrap; }
+
+    .rule-card { padding: 20px; border: 1px solid var(--border); background: var(--surface); }
+    .rule-card p { margin: 0 0 12px; color: var(--text-dim); font-size: 0.86rem; }
+    .rule-copy {
+      margin: 0;
+      padding: 16px;
+      border-left: 4px solid var(--teal);
+      background: var(--surface-2);
+      color: var(--text);
+      font: 500 0.78rem/1.65 var(--font-mono);
+      white-space: pre-wrap;
+    }
+    .sources { margin-top: 18px; color: var(--text-dim); font-size: 0.74rem; }
+    .sources b { color: var(--text); }
+
+    @media (max-width: 1000px) {
+      .wrap { grid-template-columns: 1fr; padding-top: 0; }
+      .toc {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        grid-row: auto;
+        display: flex;
+        gap: 4px;
+        align-items: center;
+        max-height: none;
+        margin: 0 -34px;
+        padding: 9px 34px;
+        overflow-x: auto;
+        background: var(--bg);
+        border-bottom: 1px solid var(--border);
+      }
+      .toc-title { display: none; }
+      .toc a { flex-shrink: 0; border-left: 0; border-bottom: 2px solid transparent; border-radius: 4px; white-space: nowrap; }
+      .toc a.active { border-left: 0; border-bottom-color: var(--teal); }
+      .main { padding-top: 18px; }
+      .section { scroll-margin-top: 58px; }
+    }
+    @media (max-width: 760px) {
+      .wrap { padding-left: 16px; padding-right: 16px; }
+      .toc { margin: 0 -16px; padding-left: 16px; padding-right: 16px; }
+      .hero { padding: 28px 22px; }
+      .decision-strip, .principles, .guard-grid, .arch-row.three, .arch-row.two { grid-template-columns: 1fr; }
+      .decision-box { grid-template-columns: 1fr; }
+      .recommendation { justify-self: start; }
+      .section { margin-top: 38px; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav class="toc" id="toc" aria-label="Plan sections">
+      <div class="toc-title">Plan map</div>
+      <a href="#outcome">Outcome</a>
+      <a href="#grounding">Repo grounding</a>
+      <a href="#architecture">Target architecture</a>
+      <a href="#changes">Change modules</a>
+      <a href="#sequence">Delivery waves</a>
+      <a href="#guardrails">Guardrails</a>
+      <a href="#decision">Decision</a>
+      <a href="#rule">Visual rule</a>
+    </nav>
+
+    <main class="main">
+      <header class="hero" id="outcome">
+        <div class="eyebrow">Grounded architecture plan · 2026-09-04</div>
+        <h1>Make Maestro graph-aware without turning it into a graph framework.</h1>
+        <p class="hero-copy">The two research directions are not competing designs. The control-plane graphs make execution safe and explainable; the project workflow compiler uses them to produce the smallest sufficient workflow for each task.</p>
+        <div class="decision-strip" aria-label="Top architecture decisions">
+          <div class="decision"><b>Foundation first</b><span>Typed events, lifecycle rules, then workflow compilation.</span></div>
+          <div class="decision"><b>Separate graph models</b><span>Roadmap, workflow, repository, validation, and provenance retain distinct semantics.</span></div>
+          <div class="decision"><b>Preserve the live seam</b><span>Backends, worktrees, adapters, HITL, gates, and self-update remain.</span></div>
+        </div>
+      </header>
+
+      <section class="section" id="grounding">
+        <div class="sec-head"><span class="sec-num">01</span><h2>What the repository changes about the research</h2></div>
+        <p class="section-lead">Several recommendations are deepening opportunities, not greenfield modules. Maestro already has the first version of a task DAG, event journal, resource-aware concurrency, recovery, and multiple execution lanes.</p>
+        <div class="table-wrap">
+          <table>
+            <caption>Grounded against the current source, design, and progress record.</caption>
+            <thead><tr><th>Research capability</th><th>Current Maestro reality</th><th>Planned change</th><th>Classification</th></tr></thead>
+            <tbody>
+              <tr><td>Roadmap DAG</td><td><code>roadmap.py:165</code> already resolves <code>deps</code>; completed nodes graduate out of Markdown.</td><td>One strict, versioned roadmap module with cycle checks, explainable readiness, typed mutations, invalidation, and retained history.</td><td><span class="status deepen">Deepen</span></td></tr>
+              <tr><td>Scheduler</td><td><code>orchestrator.py:1924</code> has a ready frontier, concurrency cap, parked/cooldown filtering, and resource mutexes.</td><td>Add criticality, quota, source-overlap, risk, and validation-cost scoring—with reasons for every choice.</td><td><span class="status deepen">Deepen</span></td></tr>
+              <tr><td>Event provenance</td><td><code>state.py:66</code> appends a five-field NDJSON record; <code>state.json</code> is separately mutated.</td><td>Typed causal events and checked projections, migrated in shadow mode before becoming authoritative.</td><td><span class="status deepen">Deepen</span></td></tr>
+              <tr><td>Durable execution</td><td>Worktrees, sentinels, handoffs, launch timestamps, and startup reconciliation preserve coarse task progress.</td><td>Checkpoint workflow nodes and controlled side effects; keep worktree/git as the truth when an outcome is uncertain.</td><td><span class="status deepen">Deepen</span></td></tr>
+              <tr><td>Execution graph</td><td>Implementer, script, async, manual-prep, verification, review, merge, smoke, and graduation are hardcoded branches.</td><td>Compile those exact lanes into explicit per-task workflow graphs before adding adaptive nodes.</td><td><span class="status deepen">Lift out</span></td></tr>
+              <tr><td>Project workflow synthesis</td><td><code>cli.py:159</code> does mechanical detection; the setup skill owns judgment.</td><td>Generate a deterministic project profile, then let the setup agent propose a reviewed reusable workflow graph.</td><td><span class="status new">New</span></td></tr>
+              <tr><td>Repository graph</td><td>No source structure index exists; the current dependency map visualizes roadmap tasks only.</td><td>Add a derived main-commit graph plus isolated per-worktree overlays and bounded context manifests.</td><td><span class="status new">New</span></td></tr>
+              <tr><td>Validation graph</td><td>Per-task verification commands and gates exist, but their successful evidence is not structurally reusable.</td><td>Fingerprint evidence and conservatively invalidate affected checks and downstream roadmap assumptions.</td><td><span class="status new">New</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="callout" style="margin-top:16px"><strong>Grounding constraint:</strong> the existing core/project seam in <code>DESIGN.md §4</code> remains. Projects continue to define what “good” means through adapters and configuration; Maestro owns orchestration, state, policy, and survival.</div>
+      </section>
+
+      <section class="section" id="architecture">
+        <div class="sec-head"><span class="sec-num">02</span><h2>How the two approaches become one system</h2></div>
+        <figure class="diagram-shell" role="img" aria-label="Project analysis and roadmap inputs compile into task workflows, which execute through Maestro's existing runtime and feed validation and provenance back into the roadmap.">
+          <div class="architecture">
+            <div class="arch-row two">
+              <div class="arch-node source"><h3>Deterministic project analysis</h3><p>Languages, packages, tests, build tools, adapters, deployment shape.</p></div>
+              <div class="arch-node source"><h3>Setup agent + Dan review</h3><p>Risk, quality bars, specialized roles, ambiguous project conventions.</p></div>
+            </div>
+            <div class="connector">produce a versioned engineering policy</div>
+            <div class="arch-row three">
+              <div class="arch-node graph"><h3>Project workflow graph</h3><p>How engineering should happen in this project.</p></div>
+              <div class="arch-node graph"><h3>Roadmap graph</h3><p>What work exists, depends on what, and is ready now.</p></div>
+              <div class="arch-node graph"><h3>Repository graph</h3><p>What code is structurally relevant and likely affected.</p></div>
+            </div>
+            <div class="connector">scheduler selects; compiler specializes</div>
+            <div class="arch-row two">
+              <div class="arch-node runner"><h3>Per-task workflow compiler</h3><p>Creates the smallest sufficient immutable workflow for one attempt.</p></div>
+              <div class="arch-node runner"><h3>Durable runner + lifecycle machines</h3><p>Guards transitions, checkpoints nodes, reconciles external facts.</p></div>
+            </div>
+            <div class="connector">drives the proven execution seam</div>
+            <div class="flow-note"><b>Claude / Codex</b> · isolated git worktrees · project adapters · deterministic checks · human decisions · merge / deploy / graduation</div>
+            <div class="connector">produces evidence and causality</div>
+            <div class="arch-row two">
+              <div class="arch-node evidence"><h3>Validation evidence graph</h3><p>Fingerprints results, identifies stale checks, invalidates only affected assumptions.</p></div>
+              <div class="arch-node evidence"><h3>Typed causal journal</h3><p>Rebuilds projections, explains decisions, and supports recovery and operator views.</p></div>
+            </div>
+          </div>
+          <figcaption>The project workflow compiler depends on the control-plane foundation; building it first would encode today’s implicit and partly non-transactional behavior into a new abstraction.</figcaption>
+        </figure>
+      </section>
+
+      <section class="section" id="changes">
+        <div class="sec-head"><span class="sec-num">03</span><h2>The modules that should change</h2></div>
+        <div class="principles">
+          <article class="principle"><div class="label">Control</div><h3>Typed event and projection module</h3><p>Versioned event envelope, causation/correlation, artifact references, compatibility exports, and projection parity checks.</p></article>
+          <article class="principle"><div class="label">Lifecycle</div><h3>Guarded transition module</h3><p>Separate task, attempt, workflow, node, agent, human-wait, backend-circuit, watchdog, and self-update lifecycles.</p></article>
+          <article class="principle"><div class="label">Planning</div><h3>Versioned roadmap module</h3><p>Single parser and interface, typed mutations, retained completed/superseded history, local repair, and explicit invalidation.</p></article>
+          <article class="principle"><div class="label">Workflow</div><h3>Template, compiler, and runner modules</h3><p>First encode existing lanes exactly; then conditionally add agent, adapter, check, human, decision, wait, and join nodes.</p></article>
+          <article class="principle"><div class="label">Project setup</div><h3>Project profile and synthesis module</h3><p><code>init</code> produces deterministic facts; the setup agent proposes judgment-dependent workflow policy for approval.</p></article>
+          <article class="principle"><div class="label">Code intelligence</div><h3>Repository graph module</h3><p>Derived main snapshot, worktree overlays, freshness/confidence, bounded queries, affected areas, and compact context manifests.</p></article>
+          <article class="principle"><div class="label">Verification</div><h3>Validation evidence module</h3><p>Records why a check was valid, marks affected results stale, and initially prefers redundant testing over unsafe reuse.</p></article>
+          <article class="principle"><div class="label">Scheduling</div><h3>Explainable priority module</h3><p>Ranks ready tasks using criticality, backend state, conflicts, risk, capacity, and measured history—without HEFT first.</p></article>
+          <article class="principle"><div class="label">Governance</div><h3>Executor interception module</h3><p>Before dispatch, before effect, after effect, and before completion hooks around Maestro-controlled operations—not assumed backend shell hooks.</p></article>
+        </div>
+      </section>
+
+      <section class="section" id="sequence">
+        <div class="sec-head"><span class="sec-num">04</span><h2>Foundation-first delivery waves</h2></div>
+        <p class="section-lead">Each wave creates independently observable leverage. Adaptive workflow generation arrives only after the runner can explain and safely recover its own state.</p>
+        <div class="timeline">
+          <div class="wave"><div class="wave-num">0</div><div class="wave-card"><h3>Baseline the real system</h3><p>Run a second-project initialization and at least one real LLM implementation task. Capture exploration, handoff, recovery, gate, conflict, and human-intervention baselines.</p><span class="outcome">Outcome: evidence for deciding whether later graph features pay for themselves.</span></div></div>
+          <div class="wave"><div class="wave-num">1</div><div class="wave-card"><h3>Control-plane foundation</h3><p>Add typed events and lifecycle transition checks in shadow mode; compare new projections with existing <code>state.json</code> behavior.</p><span class="outcome">Outcome: explainable state without changing live scheduling.</span></div></div>
+          <div class="wave"><div class="wave-num">2</div><div class="wave-card"><h3>Roadmap deepening</h3><p>Unify roadmap readers, validate the graph, version changes, and route Maestro-authored changes through typed mutations.</p><span class="outcome">Outcome: safe dynamic planning and invalidation semantics.</span></div></div>
+          <div class="wave"><div class="wave-num">3</div><div class="wave-card"><h3>Compatibility workflow graphs</h3><p>Express today’s implementer, script, async, manual, resumable, review, merge, and graduation lanes as explicit workflows with behavior parity.</p><span class="outcome">Outcome: the orchestration loop delegates to a deep workflow runner.</span></div></div>
+          <div class="wave"><div class="wave-num">4</div><div class="wave-card"><h3>Project workflow synthesis</h3><p>Extend setup with a deterministic project profile and a reviewed reusable workflow proposal. Compile the smallest workflow per task.</p><span class="outcome">Outcome: both research approaches are active together.</span></div></div>
+          <div class="wave"><div class="wave-num">5</div><div class="wave-card"><h3>Repository graph and context benchmark</h3><p>Index main plus isolated worktree deltas. Give agents bounded manifests first and measure whether they replace exploration rather than add to it.</p><span class="outcome">Outcome: verified context savings or a clear rejection result.</span></div></div>
+          <div class="wave"><div class="wave-num">6</div><div class="wave-card"><h3>Validation and roadmap invalidation</h3><p>Fingerprint evidence, compute affected checks, and invalidate downstream assumptions conservatively. Do not skip established gates until recall is proven.</p><span class="outcome">Outcome: prior engineering evidence survives safe changes.</span></div></div>
+          <div class="wave"><div class="wave-num">7</div><div class="wave-card"><h3>Explainable scheduling and adaptive nodes</h3><p>Use real duration, quota, source-overlap, and failure data to prioritize the ready frontier and justify optional specialized workflow nodes.</p><span class="outcome">Outcome: more verified work per quota and less parallel rework.</span></div></div>
+          <div class="wave"><div class="wave-num">8</div><div class="wave-card"><h3>External bake-offs only after native evidence</h3><p>Benchmark Temporal/DBOS, deeper code graphs, advanced schedulers, or reviewer agents against the native modules.</p><span class="outcome">Outcome: dependencies are adopted only when net reliability or efficiency improves.</span></div></div>
+        </div>
+      </section>
+
+      <section class="section" id="guardrails">
+        <div class="sec-head"><span class="sec-num">05</span><h2>Architecture guardrails</h2></div>
+        <div class="guard-grid">
+          <div class="guard-card keep"><h3>Keep load-bearing Maestro behavior</h3><ul><li>Project-agnostic core and project-owned quality adapters.</li><li>Claude and Codex as capability-driven backends.</li><li>Git worktrees as the durable coding artifact.</li><li>Checkpoint handoffs instead of context compaction.</li><li>Human gates for risk, uncertainty, and self-modification.</li><li>Self-update only at safe task boundaries.</li></ul></div>
+          <div class="guard-card reject"><h3>Explicitly reject for this integration</h3><ul><li>A universal graph for roadmap, code, execution, and memory.</li><li>A LangGraph rewrite or generic graph-rewriting language.</li><li>Neo4j/Memgraph as a baseline dependency.</li><li>LLM-generated GraphRAG as the source-code truth.</li><li>Always-on Joern or default debate-agent chains.</li><li>Claims of exact per-tool recovery from opaque CLI agents.</li></ul></div>
+        </div>
+        <div class="callout" style="margin-top:16px"><strong>Safety prerequisite:</strong> the prepared but unimplemented filesystem-confinement design must be resolved before a generated workflow is allowed to claim that implementer nodes are physically sandboxed.</div>
+      </section>
+
+      <section class="section" id="decision">
+        <div class="sec-head"><span class="sec-num">06</span><h2>The one policy decision still open</h2></div>
+        <div class="decision-box">
+          <div><h3>When does a synthesized project workflow become active?</h3><p>Recommended: every generated or materially revised project workflow remains a proposal until Dan approves it. Later, low-risk automatic revisions can be considered only after versioning, diff visibility, deterministic validation, and rollback are proven.</p></div>
+          <div class="recommendation">APPROVAL FIRST</div>
+        </div>
+      </section>
+
+      <section class="section" id="rule">
+        <div class="sec-head"><span class="sec-num">07</span><h2>Why the visual rule was missed—and how to remove ambiguity</h2></div>
+        <div class="rule-card">
+          <p>The visible instruction said to include a diagram when relationships would be clearer and described delivery behavior whenever a final visual artifact is created. An inline Mermaid diagram satisfied the first clause technically, while the second clause was conditional. It did not explicitly say that every plan must be delivered as a standalone artifact. The agent also over-weighted the brainstorming skill’s in-chat design gate. The result followed a narrow reading, not the intended workflow.</p>
+          <pre class="rule-copy">For every request whose primary deliverable is a plan, workflow, architecture, design, comparison, project recap, or multi-stage change proposal, the final deliverable MUST be a standalone visual artifact created with the visual-explainer skill. An inline Markdown/Mermaid diagram does not satisfy this requirement.
+
+Default to one self-contained HTML artifact. Verify it in a browser, then automatically send that artifact to Dan’s private inbox. The chat response should contain only a concise outcome, the artifact link, delivery status, and any decision that blocks the next stage.
+
+Skip the artifact only when Dan explicitly asks for text-only output or when the requested plan is a simple linear task that fits in three or fewer short steps.</pre>
+        </div>
+        <p class="sources"><b>Repository evidence:</b> <code>docs/DESIGN.md §§1–4, 10, 14</code>; <code>docs/PROGRESS.md</code> current readiness caveats; <code>maestro/state.py:36–69</code>; <code>maestro/docs/roadmap.py:165–355</code>; <code>maestro/orchestrator.py:1256–2215</code>; <code>maestro/cli.py:159–575</code>; both ChatGPT synthesis files and the four source reports under <code>docs/graph-engineering/</code>.</p>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    (() => {
+      const nav = document.getElementById('toc');
+      const links = [...nav.querySelectorAll('a')];
+      const sections = links.map(link => ({
+        link,
+        section: document.querySelector(link.getAttribute('href'))
+      })).filter(item => item.section);
+
+      const observer = new IntersectionObserver(entries => {
+        const visible = entries.filter(entry => entry.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0];
+        if (!visible) return;
+        links.forEach(link => link.classList.remove('active'));
+        const match = sections.find(item => item.section === visible.target);
+        if (match) {
+          match.link.classList.add('active');
+          if (window.innerWidth <= 1000) {
+            match.link.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' });
+          }
+        }
+      }, { rootMargin: '-12% 0px -74% 0px' });
+
+      sections.forEach(item => observer.observe(item.section));
+      links.forEach(link => link.addEventListener('click', event => {
+        event.preventDefault();
+        const target = document.querySelector(link.getAttribute('href'));
+        if (!target) return;
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        try { history.replaceState(null, '', link.getAttribute('href')); } catch (_) {}
+      }));
+    })();
+  </script>
+</body>
+</html>

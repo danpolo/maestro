@@ -3873,6 +3873,56 @@ than no harvest because it arrives dressed as a citation.
 
 Artifact: `~/.agent/diagrams/maestro-grill-handoff.html` (delivered; outside the repo, not tracked).
 
+## 2026-09-11 — P01 COMPLETE: transactional control store, single writer, content-addressed artifacts
+
+**Phase P01 of the graph-engineering migration, all six checklist items.** Commit `181d034`;
+`STATE.yaml` on the `meta` branch is `status: not_started`, `completed_phases: [P00, P01]`,
+`current_phase: P02`, `in_progress_details: null`.
+
+Verification: `.venv/bin/python -m pytest -q tests/control` -> **77 passed, exit 0**. Full fast
+tier `pytest -m "not slow"` -> **3580 passed, 1 failed** — the failure is
+`tests/test_limits.py::test_parses_the_real_claude_table`, the pre-existing one P00 already
+recorded, untouched by this work. `maestro doctor --thirdparty` exits 0 (A12).
+
+**What landed.** `maestro/control/` is new: `store.py` (WAL + `foreign_keys` + `busy_timeout=10000`,
+the `01_DATA_CONTRACTS_AND_SCHEMAS.md` §3 DDL, idempotent `command_inbox`, append-only `events`,
+CAS on task revisions, fenced writer leases), `lifecycle.py` (the §2 state machines as fail-closed
+reducers plus a pure `replay()`), `artifacts.py` (SHA256 content addressing with the §4 atomic
+write protocol), `models.py` (the identifier grammar and typed records).
+
+**Single writer is enforced, not documented.** `[INV-01]`: the controller takes a PID-bound lock
+row and a second *live* controller is refused outright; a client role may enqueue commands and read
+nothing else. A lock held by a dead PID is reclaimed with a fresh epoch, so a crashed controller
+cannot lock a project out permanently.
+
+**`[INV-02]` in full.** Leases bind to the leaf writing PID via `bind_writer_pid`, not the launcher
+PID the claim guessed. A replacement claim is refused while the previous writer is alive — whatever
+exit code the launcher returned — and `revoke_lease` runs SIGTERM -> bounded grace -> SIGKILL ->
+verify, returning `False` and keeping the lease when the writer survives. Two writers in one
+worktree is the outcome that must be impossible; an unallocatable resource is the acceptable cost.
+
+**One real bug found and fixed inside this phase's own code, caught by its own test.** The first
+implementation derived the next fencing epoch from the current lease row. But a lease row is
+*deleted* on release, so the next claim restarted at epoch 1 — and a fencing token that restarts is
+not a fencing token: a late write from the released holder would have passed the epoch check. Fixed
+by moving the counter into its own `resource_epochs` table, which only ever increments.
+`test_claiming_increments_the_fencing_epoch` and
+`test_a_write_carrying_a_superseded_epoch_is_fenced_off` pin it.
+
+**Legacy shadowing (`D08`).** With a `.orchestrator/control.sqlite3` present, `state.json` is a
+sequence-stamped read-only projection: `write_state` commits the document as an event and exports
+it, and `read_state` re-exports whenever what is on disk is not the last export — so an outside
+edit, a forged stamp, a corrupt file and a deleted file all fail to survive a single read. The
+journal shadows into the event store while its own five-field line is unchanged. The watchdog's two
+direct `state.json` writes and every Telegram verb now reach the control plane through the inbox,
+keyed on the Telegram `update_id`, which makes a redelivered update a skip rather than a second
+`/approve`. **With no control database, every one of these paths is byte-identical to before** —
+the whole migration is switched on by the file's existence and nothing else.
+
+**Deliberately not retried.** A Telegram verb whose handler raised stays `processing` and is never
+re-executed. Most of those verbs (`/approve`, `/redo`, `/backend`) are external side effects with no
+postcondition probe, and `[A05]` forbids retrying those automatically.
+
 ## 2026-09-11 — P00 CLOSED: the DuetFlow coding task, and a gate that was passing by accident
 
 **P00 is complete.** `STATE.yaml` is `status: completed`, `completed_phases: [P00]`,

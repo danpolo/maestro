@@ -3873,6 +3873,146 @@ than no harvest because it arrives dressed as a citation.
 
 Artifact: `~/.agent/diagrams/maestro-grill-handoff.html` (delivered; outside the repo, not tracked).
 
+## 2026-09-11 — P00 CLOSED: the DuetFlow coding task, and a gate that was passing by accident
+
+**P00 is complete.** `STATE.yaml` is `status: completed`, `completed_phases: [P00]`,
+`current_phase: P01`. Both halves of the B01 pilot are recorded in
+`artifacts/graph-engineering/b01-duetflow-pilot.json`.
+
+**The coding task.** Dan chose `01-auth` over the recommended `04-scoring` and the choice stood.
+DuetFlow now has `config.py`, `auth.py`, `spotify.py`'s token path, `db.py`'s `accounts` table and
+`duetflow status` (commits `979727d`, `fd977d2`). 73 tests, none touching the live API. The diff
+touches `risky_set` (`auth.py`, `spotify.py`) and is **clean** against both `deny_list_extra`
+regexes — the ones that exist because Dan rejected the first `init` call with *"tokens should
+never be encoded in python files like auth.py"*. He walked both consent flows; `duetflow status`
+prints two 179-day countdowns, and each **stored** refresh token was exchanged for a live access
+token against the real endpoint. "Tokens survive a reboot" is met on every property it depends on
+(0600 file, ext4, outside the repo, fresh process re-reads it) but the host was not rebooted —
+recorded as proxied, not observed.
+
+**The headline B01 result is a zero.** The coding half started **zero** maestro agent calls and
+exercised **zero** orchestrator lanes. That is not an instrumentation failure: `01-auth` is
+`mode: needs-dan`, which normalises to `dispatch: manual`, so the orchestrator only auto-*prepares*
+it. B01 therefore has orchestrator-lane evidence (`baseline.json`, 41 pinned assertions) and
+real-project evidence (the pilot artifact) but **not both at once**. Any later phase that needs a
+real coding task measured *through* the orchestrator has to run an autonomous one. Carried into
+P01's `whats_left` so it is not quietly assumed away.
+
+**The finding that matters most came from Dan, not from the pilot (F7).** The rehearsal's F1
+"resolved" verdict was propped up by an accident: DuetFlow carried a hand-added
+`tests/test_smoke.py` (`assert True`) from before the grill. A project in the state
+`grill-with-docs` actually leaves — `CONTEXT.md`, `docs/adr/`, `docs/PLAN.md`, nothing else — has
+no tests at all, so Step 1a's precondition would not have fired and F1 would have recurred in
+full. Measured, not assumed:
+
+| Repo state | derived `test_command` | rendered `adapters/test` |
+|---|---|---|
+| no manifest, no `tests/` | `''` | `TODO`, exit 1 → `nonzero_exit` every task |
+| manifest, no `tests/` | **non-empty** | pytest exit **5** → `{"pass": false}` every task |
+| manifest + empty `tests/` | **non-empty** | pytest exit **5** → `{"pass": false}` every task |
+
+So the obvious fix — write the manifest — is the *worse* trap: the derivation check passes while
+every task parks at the gate with a summary reading `no tests ran`, which an implementing agent
+reads as its own failure and tries to fix inside its own diff. Step 1a was rewritten to trigger on
+"`init` would derive an empty test command", to state that no-manifest-and-no-tests is the
+**normal** handoff shape, and to require Case B to seed one *honest* test (never `assert True`)
+alongside the manifest, report that the gate certifies only that, and push the placeholder's
+replacement into the first roadmap task's notes. This task then demonstrated it: `test_smoke.py`
+is deleted and the adapter now certifies 73 real tests.
+
+**F8, new and unfixed:** maestro's root scaffolding (`adapters/`, `profiles/`, `systemd/`) defeats
+setuptools flat-layout discovery — `pip install -e .` fails for *any* Python project onboarded onto
+maestro until `[tool.setuptools] packages` is declared by hand, and the error names maestro's
+directories without naming maestro. An unattended agent told to "make the CLI runnable" would most
+plausibly resolve it by deleting maestro's own scaffolding. Same family as F4: `init` writing into
+a shared root namespace as though it owned it.
+
+**Pilot totals:** 9 human interventions, 9 rework attempts (5 agent, 3 tooling, 1 operator),
+8 findings — 2 fixed in the skill, 6 left unfixed by design. P00 characterises.
+
+**Skill relocation.** `maestro-setup` moved from `~/.claude/skills/` — where it was a plain,
+untracked, Claude-only directory — to `/home/dan/agent-skills/skills/`, the canonical store, and
+synced into all five consumer directories (`agent-skills c2f5b7a`). It is under version control for
+the first time. Ten other skills are still plain directories under `~/.claude/skills/`.
+
+**Verification:** baseline lanes 41 passed exit 0 · `graph_baseline.py --check` `[OK] lanes match` ·
+`doctor --thirdparty` exit 0 · DuetFlow `maestro doctor` exit 0 · 73 tests, adapter
+`{"pass": true}` exit 0 · deny-list guard clean.
+
+## 2026-09-11 — P00 item 4: DuetFlow setup rehearsal, and the INV-12 gate re-pinned
+
+**The scratch pilot's setup half is done; the coding-task half is not.** Raw outcomes are in
+`artifacts/graph-engineering/b01-duetflow-pilot.json` — every question, answer, correction and
+rework attempt verbatim, because a summary does not close B01.
+
+**The INV-12/A12 gate exits 0 again, by re-verification rather than a version bump.**
+`scripts/graph_blind_spot_audit.py` was re-run against the installed CLIs and
+`maestro/thirdparty.json`'s `claude` and `codex` rows re-pinned from what it observed. Two real
+changes came out of it, which is the point of re-verifying rather than editing the version
+string:
+
+- **claude 2.1.263 → 2.1.268 improved the quota surface.** The 2.1.263 row recorded
+  `five_hour_resets_at: null` and `seven_day: null`. Both are now populated with real epochs,
+  and the reading carries `context_used_pct` and a token count where the old one reported zero.
+  That was a property of the old version's telemetry, not of the reading method. The attribution
+  half of B02 is untouched: the sample names a model, but it names the *reading session's* model.
+- **codex 0.153.4 → 0.154.0 made the account-level usage read unreliable.** One of three audit
+  runs returned no sample at all from the `app-server` fallback, while three consecutive direct
+  calls in the same minute each returned one. The old row called codex "the best-instrumented of
+  the three"; it still is when it answers, but `None` is now a normal outcome and must be read as
+  "not measurable", never as "no limits". Recorded as an open question, not smoothed over.
+
+`.venv/bin/python -m maestro.cli doctor --thirdparty` → exit 0 (9 subjects: 1 candidate, 1
+drifted, 7 verified). `tests/test_cli.py::test_doctor_thirdparty_runs_only_the_gate_and_needs_no_project`
+passes again. The baseline is unmoved: 41 passed on `test_baseline_lanes.py`, and
+`scripts/graph_baseline.py --check` reports `[OK] lanes match`.
+
+**The setup rehearsal ran through the `maestro-setup` skill, never `maestro init` directly** —
+and the skill was fixed first, per Dan's decision that the missing manifest is the skill's gap to
+close. `~/.claude/skills/maestro-setup/SKILL.md` gained **Step 1a**: when a project has a real
+test suite and no root manifest, the skill verifies the suite runs, writes the smallest manifest
+that declares what is already true, re-runs the derivation, and — new in Step 6 — runs the
+*rendered* `adapters/test` to prove the gate certifies something. No `pyproject.toml` was
+hand-added to DuetFlow ahead of it.
+
+DuetFlow (commit `521822b`) now has all nine `docs/PLAN.md` §7 phases as roadmap task blocks with
+the plan's dependency chain and every "Done when" carried verbatim, a `docs/PROJECT.md` that
+routes each task brief to `CONTEXT.md` and the ADRs, and a `project.yaml` whose `deny_list_extra`
+was checked against three diffs that must block and three that must pass. `maestro doctor` exits
+0 with one expected warning (the systemd unit needs a privileged install).
+
+**Four new findings the rehearsal surfaced, none fixed — P00 characterises:**
+
+1. **The derived test command escapes the virtualenv.** `_derive_repo_facts` calls `.resolve()`
+   on `.venv/bin/python3`, which is a symlink to the system interpreter, so the rendered adapter
+   runs `/usr/bin/python3.11 -m pytest -q`. It passes here only because the system interpreter
+   happens to have pytest. The first venv-only dependency turns every gate run into a collection
+   error that reads as the task's fault.
+2. **`init` reports its own output as a pre-existing file.** On a repo with no `.orchestrator/`
+   at all, one init run says `state.json already exists and differs` and leaves a spurious
+   `state.json.new` containing `{}` — its own no-op supervised loop wrote the file mid-run.
+3. **The proposed `.gitignore.new` is a replacement, not an addition.** Seven lines offered in
+   place of DuetFlow's curated fifty-six, dropping the ignores for `config.yaml`, `*.token`,
+   `tokens/` and `*.db`. Merging it as offered deletes the filesystem half of DuetFlow's own I9
+   ("no token, secret, or config.yaml ever reaches the repo") while doing what the tool suggested.
+4. **The deny list the agent reads is rendered before the deny list exists.**
+   `operating_preamble.md`'s block comes from a hardcoded placeholder in `maestro/cli.py`, `init`
+   necessarily runs before the setup interview, and nothing re-renders it afterwards. The default
+   outcome of a *correct* setup is a `project.yaml` with a real deny list and a preamble telling
+   every implementer there is none. Fixed in the skill (Step 6 now says to paste it in by hand,
+   and why); `cli.py` untouched.
+
+**Two interventions worth keeping in front of the next session.** Dan rejected the first `init`
+call to add two notes — *"tokens should never be encoded in python files like auth.py but rather
+in config/env files in the relevant place"* and *"the final product playlist can be fetched using
+the spotify api for testing and gating"*. The first is now quoted verbatim inside the `01-auth`
+task brief and enforced by two `deny_list_extra` regexes; the second is quoted in
+`docs/PROJECT.md` as the named path from "no eval harness" to a gate that reads the shipped Duet
+back. And, asked which task the pilot should actually run, Dan chose **`01-auth`** over the
+recommended `04-scoring` — so the coding half measures a `needs-dan` lane and needs his Spotify
+Client ID/secret plus two consent flows. That is a deliberate choice of what B01 measures; do not
+quietly re-optimise it back to the cheap autonomous task.
+
 ## 2026-09-11 — P00 lane-capture harness and migration baseline (code half complete)
 
 **Phase P00 of the graph-engineering migration, first three checklist items.** The fourth —

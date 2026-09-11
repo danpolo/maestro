@@ -1,11 +1,11 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-11T06:20:00Z"
-current_phase: "P00"
-status: "in_progress"  # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-11T14:40:00Z"
+current_phase: "P01"
+status: "completed"  # P00 done; current_phase advanced to P01 so next_graph_prompt.py emits the next directive, not a repeat. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
-completed_phases: []
+completed_phases: [P00]
 
 in_progress_details:
   what_was_done:
@@ -55,16 +55,103 @@ in_progress_details:
       reading: "Genuinely re-verify against the installed versions and re-pin
         maestro/thirdparty.json. Not a version bump — the gate must certify something."
   whats_left:
-    - "Checklist item 4, the Scratch Project Pilot, is NOT started. It needs an interactive
-       maestro-setup session against /home/dan/projects/duetflow plus one real coding task under
-       baseline instrumentation, with every question, answer and correction retained verbatim as
-       B01 evidence. It was deferred on context budget, not blocked."
-    - "Fix the maestro-setup skill so it creates the root manifest itself (Dan's decision, above),
-       BEFORE running it against DuetFlow. The skill owns everything between a grilled project and
-       a working maestro install; an empty test_command reaching init is its gap, not the pilot's."
-    - "Re-verify claude and codex against their installed versions and re-pin
-       maestro/thirdparty.json so `maestro doctor --thirdparty` exits 0 (Dan's decision, above).
-       Required by A12 before P00 can close."
+    - "NOTHING for P00. Checklist item 4 is closed: both halves of the DuetFlow pilot are recorded
+       in artifacts/graph-engineering/b01-duetflow-pilot.json, which now carries
+       halves.first_coding_task: complete. 01-auth was built, the operator walked both consent
+       flows, and `duetflow status` prints two 179-day countdowns against accounts whose stored
+       refresh tokens were verified live against the real token endpoint."
+    - "CARRY INTO P01 — the coding half started ZERO maestro agent calls and exercised ZERO
+       orchestrator lanes. This is not an instrumentation failure: 01-auth is mode: needs-dan,
+       which normalises to dispatch: manual, so the orchestrator only auto-PREPARES it and never
+       launches it. Dan chose that task over the recommended autonomous one and the choice stands.
+       The consequence must not be lost: B01 now has orchestrator-lane evidence (baseline.json,
+       41 pinned assertions) and real-project evidence (the pilot artifact) but NOT both at once.
+       A later phase needing a real coding task measured THROUGH the orchestrator has to run an
+       autonomous one; 04-scoring is still the cheapest honest candidate."
+    - "Four new findings from the rehearsal are recorded and NOT fixed, by design (P00
+       characterises): the derived test command resolves out of the virtualenv; init reports its
+       own mid-run state.json as pre-existing and emits a spurious .new; the proposed
+       .gitignore.new replaces rather than appends and drops the secret/config ignores; and
+       operating_preamble.md's deny-list block is rendered from a placeholder before the setup
+       interview and never re-rendered. Details and locations in the artifact, F2-F5."
+  operator_decisions_2026_09_11_pilot:
+    # B01 evidence from the setup rehearsal. Verbatim; the full record with options offered is
+    # in artifacts/graph-engineering/b01-duetflow-pilot.json.
+    - kind: "rejection"
+      trigger: "the first `maestro init /home/dan/projects/duetflow` invocation"
+      verbatim: |
+        note that:
+        1. tokens should never be encoded in python files like auth.py but rather in config/env
+        files in the relevant place.
+        2. the final product playlist can be fetched using the spotify api for testing and
+        gating, dont know if its relevant now but worth noting.
+        continue where you stopped with these notes in mind.
+      applied: "Note 1 is quoted verbatim inside DuetFlow's 01-auth task brief and enforced by two
+        deny_list_extra regexes that match a credential assigned to a string literal (verified
+        against three diffs that must block and three that must pass). Note 2 is quoted verbatim
+        in docs/PROJECT.md as the named path from `no eval harness` to a gate that reads the
+        shipped Duet back through the API — that is what would make Turnover a real
+        gate.primary_metric."
+    - question: "DuetFlow's PLAN §7 makes 01-auth an operator phase, so the first autonomous
+        coding task can't be phase 01. Which task should the pilot actually run?"
+      answer_verbatim: "01-auth"
+      overrode_recommendation: true
+      reading: "The recommendation was 04-scoring (pure, no auth, four exact numeric cases). Dan
+        chose the plan's own first phase instead. The coding half therefore measures a needs-dan /
+        manual-preparation lane and requires his Spotify Client ID/secret and two consent flows.
+        A later session must NOT re-optimise this back to the cheap autonomous task — the choice
+        of what B01 measures is his."
+    - question: "How much of PLAN §7 should go into docs/ROADMAP.md now?"
+      answer_verbatim: "All 9 phases with the full deps chain (Recommended)"
+    - question: "init derives the test command as /usr/bin/python3.11 -m pytest -q, not the venv's
+        python, because .venv/bin/python3 is a symlink and _derive_repo_facts resolves it."
+      answer_verbatim: "Record as a finding, leave it (Recommended)"
+      reading: "Finding F2. maestro/cli.py deliberately unchanged."
+    - question: "Harvested judgment values for project.yaml — accept or correct?"
+      answer_verbatim: "Accept as proposed (Recommended)"
+      reading: "risky_set, deny_list_extra, bot_files [], primary_metric null, redo_allow [docs/]
+        all accepted as harvested from the ADRs and PLAN.md. No correction."
+
+  operator_decisions_2026_09_11_coding_task:
+    # B01 evidence from the coding half. Verbatim; full record with costs and options offered is
+    # in artifacts/graph-engineering/b01-duetflow-pilot.json, first_coding_task.
+    - kind: "instruction"
+      trigger: "opening message of the coding-task session"
+      verbatim: |
+        tell me exactly when tge time comes for me to do the needs Dan part in tge first auth
+        task and exactly what ahould i do.
+        also note something that i accidently did that might have hurt a real fresh projects
+        scenerio, before letting you start p0 i manualy added a no-op test, but i dont want to do
+        it manualy in every new project, check what would happen if i didnt do it and note a fix
+        in the relevant step if needed so it will work even if i wouldnt have added that test,
+        another reminder that the projext that the maestro init skill gets is exactly the one
+        that the grill skills leavs after it, with nothing extra.
+      reading: "Caught that the rehearsal's F1 'resolved' verdict was propped up by an
+        operator-supplied accident — a hand-added no-op test — that a real grilled project would
+        not have. Finding F7. Measured, not assumed: with no manifest and no tests the derived
+        test command is empty (F1 recurs in full); with the manifest alone the derivation check
+        PASSES while pytest exits 5 and every task parks at the merge gate with a summary reading
+        'no tests ran', which an implementing agent reads as its own failure. The second case is
+        the worse trap. Step 1a was rewritten to cover both."
+    - question: "01-auth cannot reach its Done when without the app credentials and two consent
+        walks. How do you want to supply the Client ID and secret?"
+      answer_verbatim: "ill write them to the file, prepare the file with empty values and tell me
+        exacrlt step by step how to get those values and where to put them"
+      overrode_recommendation: false
+      reading: "Took the recommended 0600-file option and added a requirement: the agent prepares
+        the empty scaffold and writes the procedure, the operator supplies only the values. No
+        credential entered the transcript, the tool calls, or any artifact."
+    - kind: "instruction"
+      trigger: "sent with 'done with parts 1-3, verify part 4'"
+      verbatim: "also note that the way i wprk with skills on this server changed a bit, i now use
+        a general agents-skills directory instead of just in claude so make sure its there
+        instead"
+      applied: "maestro-setup moved from ~/.claude/skills/ (a plain, untracked, Claude-only
+        directory) to /home/dan/agent-skills/skills/, the canonical store, and synced into all
+        five consumer directories. Committed as agent-skills c2f5b7a — the skill is under version
+        control for the first time. Ten other skills remain plain directories under
+        ~/.claude/skills/; named so it is not rediscovered."
+
   relevant_context:
     - "Three baseline findings pinned as characterisation, none fixed: kind:script pays 2 agent
        calls on the no-op park path (proof review + self-heal diagnoser); the risky proof-review
@@ -72,11 +159,44 @@ in_progress_details:
        ordinary lane. Numbers are in docs/PROGRESS.md 2026-09-11 and in baseline.json."
     - "The spec's DuetFlow description is stale on two points: the repo is at 5 commits, not 3,
        and its default branch is `main`, not `master`. It also now has a `meta` branch."
-    - "Two PRE-EXISTING suite failures, confirmed against a clean stash and unrelated to this
-       work: tests/test_cli.py::test_doctor_thirdparty_runs_only_the_gate_and_needs_no_project
-       (the INV-12/A12 thirdparty gate is stale — claude 2.1.263->2.1.268 and codex
-       0.153.4->0.154.0 were upgraded under it, so `maestro doctor --thirdparty` exits 1) and
-       tests/test_limits.py::test_parses_the_real_claude_table. The first one matters: A12 says
-       that gate must exit 0 for every phase, so it needs an operator re-verification decision."
+    - "The INV-12/A12 thirdparty gate is RESOLVED. scripts/graph_blind_spot_audit.py was re-run
+       against the installed CLIs and the claude/codex rows in maestro/thirdparty.json re-pinned
+       from what it observed — not version-bumped. `maestro doctor --thirdparty` exits 0 and
+       tests/test_cli.py::test_doctor_thirdparty_runs_only_the_gate_and_needs_no_project passes.
+       Two behavioural changes came out of it: claude 2.1.268 populates five_hour resets_at and
+       the seven_day window, both of which were null at 2.1.263; and codex 0.154.0's account-level
+       usage read is intermittently None (1 of 3 audit runs) where 0.153.4's was reliable, which
+       callers must read as `not measurable`, never as `no limits`."
+    - "tests/test_limits.py::test_parses_the_real_claude_table remains a PRE-EXISTING failure,
+       unrelated to this work and out of scope for P00."
+    - "DuetFlow is now onboarded (commit 521822b on its `main`): 9 roadmap tasks from PLAN §7 with
+       the plan's dependency chain, a PROJECT.md that routes every task brief to CONTEXT.md and
+       docs/adr/, a filled operating_preamble deny list, and `maestro doctor` exit 0 with one
+       expected warning (the systemd unit needs a privileged install). Its rendered adapters/test
+       runs the real suite and returns {\"pass\": true} at exit 0."
+    - "The maestro-setup skill now lives at /home/dan/agent-skills/skills/maestro-setup (moved
+       2026-09-11, committed agent-skills c2f5b7a) and is symlinked into ~/.claude/skills/ and the
+       four other consumer directories. Earlier notes in this file calling it
+       ~/.claude/skills/maestro-setup/SKILL.md still resolve through the symlink, but the
+       canonical path is the agent-skills one. Its Step 1a was rewritten again in the coding half:
+       the trigger is now 'init would derive an empty test command', it states that
+       grill-with-docs leaves no manifest and no tests and that this is the NORMAL shape, and its
+       Case B requires seeding one honest test (never `assert True`) alongside the manifest,
+       reporting that the gate certifies only that, and putting the placeholder's replacement into
+       the first roadmap task's notes. Finding F7."
+    - "DuetFlow 01-auth is COMPLETE (commits 979727d, fd977d2). config.py, auth.py, spotify.py's
+       token path, db.py's accounts table and `duetflow status`; 73 tests, none touching the live
+       API; the rendered adapters/test certifies all 73 where the rehearsal's run certified one
+       `assert True`. The diff touches risky_set (auth.py, spotify.py) and is CLEAN against both
+       deny_list_extra regexes. Two new findings from this half: F7 (above) and F8 — maestro's
+       root scaffolding (adapters/, profiles/, systemd/) defeats setuptools flat-layout discovery,
+       so `pip install -e .` fails for any Python project onboarded onto maestro until
+       [tool.setuptools] packages is declared by hand."
+    - "~/.claude/skills/maestro-setup/SKILL.md was fixed BEFORE the rehearsal, per Dan's
+       2026-09-11 decision: new Step 1a writes the root manifest when a project has a test suite
+       and none; Step 1 no longer treats a missing remote as a stop condition; Step 6 now runs the
+       RENDERED adapters/test and tells the operator to paste the deny list into
+       operating_preamble.md by hand, because init renders that block from a placeholder before
+       the interview and nothing re-renders it. The file is outside both repos and untracked."
   blockers: []
   active_branch: "feat/graph-engineering-foundation"

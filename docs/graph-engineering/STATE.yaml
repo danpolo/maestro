@@ -1,15 +1,82 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-08T19:50:00Z"
+last_updated: "2026-09-11T06:20:00Z"
 current_phase: "P00"
-status: "not_started"  # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+status: "in_progress"  # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases: []
 
 in_progress_details:
-  what_was_done: []
-  whats_left: []
-  relevant_context: []
+  what_was_done:
+    - "Characterization Fixtures: tests/graph_engineering/fixtures/cases.json already carried the
+       fixed six-class catalog (committed 91ce49b). Bound each class to the lane that exercises it
+       via CLASS_TO_LANE in test_baseline_lanes.py; the catalog itself is unchanged, because
+       tests/graph_engineering/test_evidence.py asserts its class list independently and renaming
+       to the spec's prose slugs would have broken the evidence register for no gain."
+    - "Lane Capture Harness: tests/graph_engineering/conftest.py runs the real orchestrator.main()
+       with every outside-the-process seam replaced by a recording double (_SEAMS table plus the
+       scripted-answer block). Path globals rebased into a temp tree by reflection; `time` is a
+       counter, `subprocess` a recorder, agentcall.ask instrumented. All seven lanes covered."
+    - "Instrumentation & Metrics: maestro/metrics.py gained BaselineTrace/BaselineEvent recording
+       duplicate agent invocations, unnecessary test re-runs, idle-wait vs active-compute, state
+       reads/writes, and observed vs inferred facts. No wall clock anywhere."
+    - "scripts/graph_baseline.py writes artifacts/graph-engineering/baseline.json (raw per-lane
+       event sequences per A03, not just summaries) and --check re-captures and diffs."
+    - "Verification: .venv/bin/python -m pytest -q tests/graph_engineering/test_baseline_lanes.py
+       -> 41 passed, exit 0. Both P0 §3 focused regression triggers pinned."
+    - "docs/PROGRESS.md and docs/EXECUTION.md updated."
+    - "DuetFlow pre-flight verified empirically: _derive_repo_facts returns test_command:'' and
+       remote:'' — both predicted defects confirmed, neither resolved."
+  operator_decisions_2026_09_11:
+    # B01 evidence. Recorded human interventions, verbatim — a summary does not close B01.
+    - question: "DuetFlow has no root manifest, so _derive_repo_facts returns an empty
+        test_command and maestro init would render an adapters/test that fails closed with a
+        TODO on every run. How should the pilot resolve it?"
+      answer_verbatim: "that is a problem in the init skill, on a real project what i do is run
+        the grill skill, establish some basic doc files and then move on to the init skill which
+        should handle setting up all the maestro related things, like the manifest/pyproject.toml
+        for example"
+      reading: "Rejects all three offered options as framed. The missing manifest is not a
+        DuetFlow problem to work around and not a maestro/cli.py defect — it is a gap in the
+        maestro-setup skill, which owns everything between a grilled project and a working
+        maestro install and must therefore create the root manifest itself. The next session
+        fixes ~/.claude/skills/maestro-setup/SKILL.md first, then runs it. Do NOT hand-add a
+        pyproject.toml to DuetFlow to get past this: doing so hides the very gap this answer
+        identified."
+    - question: "DuetFlow has no origin remote and merge.py pushes with an unchecked return
+        code. What should the pilot do?"
+      answer_verbatim: "Accept local-only, record as a finding (Recommended)"
+      reading: "Leave the remote unset. The silent unchecked push stays as a recorded B01
+        finding; no maestro change."
+    - question: "maestro doctor --thirdparty now exits 1 (claude 2.1.263->2.1.268, codex
+        0.153.4->0.154.0). A12 says the gate must exit 0 for every phase."
+      answer_verbatim: "Re-verify both CLIs now (Recommended)"
+      reading: "Genuinely re-verify against the installed versions and re-pin
+        maestro/thirdparty.json. Not a version bump — the gate must certify something."
+  whats_left:
+    - "Checklist item 4, the Scratch Project Pilot, is NOT started. It needs an interactive
+       maestro-setup session against /home/dan/projects/duetflow plus one real coding task under
+       baseline instrumentation, with every question, answer and correction retained verbatim as
+       B01 evidence. It was deferred on context budget, not blocked."
+    - "Fix the maestro-setup skill so it creates the root manifest itself (Dan's decision, above),
+       BEFORE running it against DuetFlow. The skill owns everything between a grilled project and
+       a working maestro install; an empty test_command reaching init is its gap, not the pilot's."
+    - "Re-verify claude and codex against their installed versions and re-pin
+       maestro/thirdparty.json so `maestro doctor --thirdparty` exits 0 (Dan's decision, above).
+       Required by A12 before P00 can close."
+  relevant_context:
+    - "Three baseline findings pinned as characterisation, none fixed: kind:script pays 2 agent
+       calls on the no-op park path (proof review + self-heal diagnoser); the risky proof-review
+       lane pays 3 duplicate invocations and 1 test re-run; state reads dwarf writes 22:4 on the
+       ordinary lane. Numbers are in docs/PROGRESS.md 2026-09-11 and in baseline.json."
+    - "The spec's DuetFlow description is stale on two points: the repo is at 5 commits, not 3,
+       and its default branch is `main`, not `master`. It also now has a `meta` branch."
+    - "Two PRE-EXISTING suite failures, confirmed against a clean stash and unrelated to this
+       work: tests/test_cli.py::test_doctor_thirdparty_runs_only_the_gate_and_needs_no_project
+       (the INV-12/A12 thirdparty gate is stale — claude 2.1.263->2.1.268 and codex
+       0.153.4->0.154.0 were upgraded under it, so `maestro doctor --thirdparty` exits 1) and
+       tests/test_limits.py::test_parses_the_real_claude_table. The first one matters: A12 says
+       that gate must exit 0 for every phase, so it needs an operator re-verification decision."
   blockers: []
   active_branch: "feat/graph-engineering-foundation"

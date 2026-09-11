@@ -3872,3 +3872,85 @@ everything derivable. Harvesting is inference, and a confidently wrong harvested
 than no harvest because it arrives dressed as a citation.
 
 Artifact: `~/.agent/diagrams/maestro-grill-handoff.html` (delivered; outside the repo, not tracked).
+
+## 2026-09-11 — P00 lane-capture harness and migration baseline (code half complete)
+
+**Phase P00 of the graph-engineering migration, first three checklist items.** The fourth —
+the DuetFlow scratch pilot — is not started; see the handoff below.
+
+**What exists now.** `tests/graph_engineering/conftest.py` runs the *real*
+`orchestrator.main()` under instrumentation rather than modelling it. Every seam where the
+loop leaves the process is replaced by a recording double (the `_SEAMS` table plus the
+scripted-answer block), path globals are rebased into a temp tree by reflection, `time` is
+a counter and `subprocess` is a recorder. `tests/graph_engineering/test_baseline_lanes.py`
+drives all seven lanes through it — 41 tests, all passing:
+
+```
+.venv/bin/python -m pytest -q tests/graph_engineering/test_baseline_lanes.py   # 41 passed
+```
+
+Both focused regression triggers from P0 §3 are pinned: a fake async wait does not consume
+an agent slot (`cap=1`, the ordinary task behind it still launches), and a no-op script
+does not trigger an agent retry (`merge_noop_retry` never appears).
+
+**`maestro/metrics.py`** gained a second section — `BaselineTrace`, which counts duplicate
+agent invocations, unnecessary test re-runs, idle-wait vs active-compute, state reads vs
+writes, and observed vs inferred facts. Nothing is timed by wall clock: a trace advances
+only when a caller says how much time passed, so a baseline does not move between machines.
+Every fact must declare `observed` or `inferred`; the recorder refuses one without it.
+
+**`scripts/graph_baseline.py`** writes `artifacts/graph-engineering/baseline.json` (raw
+per-lane event sequences, not just summaries — A03 requires B01/B18 to stay re-analysable)
+and `--check` re-captures and diffs against it. Measured baseline:
+
+| lane | agent calls | duplicates | check runs | re-runs | idle s | active s | state reads | writes |
+|---|---|---|---|---|---|---|---|---|
+| ordinary_change | 2 | 0 | 2 | 0 | 60 | 280 | 22 | 4 |
+| script_noop | 2 | 0 | 2 | 0 | 60 | 280 | 19 | 4 |
+| manual_preparation | 1 | 0 | 0 | 0 | 60 | 120 | 18 | 4 |
+| async_wait | 1 | 0 | 0 | 0 | 60 | 120 | 15 | 2 |
+| async_wait_parked | 0 | 0 | 0 | 0 | 90 | 0 | 15 | 0 |
+| resumable_work | 1 | 0 | 1 | 0 | 60 | 140 | 17 | 4 |
+| quota_switch | 0 | 0 | 0 | 0 | 0 | 0 | 3 | 0 |
+| quota_switch_ordering | 1 | 0 | 0 | 0 | 30 | 120 | 11 | 2 |
+| risky_proof_review | 6 | 3 | 2 | 1 | 120 | 760 | 27 | 5 |
+
+**Three findings the numbers surfaced, all pinned as characterisation, none fixed:**
+
+1. **`kind: script` is not zero-LLM once it parks.** The lane chosen to cost no inference
+   spends two agent calls on the no-op path: a Sonnet proof review, and then `park_failed`
+   routing through the self-heal diagnoser to ask a model why "the command you wrote
+   produced no commits" happened. Pinned by
+   `test_script_lane_still_pays_for_a_diagnosis_when_it_parks`.
+2. **The risky lane pays three duplicate invocations.** A refused proof review re-briefs the
+   same task for the same work, and the gate runs again against a tree the re-brief may not
+   have changed. This is the single clearest number in the baseline and the one P4's
+   authoritative-evidence work should move.
+3. **Reads dwarf writes everywhere** (22:4 on the ordinary lane). `read_state()` re-parses
+   `state.json` at every decision point, several times per poll per task — the asymmetry P1
+   exists to remove, now measurable rather than assertable.
+
+**Pre-flight for the DuetFlow pilot — both predicted defects confirmed empirically.**
+`_derive_repo_facts(Path('/home/dan/projects/duetflow'))` returns `test_command: ""` and
+`remote: ""`. The first means a rendered `adapters/test` fails closed with a TODO on every
+run and the gate certifies nothing; the second means `maestro/merge.py`'s unchecked
+`git push origin main` would land merges locally and silently never push. Note the spec's
+"3 commits" is stale — DuetFlow is at 5 commits on `main` (not `master`), with a `meta`
+branch, `CONTEXT.md`, `docs/adr/`, `docs/PLAN.md`, `tasks/lessons.md`.
+
+**Two pre-existing suite failures, unrelated and confirmed against a clean stash:**
+`tests/test_cli.py::test_doctor_thirdparty_runs_only_the_gate_and_needs_no_project` (the
+INV-12 gate is stale — claude 2.1.263→2.1.268, codex 0.153.4→0.154.0 were both upgraded
+under it) and `tests/test_limits.py::test_parses_the_real_claude_table`. The first blocks
+A12's per-phase verification gate and needs an operator decision, not a code change.
+
+**Operator decisions, 2026-09-11 (recorded as B01 evidence; verbatim in
+`docs/graph-engineering/STATE.yaml`).** Asked about the empty `test_command`, Dan rejected
+all three framings: *"that is a problem in the init skill, on a real project what i do is run
+the grill skill, establish some basic doc files and then move on to the init skill which
+should handle setting up all the maestro related things, like the manifest/pyproject.toml for
+example"*. So the manifest gap belongs to `maestro-setup`, which owns the span between a
+grilled project and a working install — the next session fixes the skill first and does *not*
+hand-add a `pyproject.toml` to DuetFlow, which would hide the gap this answer found. The git
+remote stays unset and local-only merges are recorded as a finding. The stale INV-12 gate is
+to be genuinely re-verified against the installed CLI versions and re-pinned, not version-bumped.

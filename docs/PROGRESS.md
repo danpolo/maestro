@@ -3873,6 +3873,80 @@ than no harvest because it arrives dressed as a citation.
 
 Artifact: `~/.agent/diagrams/maestro-grill-handoff.html` (delivered; outside the repo, not tracked).
 
+## 2026-09-12 — P02 COMPLETE: the roadmap becomes a validated, revisioned dependency model
+
+**Phase P02 of the graph-engineering migration, all five checklist items.** `STATE.yaml` on the
+`meta` branch is `status: not_started`, `completed_phases: [P00, P01, P02]`, `current_phase: P03`,
+`in_progress_details: null`.
+
+**Verification:** `.venv/bin/python -m pytest -q tests/test_taskgraph.py
+tests/characterization/test_roadmap.py tests/characterization/test_consistency.py` → **261 passed,
+exit 0**. That is the phase file's three-file command; the directive's two-file command is a subset
+of it. Full suite: one pre-existing failure, `tests/test_limits.py::test_parses_the_real_claude_table`,
+already recorded as pre-existing and out of scope at P00 — nothing else fails.
+
+**What landed.** `maestro/taskgraph.py` (new) is now the single reading of `docs/ROADMAP.md`, with
+two deliberately separate faces:
+
+* The **lenient** face is the behaviour the document engine already had, extracted verbatim, quirks
+  included. Five modules carried five subtly different readings of the same document — two fence
+  regexes, two copies of one hand-rolled fallback parser, three copies of the `deps` flattening rule.
+  They now all call `maestro.taskgraph`. Where the readings genuinely differed the difference is a
+  named parameter rather than a silent unification: `maestro.status` skips no comment lines where
+  `maestro.docs.depmap` does, and `manual_parse_block(skip_comments=...)` says so out loud. Every
+  assertion in `tests/characterization/` still holds byte-for-byte — that is the proof the
+  extraction changed nothing.
+* The **strict** face refuses. Malformed YAML, a duplicate id, a dependency on a task nobody
+  declared, a cycle: each is a `ValidationIssue` carrying the block index and the exact source line.
+  `graphlib.TopologicalSorter` decides acyclicity, and when it says no, every elementary cycle is
+  reported as a concrete path (`dependency cycle: A -> C -> B -> A`), canonicalised so one cycle is
+  never reported twice under two spellings.
+
+`RoadmapTransaction` is the mutation API — `add_task`, `add_dependency`, `split_task`,
+`supersede_task`, `invalidate_inputs` — and it is transactional in the way that matters: it validates
+the document it *would* write before writing anything, so a mutation that closes a cycle leaves the
+file untouched. A split makes the parent a group and discharges both obligations explicitly: entry
+children inherit the parent's prerequisites, and every downstream dependent is rewired onto the exit
+children, so nothing downstream can start before the whole split finishes. `invalidate_inputs` sweeps
+the entire downstream cone, not the direct children — an unchanged signature is not proof of
+unchanged behaviour (`D06`).
+
+**Two decisions worth recording.**
+
+1. *Writes splice, they do not re-serialise.* Only the blocks a transaction actually modifies are
+   re-rendered; every other byte of the document is copied through. A mutation to one task cannot
+   reformat, reorder, or strip the comments from another, and the prose a human wrote between blocks
+   survives untouched.
+2. *Drift is a conflict, never a cue to overwrite.* `maestro roadmap apply` records the applied
+   document in `.orchestrator/roadmap_cas.json` — a document hash plus a per-task block hash. If
+   `docs/ROADMAP.md` moves under a running controller, `taskgraph.drift()` names exactly which tasks
+   the edit touched, `blocked_task_ids()` closes that set over its downstream cone, and
+   `maestro.docs.roadmap.parse_runnable_tasks`/`parse_prep_tasks` refuse to dispatch those — and only
+   those. Everything else keeps running. The apply itself fails closed with exit 3 and tells the
+   operator the hash to pass to `--expect-hash` if the edit is meant to be adopted. Maestro never
+   resolves a drift by winning.
+
+A project that has never run `maestro roadmap apply` has no CAS record, therefore no drift, therefore
+no blocking — the legacy behaviour is preserved byte-for-byte, which is what `D08` asks for.
+
+**CLI:** `maestro roadmap validate [--json]` and `maestro roadmap apply [--expect-hash H]`. Exit 0
+valid/applied, 1 invalid, 3 drifted or the control database is held by a live controller. `apply`
+persists tasks, spec revisions and dependency edges into `control.sqlite3` through P01's
+`register_task`/`apply_task_revision` CAS, and does **not** re-revision a spec whose YAML is
+unchanged, so an idempotent apply cannot inflate the revision counter.
+
+**Legacy completions** (`.orchestrator/completed_tasks.json`, and `status: complete` left in the
+document) are imported as `legacy_accepted`. They satisfy dependencies — the work really was done —
+but `supplies_evidence` and `cache_eligible` are both False, so a historical claim can never stand in
+for a verification receipt or manufacture a cache hit (`INV-04`, `D06`).
+
+**INV-12/A12 gate re-pinned again.** `maestro doctor --thirdparty` exited 1 on arrival: claude had
+moved 2.1.268 → 2.1.269. Handled the way the operator ruled at P00 — genuinely re-verified rather
+than version-bumped. `scripts/graph_blind_spot_audit.py` was re-run (`--repeat 2`) against the
+installed CLI and `artifacts/graph-engineering/local-audit.json` refreshed from what it observed: the
+control set, the declared capability set and the whole quota surface are identical to the 2.1.268
+reading. Row re-pinned on that observation; the gate exits 0.
+
 ## 2026-09-11 — P01 COMPLETE: transactional control store, single writer, content-addressed artifacts
 
 **Phase P01 of the graph-engineering migration, all six checklist items.** Commit `181d034`;

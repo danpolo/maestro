@@ -200,3 +200,20 @@ I had read the P0 plan and the blind-spots file, but not the skill that owns the
 Before escalating a prerequisite into a decision for the next session, check whether an existing
 skill or script already owns it. Otherwise you hand back a question that was answered before you
 asked it.
+
+## 2026-09-13 — `monkeypatch.delenv(..., raising=False)` contains nothing when the var is absent
+
+P11's operator-view tests call `cli.main(...)` in-process, and every `cmd_*` sets
+`os.environ["MAESTRO_REPO"]` without restoring it (deliberate: a real invocation is a fresh
+process, one project per process). I contained the leak with
+`monkeypatch.delenv("MAESTRO_REPO", raising=False)` and three `tests/test_selfupdate.py`
+assertions kept failing — in a different file, a long way from the cause: the leaked root made
+`selfupdate.adopt` take the new per-project-pin branch instead of writing `~/.maestro/current`.
+
+`monkeypatch.delitem` records an undo entry *only when the key is present*. Deleting an absent
+variable therefore registers nothing, and a later plain `os.environ[...] = ...` survives teardown
+and every subsequent test in the session.
+
+Contain an environment variable a test's code-under-test *writes* with an explicit
+snapshot/restore fixture, not with `delenv(raising=False)`. And when a failure appears in a file
+you did not touch, suspect process-global state before suspecting your change to the other file.

@@ -1,9 +1,9 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-12T13:40:00Z"
-current_phase: "P04"
-status: "not_started"  # P03 done and verified; current_phase advanced to P04 so next_graph_prompt.py emits the next directive, not a repeat. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-12T18:05:00Z"
+current_phase: "P05"
+status: "not_started"  # P04 done and verified; current_phase advanced to P05 so next_graph_prompt.py emits the next directive, not a repeat. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -25,6 +25,14 @@ completed_phases:
       .venv/bin/python -m pytest -q tests/workflows tests/control/test_recovery.py
       tests/test_switch.py -> 145 passed, exit 0 (the phase file's three-target command;
       the directive's two-target subset is contained in it)
+  - phase: P04
+    completed_at: "2026-09-12T18:05:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q tests/test_validation_evidence.py
+      tests/test_integration_acceptance.py tests/characterization/test_gates.py
+      tests/characterization/test_merge.py -> 344 passed, exit 0 (the phase file's
+      four-target command; the directive's two-target subset is contained in it).
+      Whole suite minus the pre-existing tests/test_limits.py failure: exit 0.
 
 
 in_progress_details: null
@@ -35,6 +43,101 @@ in_progress_details: null
 # decisions that ARE the B01 evidence, so it is moved here rather than deleted. Nothing
 # parses this key; it is read by the next agent and by whoever closes B01.
 phase_records:
+  P04:
+      what_was_done:
+        - "maestro/validation.py: the whole of P4's engineering. VerificationSpec /
+           VerificationEvidence / AcceptanceDecision as §2.10 values; the four-hash
+           Fingerprints and the functions that compute them; EvidenceRegistry (the only
+           place a cache hit may be decided); CheckRunner; decide() as the closed-world
+           boolean; ApprovalBinding (§5); and StagingPipeline as §3's five stages."
+        - "Control store: verification_evidence gained the seven §2.10 columns P01 left
+           out, acceptance_decisions is new, and _migrate_columns ALTERs an existing
+           database (CREATE TABLE IF NOT EXISTS is a no-op on one that already has the
+           table, so a SCHEMA-only column exists on fresh databases and nowhere else).
+           record_evidence / find_current_evidence / record_acceptance / acceptances_for
+           are controller-only writes."
+        - "The three P3 stub handlers are real: verification runs the checks and reports
+           evidence rows in outputs (a worker cannot write the evidence table — INV-01 —
+           so runner._ingest_evidence commits them, under the attempt id the CONTROLLER
+           believes in, not the one the report carried); merge and accept refuse outright
+           without a controller handle."
+        - "runner.dispatch now routes a node whose permissions_ref is in
+           CONTROLLER_PERMISSIONS to execute_inline instead of tmux. The compiler already
+           marked merge `controller_target_branch` and accept `controller_only`; this is
+           where that declaration started having teeth. The inline path writes the same
+           envelope/result/receipt a worker writes, so ingest, reconciliation and the
+           event stream see ONE shape of completion."
+        - "adapters.py declares ADAPTER_EFFECT_CLASSES, register_probe/probe_for and
+           retry_allowed. deploy is the only non-repeatable kind; nothing ships a default
+           probe, because a probe maestro invented for a project's deployment would be a
+           guess, and a wrong probe AUTHORISES a retry."
+        - "Verification: .venv/bin/python -m pytest -q tests/test_validation_evidence.py
+           tests/test_integration_acceptance.py tests/characterization/test_gates.py
+           tests/characterization/test_merge.py -> 344 passed, exit 0. Whole suite minus
+           the pre-existing tests/test_limits.py failure also exit 0."
+      decisions_worth_carrying:
+        - "A task that declares NO verification is now REJECTED, not accepted. The legacy
+           gate printed `No verifications defined — pass (no gate)` and returned 0, which
+           is the DONE-file substitution one level up: the absence of a criterion became
+           the satisfaction of one. decide() answers this first, before drift and before
+           the per-check loop. Anything calling decide() with an empty spec list gets a
+           rejection — that is deliberate and must not be given a bypass flag."
+        - "The target branch is written in exactly ONE place: StagingPipeline.fast_forward,
+           as `git update-ref <ref> <new> <expected-old>`. The compare-and-swap is what
+           makes 'the target advanced during verification' a refusal rather than a silent
+           overwrite, and it is one git operation on purpose — reading the head and then
+           writing it is the same race with extra steps. There is no revert path anywhere
+           in the staged flow because nothing is written before stage 4."
+        - "gates.sonnet_review_proofs FIXED, not characterised: a judge answering `{}`
+           produced no failures and read as all-pass, and one that reviewed three of five
+           ids approved all five. Every manual id must now be present in the verdict map.
+           tests/characterization/test_gates.py's pin was rewritten to record the closure
+           (test_review_now_refuses_a_verdict_map_that_does_not_cover_what_was_sent). The
+           invented-id half is unchanged. This is a P4 INV-04 fix, not a drive-by."
+        - "merge_and_eval is UNTOUCHED. merge.integrate_candidate is the new seam and the
+           legacy loop still calls the old one (D08 migrates one authority at a time).
+           Nothing yet switches a project onto the staged path."
+        - "CheckRunner.evaluate SKIPS reviewer checks rather than running them. A manual
+           verification has no command, so 'running' it would mean asking a model and
+           recording the answer as controller-executed proof. It enters decide() through
+           review_dispositions, where review_is_conclusive scrutinises it visibly as a
+           judgment."
+      whats_left:
+        - "CARRY INTO P05 — runner.node_inputs returns {} by default, so a merge or accept
+           node compiled today is handed NO specs and decide() therefore rejects it as an
+           empty closed world. That is the right default (fail closed) but it means the
+           ordinary lane cannot yet graduate end to end through the graph runner. Wiring
+           the project's policy specs into node_inputs is P5's job (project policy and
+           quality gates); the hook is `runner.inputs_provider`."
+        - "Shadow affected-check mode (§2.2) is NOT implemented. P4-P9 are supposed to run
+           affected-selection alongside the full suite and record discrepancies; nothing
+           selects a subset yet, so the full suite is what runs, which satisfies the
+           invariant ('full suites MUST run before acceptance') without yet producing the
+           shadow comparison E3 will need. P10 owns affected validation."
+        - "StagingPipeline.run_side_effects takes callables. Nothing yet turns a task's
+           declared `push`/`deploy` into one — the adapters exist (adapters.run_adapter,
+           effect_class, probe_for) but the binding from a roadmap task to an effect list
+           is unwritten. The merge node therefore passes effects=()."
+      relevant_context:
+        - "The integration tests use REAL git on a temp repo, not a recording double.
+           Every claim they make is a claim about what git actually did — that a conflict
+           aborts, that a CAS refuses a moved ref, that a failed check leaves the ref
+           byte-for-byte where it was — and a fake subprocess would let the implementation
+           be wrong in exactly those ways and still pass. They need commit.gpgsign=false
+           and a repo-local identity; the fixture sets both."
+        - "`git rev-parse <unknown-ref>` exits non-zero but PRINTS THE ARGUMENT BACK on
+           stdout, so freeze_candidate reading its output without checking the code gave a
+           'commit' that was the branch name. Fixed with --verify --quiet and a ^{commit}
+           peel. Found by test."
+        - "environment_fingerprint hashes declared env var NAMES plus the contract's own
+           stated values — never os.environ wholesale. Hashing the environment would put
+           credentials into a durable record; INV-03's spirit applies to the evidence
+           table as much as to the CLIs."
+        - "tests/test_limits.py::test_parses_the_real_claude_table remains a PRE-EXISTING
+           failure, unrelated and out of scope, as it was for P00-P03."
+      blockers: []
+      active_branch: "feat/graph-engineering-foundation"
+
   P03:
       what_was_done:
         - "Workflow DAG models: maestro/workflows/models.py carries WorkflowRevision, NodeSpec,

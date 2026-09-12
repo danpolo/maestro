@@ -1,9 +1,9 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-13T02:10:00Z"
-current_phase: "P07"
-status: "in_progress"  # P07 part 1 landed and verified; the compiler half is not started. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-13T05:30:00Z"
+current_phase: "P11"
+status: "not_started"  # P07 complete and verified end to end. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -129,7 +129,90 @@ completed_phases:
       status_summary) are the seams for that wiring, and the free_tier_api billing
       category has no catalogued backend until P07 adds one.
 
-in_progress_details:
+  - phase: P07
+    completed_at: "2026-09-13T05:30:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q tests/backends/test_model_runtime.py
+      tests/workflows/test_mode_policies.py tests/workflows/test_candidates.py
+      tests/test_confinement.py -> 117 passed, exit 0 (the phase file's four-target
+      command; the directive's two-target subset is contained in it). Whole suite minus
+      the same pre-existing tests/test_limits.py failure P05 and P06 both recorded (the
+      host model_context_limits.md table no longer matches that test's pinned numbers;
+      untouched by this phase): exit 0.
+    notes: >-
+      Delivered across two sessions. Session 1: model_api.py, model_runtime.py, the
+      confinement extension ([INV-A08] namespacing + §4.2 CommitBoundary),
+      test_model_runtime.py and the P7 section of test_confinement.py. Session 2 (this
+      one): free-quality compilation, the candidate join, and the hybrid overlay.
+      .
+      Fan-out is ONE mechanism, not a second lane. StageSpec grew a `fan_out` field
+      ('candidates' | 'review_lenses'); the WIDTH is the policy's to compute
+      (ProjectPolicy.fan_out_labels against the RiskContext), never the template's to
+      state, so the same stage list compiles to paid mode's minimal graph, to a low-risk
+      free graph, and to a fanned-out free graph. compose() now carries a LIST of previous
+      node ids and joins every previous to every current; at width 1 it emits the stage's
+      own node_id with no candidate label, which is why
+      tests/workflows/test_compatibility.py passes untouched and every pre-P7 graph still
+      compiles byte-identically. COMPILER_VERSION moved p5.1 -> p7.1.
+      .
+      Two quality floors are DERIVED from the widening rather than configured:
+      ProjectPolicy.fan_out_criteria requires isolated_candidates + candidate_selection
+      where a stage actually fanned out as candidates, and diverse_review where it fanned
+      out as lenses. That is deliberate — a `script` task under the free objective is never
+      asked for candidates it has no business having, and a widened `ordinary` lane cannot
+      have its candidate_select stage edited out (tests/workflows/test_candidates.py pins
+      the refusal). The checks read the composed NODES: isolated_candidates counts distinct
+      (candidate_id, exclusive resource_id) pairs, so two nodes labelled c1/c2 contending
+      for one `worktree:<task>` lease do not satisfy it.
+      .
+      Each candidate implementer node carries `params['candidate_id']` AND
+      `resource_request['resource_id'] = worktree:<task>/<c>`. The second is load-bearing:
+      without it runner.resource_id_for falls back to `worktree:<task>` and N candidates
+      queue for one directory, which is cross-pollution with extra steps rather than
+      isolation.
+      .
+      Hybrid (§3.1) is an eligibility overlay and EXECUTION_OBJECTIVES still has two
+      members. HybridPolicy names the roles that may additionally spend paid categories
+      under the free objective; router._permitted_billing takes the role id and unions
+      _hybrid_grant() onto OBJECTIVE_BILLING, read entirely through getattr so the existing
+      Policy test doubles in tests/backends/test_router.py keep working. It applies under
+      free_quality only — a 'hybrid' reading of paid mode would just be paid mode.
+      .
+      Three deviations from the directive's file list, none a design change. (1)
+      maestro/workflows/candidates.py is NEW and not in the list; the join needed a home
+      and the phase file's checklist item 5 asks for it. (2) maestro/workflows/policy.py,
+      compiler.py, handlers.py, backends/router.py and
+      maestro/templates/workflows/project.yaml were MODIFIED. (3) Two P5 assertions in
+      tests/workflows/test_compiler.py were updated for the widened free-mode shape
+      (test_the_test_designer_runs_before_the_implementer now asserts against the FIRST
+      implementer of any width; test_the_planner_and_the_reviewer_never_take_a_writer_lease
+      now iterates every planner/reviewer node instead of looking up 'proof_review' by
+      name). Both still assert the same property. Also fixed:
+      compiler.FRAGMENTS' proof_review builder discarded the node_id it was handed, which
+      only mattered once a stage could fan out; compose() now refuses a fragment that
+      ignores its id, naming the fragment.
+
+in_progress_details: null
+
+_p07_open_threads:
+  # Not scratch state and not a blocker: the two seams P07 leaves for whoever wires
+  # dispatch. Kept here because `in_progress_details` must be null between phases.
+  - "NOTHING dispatches ModelAgentRuntime yet, and nothing consumes an AgentBinding in core
+     dispatch. P06's four consumer seams (dispatch_plan, execution_deadline_sec,
+     token_account_key, status_summary) and model_api.capability_entry() are both ready;
+     the wiring is still unwritten. A caller must build a catalog with capability_entry()
+     for free_tier_api to have a catalogued backend at runtime."
+  - "maestro.handlers.candidate_select is registered and tested through
+     candidates.select_winner, but no controller code assembles its `inputs['candidates']`
+     documents yet. It reads the candidate nodes off `controller.revision` and expects one
+     document per candidate_id; a candidate with no document is `abandoned`, never dropped
+     (dropping would shrink the set to one, which passes the isolation check by having
+     nothing left to pollute). The controller side of that reap is P11/P12 work."
+  - "The pre-existing tests/test_limits.py failure P05, P06 and P07 all recorded is still
+     there and still untouched (the host model_context_limits.md table no longer matches
+     that test's pinned numbers)."
+
+_retired_in_progress_details:
   active_branch: "feat/graph-engineering-foundation"
   what_was_done:
     - "maestro/backends/model_api.py (NEW): the free-tier HTTP adapter. ModelEndpoint,

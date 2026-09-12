@@ -3940,6 +3940,15 @@ document) are imported as `legacy_accepted`. They satisfy dependencies — the w
 but `supplies_evidence` and `cache_eligible` are both False, so a historical claim can never stand in
 for a verification receipt or manufacture a cache hit (`INV-04`, `D06`).
 
+**Carry into P03 — the drift machinery is wired but inert.** `parse_runnable_tasks` and
+`parse_prep_tasks` now consult `taskgraph.blocked_task_ids`, and `maestro roadmap apply` writes the
+CAS record they read. Nothing in the live loop calls `apply` yet, so no project has a
+`.orchestrator/roadmap_cas.json` and the blocking path never fires in production. That is deliberate
+for P02 (`D08`: a project that has not adopted the model keeps its legacy behaviour byte-for-byte),
+but it means the drift refusal is proven only by `tests/test_taskgraph.py`, not by a live run. P03
+owns the adoption: the controller should apply the roadmap at start-up so the CAS baseline exists,
+and the runner should treat a blocked id as a held task rather than an absent one.
+
 **INV-12/A12 gate re-pinned again.** `maestro doctor --thirdparty` exited 1 on arrival: claude had
 moved 2.1.268 → 2.1.269. Handled the way the operator ruled at P00 — genuinely re-verified rather
 than version-bumped. `scripts/graph_blind_spot_audit.py` was re-run (`--repeat 2`) against the

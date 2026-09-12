@@ -1,9 +1,9 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-13T05:30:00Z"
-current_phase: "P11"
-status: "not_started"  # P07 complete and verified end to end. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-13T09:10:00Z"
+current_phase: "P12"
+status: "not_started"  # P11 complete and verified end to end. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -191,8 +191,103 @@ completed_phases:
       compiler.FRAGMENTS' proof_review builder discarded the node_id it was handed, which
       only mattered once a stage could fan out; compose() now refuses a fragment that
       ignores its id, naming the fragment.
+  - phase: P11
+    completed_at: "2026-09-13T09:10:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q tests/test_workflow_status.py
+      tests/test_graph_update_compatibility.py tests/ops/test_graph_service_lifecycle.py
+      tests/test_selfupdate.py tests/test_bootstrap.py -> 76 passed, exit 0 (the phase
+      file's five-target command; the directive's two-target subset is contained in it).
+      Whole suite minus the pre-existing tests/test_limits.py failure P05-P07 all recorded,
+      and minus tests/test_cli.py::test_doctor_thirdparty_runs_only_the_gate_and_needs_no_project
+      (also pre-existing and environmental: the machine's `claude` CLI auto-updated to
+      2.1.270 and maestro/thirdparty.json is verified against 2.1.269 — the gate doing
+      exactly its job, untouched by this phase): exit 0.
+    notes: >-
+      Ran after P07 by the phase file's own dependency line ("Depends On: P01-P07"), which
+      is why P08-P10 are still open behind it; STATE.yaml already named P11 as current.
+      .
+      OPERATOR PROJECTIONS live in maestro/status.py, under a banner, below the verbatim
+      reference reader. One read (`workflow_view`) produces one document that three
+      renderings share — text, `--html`, and `explain_view` — so the three cannot disagree
+      about what a run did. `maestro workflow show <task_id> [--html|--json]` and
+      `maestro explain <task_id>` are the CLI surface; `/workflow <id>` and `/explain <id>`
+      are the same two over Telegram (hitl/commands.py), and both are also `maestro ctl`
+      verbs. The store is opened as a CLIENT — [INV-01] — and
+      test_reading_a_view_writes_nothing pins that the head sequence does not move.
+      .
+      A CORRECTION WORTH CARRYING: `WorkflowRevision.terminal_requirements` is a tuple of
+      terminal NODE IDS, not of engineering criteria (models._structural_issues enforces
+      it). The criteria are the compiler's `CRITERION_CHECKS` and are NOT stored on the
+      revision, so `explain_view` walks every entry of CRITERION_CHECKS against the stored
+      nodes rather than reading a required list off the policy: the policy is a live file and
+      reading it now would answer with today's requirements about a graph compiled under
+      `policy_hash`. A graph could not have compiled unless it satisfied what was required of
+      it, so what `explain` shows as bound is a superset of what was demanded. An unbound
+      criterion is reported, never omitted.
+      .
+      "Binding" in the trace is the DURABLE binding (role, permissions_ref, resource_id,
+      candidate/lens, attempts). P06's AgentBinding is observed on an in-memory BaselineTrace
+      and never persisted, so nothing about routing is claimed; re-resolving the router now
+      would report today's catalog as the one the run used. If P12 wants routing in `explain`,
+      the missing piece is persisting ROUTE_RESOLVED into the event stream.
+      .
+      SECRET-FREE EXPORT is structural first, redaction second. `_html_payload` is an
+      ALLOW-LIST of fields (so a control-schema column added next year does not ship to the
+      page by default) and event payloads are dropped outright, because an event body is
+      handler output. `status.redact_secrets` then runs over every string; it deliberately
+      does NOT match hex digests (a 40/64-char hex string is a sha or a fingerprint — the
+      evidence the page exists to show). `notify_telegram` and `dan_request._send_telegram`
+      now redact too: Telegram is the one place maestro's internal text leaves the machine.
+      `telegram.send_report` splits a long report on line boundaries — Telegram REJECTS a
+      body over ~4096 chars outright rather than truncating, so a graph view would simply
+      never arrive.
+      .
+      PER-PROJECT PIN ([INV-09]): `<repo>/.orchestrator/current`, read by
+      `bootstrap.adopted_root` BEFORE `~/.maestro/current`. `bootstrap.repo_from_argv` parses
+      `--repo` / `--repo=` / `$MAESTRO_REPO` with the standard library only — no argparse, no
+      maestro import — and deliberately does NOT fall back to the cwd the way
+      `cli._resolve_repo` does: an inferred pin would redirect a maestro invoked from inside
+      project A while it is operating project B. `selfupdate.adopt` writes the project pin
+      XOR the machine-global one, never both: writing both would move every unpinned project
+      on the host, which is the drift the invariant forbids. The cost (a host whose projects
+      all pin stops advancing its global default) is correct, because nothing runs from it.
+      `doctor`'s adopted_code check now reports against whichever pointer actually redirected.
+      .
+      SERVICE LIFECYCLE ([INV-10]): the shipped template ALREADY had Type=forking +
+      `tmux new-session -d -s <session> -n main` + an `ExecStartPre=-... kill-session`, so
+      nothing was regenerated. What was missing was (a) a predicate over the unit that
+      actually runs — `watchdog.service_unit_conforms`, which reads the rendered text, since
+      the copy in /etc/systemd/system is the one an operator may have hand-edited — and (b)
+      the live half: `watchdog.request_lease_reconciliation` was a DEAD SEAM with no caller.
+      It is now called at watchdog start (a production watchdog start IS a service start:
+      reboot, `systemctl restart`, controller crash) and again after a stall-kill, before the
+      relaunch. The watchdog still only ASKS; [INV-01] keeps the scan in the controller.
+      .
+      One test-suite hazard found and contained, worth knowing: every `cmd_*` sets
+      `os.environ["MAESTRO_REPO"]` and never restores it, so an in-process `cli.main` call
+      leaks a project root into the rest of the pytest session (it made three
+      tests/test_selfupdate.py assertions fail a long way from the cause). Contained by an
+      autouse fixture in tests/test_workflow_status.py. Note that
+      `monkeypatch.delenv(name, raising=False)` does NOT contain it — monkeypatch records
+      nothing to undo when the variable is already absent.
+
 
 in_progress_details: null
+
+_p11_open_threads:
+  # Not blockers: what P11 leaves for P12 and for whoever picks up P08-P10.
+  - "P08, P09 and P10 are still unstarted (resource admission/scheduling, repository facts,
+     affected validation/repair). P11 ran ahead of them on its own `Depends On: P01-P07`."
+  - "`maestro explain` shows no routing decision because none is persisted. The seam is
+     metrics.ROUTE_RESOLVED / binding_identity() — durably recording one would complete the
+     criteria -> binding -> evidence chain with the binding P06 actually chose."
+  - "`workflow show --html` renders the LATEST run by default and `--run <id>` picks an
+     earlier one; nothing yet lists a task's runs. `_select_run` is the one place to add it."
+  - "The pre-existing tests/test_limits.py failure is still there and still untouched, and
+     tests/test_cli.py's thirdparty gate now also fails on this machine because the `claude`
+     CLI auto-updated past the version maestro/thirdparty.json was verified against. Both are
+     environmental; neither is this phase's."
 
 _p07_open_threads:
   # Not scratch state and not a blocker: the two seams P07 leaves for whoever wires

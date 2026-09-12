@@ -1,9 +1,9 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-12T23:55:00Z"
+last_updated: "2026-09-13T02:10:00Z"
 current_phase: "P07"
-status: "not_started"  # P06 done and verified; current_phase advanced to P07 so next_graph_prompt.py emits the next directive, not a repeat. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+status: "in_progress"  # P07 part 1 landed and verified; the compiler half is not started. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -129,7 +129,108 @@ completed_phases:
       status_summary) are the seams for that wiring, and the free_tier_api billing
       category has no catalogued backend until P07 adds one.
 
-in_progress_details: null
+in_progress_details:
+  active_branch: "feat/graph-engineering-foundation"
+  what_was_done:
+    - "maestro/backends/model_api.py (NEW): the free-tier HTTP adapter. ModelEndpoint,
+       Message/ToolCall/ToolSchema/ModelTurn, an injectable Transport (RequestsTransport
+       over `requests`, already a declared dependency), and three wire formats normalised
+       onto ONE ModelTurn: openai_chat, anthropic_messages, gemini_generate. The
+       supervisor loop therefore never branches on the provider, which is what makes
+       `identical task spec succeeds across paid, free and hybrid backends` testable.
+       capability_entry(endpoint, verified_version=...) turns an endpoint into a P6
+       BackendCapabilityEntry; verified_version has NO default ([INV-12]) and nothing
+       registers itself at import time."
+    - "maestro/backends/model_runtime.py (NEW): ModelAgentRuntime with §5 bounds —
+       ALLOWED_TOOLS = (read_file, write_file, run_test, grep) closed and asserted in sync
+       with TOOL_SCHEMAS at import; ToolBox confining every path through CommitBoundary;
+       CheckpointWriter writing a turn document after EVERY tool execution; Budget with
+       max_turns=25 + wall clock, both with an injectable clock. RuntimeOutcome carries
+       status / stop_reason / turns / checkpoints / refused_tools / tokens."
+    - "maestro/confinement.py (EXTENDED, existing content untouched): [INV-A08] branch
+       namespacing (BRANCH_KINDS, BranchRef, branch_name, branch_ref, parse_branch,
+       is_namespaced, worktree_for) and §4.2 CommitBoundary (writable_roots, permits,
+       confirm_persisted)."
+    - "tests/backends/test_model_runtime.py (NEW, 21 tests) and tests/test_confinement.py
+       (EXTENDED by a banner-separated P7 section, 60 tests total in the file)."
+    - "Verified: .venv/bin/python -m pytest -q tests/backends/test_model_runtime.py
+       tests/test_confinement.py -> 81 passed, exit 0. Whole suite minus the same
+       pre-existing tests/test_limits.py failure P05 and P06 both recorded: exit 0."
+  whats_left:
+    - "CHECKLIST ITEM 2 (Free Quality Compilation) — NOT STARTED. The design decided and
+       not yet written: give StageSpec a `fan_out` field (closed vocabulary:
+       'candidates' | 'review_lenses'). compose() computes the WIDTH from the policy and
+       the RiskContext; width 1 emits exactly one node under the stage's own node_id with
+       NO candidate_id, so every existing graph stays byte-identical and
+       tests/workflows/test_compatibility.py keeps passing untouched. Width N emits
+       implementer_c1..cN (candidate_id set) or proof_review_<lens> (params['review_lens']).
+       This means the packaged templates need NO new stages — just `fan_out:` keys on the
+       implementer and proof_review stages they already have."
+    - "compose() currently wires `stages[i] -> stages[i+1]` by index. Generalise it to carry
+       a LIST of previous node ids and join every previous to every current; that is the
+       whole of fan-out and fan-in wiring, and it degenerates to today's behaviour at
+       width 1."
+    - "CHECKLIST ITEM 5 (Candidate Selection Join) — NOT STARTED. Planned as
+       maestro/workflows/candidates.py: CandidateSpec (candidate_id, index, branch from
+       confinement.branch_name('impl', task, candidate='c2'), worktree from
+       confinement.worktree_for), CandidateOutcome, assert_no_cross_pollution() (distinct
+       worktrees, distinct branches, no shared artifact refs -> raise) and select_winner()
+       returning exactly one winner with a deterministic tie-break, failing closed when no
+       candidate has conclusive evidence ([INV-06]). Then a `candidate_select` fragment in
+       compiler.FRAGMENTS and a `maestro.handlers.candidate_select` handler."
+    - "policy.py additions needed: a FreeQualityPolicy block on ProjectPolicy (candidates:
+       2, review_lenses: [logic, security, architecture]) reaching to_dict/from_document/
+       policy_hash; a `free_quality_nontrivial` CONDITION (objective == free_quality AND
+       risk != low) — conditions are OR-ed inside include_when, so the AND has to be one
+       named condition rather than two; and new REQUIRED_CRITERIA entries
+       (isolated_candidates, candidate_selection, diverse_review) with matching
+       CRITERION_CHECKS in the compiler."
+    - "COMPILER_VERSION must move p5.1 -> p7.1 when the compiler changes."
+    - "Hybrid (§3.1) — NOT STARTED. It is an eligibility overlay, NOT a third objective:
+       leave EXECUTION_OBJECTIVES at two members. Planned as a `hybrid:` block on
+       ProjectPolicy naming the roles that may spend subscription capacity under the free
+       objective, read tolerantly by router.resolve_agent as an overlay on OBJECTIVE_BILLING
+       (read it with getattr so the existing Policy test doubles in
+       tests/backends/test_router.py keep working)."
+    - "tests/workflows/test_mode_policies.py and tests/workflows/test_candidates.py — NOT
+       WRITTEN. The four acceptance conditions they must pin: (a) the same TaskSpec compiles
+       and runs under paid, free and hybrid; (b) free compilation has zero paid-token
+       penalty — i.e. every extra node free mode composes binds to a free_tier_api backend,
+       so the count of nodes whose binding carries a paid billing_category is unchanged;
+       (c) candidates never share a writer worktree; (d) with zero paid capacity in free
+       mode, resolve_agent returns RouteUnavailable and never a subscription binding (P06
+       already makes this true via OBJECTIVE_BILLING — the test pins it)."
+    - "The phase verification command is the FOUR-target one in the phase file
+       (test_model_runtime, test_mode_policies, test_candidates, test_confinement); the
+       directive emitted by scripts/next_graph_prompt.py lists only the first two. Two of
+       the four exist and pass today."
+  relevant_context:
+    - "No design drift. Nothing in D01-D08 or the architecture plan was changed or
+       reinterpreted; the stop is a context-budget stop at the session's handoff threshold,
+       at a commit boundary where the finished half is independently verified."
+    - "tests/test_confinement.py already existed (246 lines, the path-confinement gates) and
+       was EXTENDED, not replaced — the same precedent P06 set with
+       tests/test_no_dead_backend_surface.py. The new section is separated by its own banner
+       because conflating `which files may a diff rewrite` with `which paths may a process
+       write` is exactly the mistake the second half exists to prevent."
+    - "Candidate branches are impl/<task>/c<n>, a directory UNDER the task namespace rather
+       than a decorated sibling, so one bind mount of the task worktree directory grants
+       exactly that task's candidates — [INV-06] as a filesystem fact rather than a
+       convention. CommitBoundary.for_task(..., candidate='c2') builds it."
+    - "CheckpointWriter writes a plain directory of numbered JSON documents rather than
+       ArtifactStore entries ON PURPOSE: a checkpoint is written by the WORKER, and
+       ArtifactStore.commit_ref writes the control database, which [INV-01] reserves to the
+       controller. The controller ingests them when it reaps the attempt, exactly as
+       runner._ingest_evidence already does for P4 evidence rows. Whoever wires the runtime
+       into a node handler must keep that direction."
+    - "NOTHING dispatches ModelAgentRuntime yet. P06 left four consumer seams for an
+       AgentBinding (dispatch_plan, execution_deadline_sec, token_account_key,
+       status_summary) and this phase has still not wired a binding into core dispatch —
+       model_api.capability_entry() closes the `free_tier_api has no catalogued backend`
+       gap P06 recorded, but only for a caller that builds a catalog with it."
+    - "The pre-existing tests/test_limits.py failure P05 and P06 both recorded is still
+       there and still untouched (the host model_context_limits.md table no longer matches
+       that test's pinned numbers)."
 
 # --- retired phase records --------------------------------------------------------------
 # `in_progress_details` is the live handoff slot and the directive requires it to be null

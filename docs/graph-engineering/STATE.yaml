@@ -73,6 +73,18 @@ completed_phases:
          review stage is now on all five lanes. Worth remembering as the shape of the
          failure: a criteria floor and a stage list that disagree fail closed loudly, which
          is the intended behaviour, but the disagreement is easy to introduce per-lane."
+      - "For P06 (capability routing): P05 already puts the ROUTER'S INPUT on disk.
+         maestro/templates/roles/*.yaml carry `permitted_backend_capabilities`
+         (min_reasoning_strength: small|balanced|strong, modalities) and `effort_policy`
+         (paid_default / free_default) per role, and NO role names a backend, model or
+         effort value — that separation is D04 and tests/workflows/test_policy.py enforces
+         it (test_every_role_declares_capability_requirements_not_a_backend greps the
+         serialised definition for backend names). resolve_agent() should read those two
+         blocks off ProjectPolicy.definition(node.agent_definition_ref) rather than
+         inventing its own per-role table. Also available: policy.permissions maps role ->
+         permission boundary, already stamped onto each node's permissions_ref at compile
+         time, and WorkflowRevision carries `backend_eligibility` and
+         `catalog_snapshot_hash` fields that P05 leaves empty for P06 to fill."
       - "The P05 verification command in the phase file has four targets
          (test_policy, test_compiler, test_init_workflows, test_templates); the directive
          emitted by scripts/next_graph_prompt.py lists only the first two. The four-target

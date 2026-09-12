@@ -4227,3 +4227,55 @@ grilled project and a working install — the next session fixes the skill first
 hand-add a `pyproject.toml` to DuetFlow, which would hide the gap this answer found. The git
 remote stays unset and local-only merges are recorded as a finding. The stale INV-12 gate is
 to be genuinely re-verified against the installed CLI versions and re-pinned, not version-bumped.
+
+## 2026-09-12 — P06 COMPLETE: every AI call routed by capability, model and effort (`9994d02`)
+
+**Phase P06 of the graph-engineering migration, all five checklist items.**
+`docs/graph-engineering/STATE.yaml` is `status: not_started`,
+`completed_phases: [P00 … P06]`, `current_phase: P07`, `in_progress_details: null`.
+
+**Note on this file's coverage.** P03, P04 and P05 have no entry here — since P02 the phase
+record has lived in `STATE.yaml` and in the commit messages (`c06131e`, `25f6d2f`, `5513702`).
+This entry does not backfill them; it records P06 and flags the gap so nobody reads the absence
+as work that did not happen.
+
+**Verification:** `.venv/bin/python -m pytest -q tests/backends/test_catalog.py
+tests/backends/test_router.py tests/test_routing.py tests/test_no_dead_backend_surface.py` →
+**115 passed, 1 xfailed, exit 0** (the phase file's four-target command; the directive's
+two-target command is a subset). Full suite minus the same pre-existing
+`tests/test_limits.py::test_parses_the_real_claude_table` failure recorded at P00: exit 0.
+
+**What landed.** `maestro/backends/catalog.py` and `maestro/backends/router.py` (both new), plus
+routing event kinds and `binding_identity()` in `maestro/metrics.py`.
+
+* The catalog models a backend across the six capability dimensions and **claims nothing that
+  was not observed**: the supported constructor is `catalog_from_register()`, reading the
+  version-pinned `maestro/thirdparty.json` the INV-12 gate already covers. A row showing
+  `--effort` whose values were never exercised — the claude row on this host, and B06 says so
+  in its own open questions — yields `supported=False`, not a flag maestro would have to invent.
+* Quota is per pool, across windows keyed by **duration** (G5), each observation carrying
+  `observed_at` / `written_at` / `staleness_bound` / `carried_forward`. A carried-forward reading
+  is explicitly not evidence of headroom. Exhaustion pauses a pool's *dispatch* and never touches
+  `active`, so healthy workers finish.
+* Outcome statistics are keyed on the full eight-part shape (backend, model, effort, role version,
+  task class, template id/version, fragment set), and a rate below the evidence floor reads as
+  `None` rather than as a measurement.
+* `resolve_agent()` runs the spec's five steps in order — hard constraints, demand, joint
+  model/effort, effort delivery, admission — and its refusals are typed: a `wait` with a
+  `retry_after_sec` or a `block`, each with a reason from a closed vocabulary. There is no path
+  on which a node quietly runs on an unapproved model or billing tier.
+
+**Two deliberate deviations from the directive's file list, neither a design change.**
+`tests/test_no_dead_backend_surface.py` already existed (it is the D2 protocol-surface gate) and
+was left alone. `maestro/adapters.py` was **not** modified: it is the project *check* adapter
+contract (`adapters/test`, `adapters/deploy`), not a backend adapter, and the spec sentence behind
+its listing ("adapters MUST NOT invent CLI flags") is enforced where flags are actually built —
+`catalog.effort_controls_from_findings` and `router.dispatch_plan`.
+
+**Carry into P07.** No core dispatch path consumes an `AgentBinding` yet; the four consumer
+functions (`dispatch_plan`, `execution_deadline_sec`, `token_account_key`, `status_summary`) are
+the seams for that wiring. `free_tier_api` has no catalogued backend until P07 adds one, which is
+why a `free_quality` resolution against the shipped catalog correctly *blocks* today. The model
+strength ladder is `("light", "balanced", "strong")` because the shipped role definitions already
+say `balanced`/`strong`, and role effort floors are read from their own `paid_default` /
+`free_default` keys.

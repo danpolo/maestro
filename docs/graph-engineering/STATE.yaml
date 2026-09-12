@@ -54,6 +54,29 @@ completed_phases:
       1) on a policy that will not load; and it restores the control flags the no-op loop
       check borrows, so a paused or halted project is still paused or halted afterwards
       (P05 acceptance: "rerunning init leaves active flags untouched").
+    findings:
+      - "F9 (latent, not fixed): `maestro.state` binds STATE_JSON at IMPORT time from
+         Paths.from_env(), so `maestro.cli._reset_control_flags_for_loop_check` setting
+         os.environ['MAESTRO_REPO'] before `from maestro.state import read_state` has no
+         effect on an already-imported module. Harmless in production — `maestro init` is
+         a fresh process — but any in-process caller reads/writes the FIRST repo the
+         module ever saw. Found while writing tests/test_init_workflows.py, which works
+         around it by rebinding maestro.state.STATE_JSON via monkeypatch (see
+         `_point_state_at`). Fix, when someone touches maestro/state.py: make read_state/
+         write_state take the path (or re-derive it per call) instead of a module global.
+         Would also remove the monkeypatch from the test."
+      - "F10 (found and FIXED this session): the first draft of the packaged engineering
+         policy put the conditional `proof_review` stage only on the `ordinary` and
+         `resumable` lanes. quality_gates.review_required_when applies to every lane, so a
+         high-risk `script`, `manual` or `async` task could not compile at all — the floor
+         correctly refusing a graph the template could never compose. The conditional
+         review stage is now on all five lanes. Worth remembering as the shape of the
+         failure: a criteria floor and a stage list that disagree fail closed loudly, which
+         is the intended behaviour, but the disagreement is easy to introduce per-lane."
+      - "The P05 verification command in the phase file has four targets
+         (test_policy, test_compiler, test_init_workflows, test_templates); the directive
+         emitted by scripts/next_graph_prompt.py lists only the first two. The four-target
+         command was run and is the recorded result."
 
 
 in_progress_details: null

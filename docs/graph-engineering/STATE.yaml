@@ -1,9 +1,9 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-12T18:05:00Z"
-current_phase: "P05"
-status: "not_started"  # P04 done and verified; current_phase advanced to P05 so next_graph_prompt.py emits the next directive, not a repeat. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-12T22:40:00Z"
+current_phase: "P06"
+status: "not_started"  # P05 done and verified; current_phase advanced to P06 so next_graph_prompt.py emits the next directive, not a repeat. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -33,6 +33,27 @@ completed_phases:
       tests/characterization/test_merge.py -> 344 passed, exit 0 (the phase file's
       four-target command; the directive's two-target subset is contained in it).
       Whole suite minus the pre-existing tests/test_limits.py failure: exit 0.
+  - phase: P05
+    completed_at: "2026-09-12T22:40:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q tests/workflows/test_policy.py
+      tests/workflows/test_compiler.py tests/test_init_workflows.py
+      tests/test_templates.py -> 140 passed, exit 0 (the phase file's four-target
+      command; the directive's two-target subset is contained in it). Whole suite minus
+      the same pre-existing tests/test_limits.py failure: exit 0.
+    notes: >-
+      Design note carried forward, not a drift: the five baseline lanes are now composed
+      from the same versioned fragment catalogue the policy cites, so there is one
+      composer rather than two code paths. `compile_workflow` without a ProjectPolicy is
+      byte-identical to P03's output (tests/workflows/test_compatibility.py unchanged and
+      green); with one, conditional stages resolve against task risk and the active
+      objective and the composition is then checked against the policy's quality gates.
+      COMPILER_VERSION moved p3.1 -> p5.1. Two behaviours changed outside the compiler:
+      `maestro init` now scaffolds workflows/project.yaml, records
+      .orchestrator/project_profile.json from manifest-only discovery, and refuses (exit
+      1) on a policy that will not load; and it restores the control flags the no-op loop
+      check borrows, so a paused or halted project is still paused or halted afterwards
+      (P05 acceptance: "rerunning init leaves active flags untouched").
 
 
 in_progress_details: null

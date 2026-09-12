@@ -1,9 +1,9 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-12T22:40:00Z"
-current_phase: "P06"
-status: "not_started"  # P05 done and verified; current_phase advanced to P06 so next_graph_prompt.py emits the next directive, not a repeat. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-12T23:55:00Z"
+current_phase: "P07"
+status: "not_started"  # P06 done and verified; current_phase advanced to P07 so next_graph_prompt.py emits the next directive, not a repeat. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -90,6 +90,44 @@ completed_phases:
          emitted by scripts/next_graph_prompt.py lists only the first two. The four-target
          command was run and is the recorded result."
 
+
+  - phase: P06
+    completed_at: "2026-09-12T23:55:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q tests/backends/test_catalog.py
+      tests/backends/test_router.py tests/test_routing.py
+      tests/test_no_dead_backend_surface.py -> 115 passed, 1 xfailed, exit 0 (the phase
+      file's four-target command; the directive's two-target subset is contained in it).
+      Whole suite minus the same pre-existing tests/test_limits.py failure P05 recorded
+      (the host's model_context_limits.md table no longer matches that test's pinned
+      numbers; untouched by this phase): exit 0.
+    notes: >-
+      Two deliberate deviations from the directive's file list, neither a design change.
+      (1) tests/test_no_dead_backend_surface.py already existed (it is the D2 gate over
+      the AgentBackend protocol surface) and was left alone; it is run as part of the
+      acceptance command and still passes, xfail included. (2) maestro/adapters.py was
+      NOT modified. That module is the project *check* adapter contract (adapters/test,
+      adapters/deploy — JSON stdin/stdout, effect classes, A05 retry), not a backend
+      adapter; the spec sentence behind its listing ("adapters MUST NOT invent CLI flags")
+      is enforced where flags are actually built, in backends/catalog.py's
+      effort_controls_from_findings and backends/router.py's dispatch_plan. Editing an
+      unrelated module to satisfy a file list would have been noise.
+      maestro/metrics.py gained ROUTE_RESOLVED / ROUTE_UNAVAILABLE event kinds and
+      binding_identity(), so a routing decision is recordable on the same P0 baseline
+      trace that counts duplicate agent invocations; router.resolve_agent(trace=...) is
+      its caller.
+      Vocabulary alignment worth knowing for P07: the model strength ladder is
+      ("light", "balanced", "strong") because that is what the shipped role definitions
+      already say (min_reasoning_strength: balanced/strong), and role effort floors are
+      read from their own effort_policy keys (paid_default / free_default), with
+      `minimum` accepted as an objective-independent floor.
+      Open seams P07 inherits: resolve_agent takes a RoutingContext (the slice of P9's
+      ContextManifest routing needs, read tolerantly from any mapping/object);
+      ResourcePoolState is the in-memory contract P8's host ledger must satisfy; and
+      nothing in core dispatch consumes an AgentBinding yet — the four consumer
+      functions (dispatch_plan, execution_deadline_sec, token_account_key,
+      status_summary) are the seams for that wiring, and the free_tier_api billing
+      category has no catalogued backend until P07 adds one.
 
 in_progress_details: null
 

@@ -35,6 +35,90 @@ in_progress_details: null
 # decisions that ARE the B01 evidence, so it is moved here rather than deleted. Nothing
 # parses this key; it is read by the next agent and by whoever closes B01.
 phase_records:
+  P03:
+      what_was_done:
+        - "Workflow DAG models: maestro/workflows/models.py carries WorkflowRevision, NodeSpec,
+           EdgeSpec, RetryPolicy, TimeoutPolicy and the NodeResult envelope, all pure values.
+           Structure is validated at construction (unknown edge endpoints, duplicate node ids,
+           cycles, terminal requirements naming nothing), so a graph that reaches the runner has
+           already been proved well-formed. to_dict/from_dict round-trips are what
+           workflow_revisions.dag_json stores."
+        - "Compiler: maestro/workflows/compiler.py specialises one template per execution_kind.
+           No lane gains or loses a step — ordinary is still implementer -> gate -> proof review ->
+           merge -> accept, script pays no proof review, async takes no writer lease, resumable
+           routes a failed gate to cooldown rather than park. Deterministic: the same spec under the
+           same policy compiles to the same dag_hash, which is what §5.3 carry-forward needs."
+        - "6-step controlled operation protocol in runner.dispatch_node's claim/dispatch pair:
+           pre-validate -> ONE transaction (epoch bump, lease row, intent row, claim event) ->
+           out-of-transaction tmux dispatch -> PID bind from the worker's envelope -> execute ->
+           receipt. Step 2 being one transaction is what makes crash-after-launch safe; step 3 being
+           outside it is what stops the control plane serialising behind tmux."
+        - "Supervised TMUX workers: handlers.TmuxDispatcher launches into named windows of the
+           `agents` session (INV-10), maestro/workflows/worker.py is the process that runs there, and
+           worktree.new_agent_window is the single chokepoint for any non-agent background job. The
+           script lane's blocking subprocess.run(timeout=1800) now happens in that worker, not in the
+           controller's poll."
+        - "Guarded edges, joins and skips: EdgeSpec.satisfied_by plus runner.ready_frontier /
+           node_is_skipped / propagate_skips. Required edges AND-join (any closed edge skips the
+           target); optional edges OR-join (all closed skips it). A skipped source never satisfies an
+           edge, so a skipped branch cannot discharge a terminal verification requirement (INV-04)."
+        - "Lease reconciliation: maestro/control/reconcile.py. Adopts a live writer (refreshing its
+           heartbeat), ingests a receipt for a dead one, and distinguishes a dead writer with no
+           receipt into `failed` (repeatable effect) vs `uncertain` (not repeatable, A05). Never
+           kills anything — termination stays revoke_lease's separately-proved act."
+        - "Sentinel compatibility facade: handlers.read_sentinel / result_from_workspace map DONE,
+           FAILED, PAUSED, INCOMPLETE and SWITCH into typed envelopes, with precedence (a terminal
+           claim outranks a controller-written SWITCH) and fail-closed synthesis from result.json."
+        - "Verification: .venv/bin/python -m pytest -q tests/workflows tests/control/test_recovery.py
+           tests/test_switch.py -> 145 passed, exit 0."
+      decisions_worth_carrying:
+        - "PAUSED is not a node outcome. The work has not finished, it is waiting on a human, so the
+           node does not transition and the task moves to `waiting`. This is what makes the manual
+           lane's human_action node undischargeable by any code path — P3's acceptance criterion
+           `manual prep tasks cannot graduate without explicit human action receipt` is structural
+           (there is no prep->accept path avoiding it) plus prep_actions.record_human_receipt."
+        - "gate / merge / accept are compiled by P3 but implemented by P4. They are registered — an
+           unregistered handler fails pre-validation and would make the whole ordinary lane
+           undispatchable — as handlers that PARK. They must never be changed to return `succeeded`:
+           a stub that reports success manufactures an acceptance, which is exactly the
+           claim-as-evidence substitution INV-04 and D06 refuse. P4 replaces them with real ones."
+        - "AWAITING_BIND: between dispatch (step 3) and PID binding (step 4) the lease holds the
+           LAUNCHER's pid, a placeholder. Reconciliation must not adjudicate it — probing it decides
+           nothing about the worker — so such an attempt is left alone until it binds a pid or runs
+           out of deadline, with the resource held throughout. Found by test, not by reading."
+      changes_outside_the_phase_file_list:
+        - "maestro/taskgraph.py: `dispatch: async-job` never derived to execution_kind `async` —
+           P02's derivation handled kind/mode/dispatch:manual/resumable and missed the fourth lane.
+           P3 needs it to select a template. Three added lines; `manual` still wins above, so a block
+           carrying both async-job and needs-dan reads as manual exactly as before. No test pinned
+           the old reading."
+        - "maestro/control/store.py: record_intent / set_intent_status / intent /
+           intents_for_attempt / unreconciled_intents / record_receipt / receipt_for. P01 created
+           both tables and left them empty because nothing dispatched an external effect yet; P3 is
+           what fills them. Strictly additive — tests/control still 77 passed."
+      relevant_context:
+        - "parking.py writes its PAUSED sentinel with a bare write_text, NOT the facade's
+           write_sentinel, on purpose: the facade's writer mkdirs the workspace, and doing that here
+           silently repairs the FOUND_BUGS behaviour that
+           test_park_for_dan_without_a_workspace_dies_after_mutating_state exists to pin. P3
+           relocates authority; it does not fix legacy bugs in passing (D08). The NAME still comes
+           from the facade."
+        - "The orchestrator adaptation is deliberately one line of substance: the zombie guard's
+           has_sentinel set now comes from the facade. SWITCH stays excluded from that set — a
+           checkpoint-and-exit handover is exactly the case the guard must keep waiting through. The
+           legacy loop is otherwise untouched; the graph runner and the legacy runner remain
+           mutually exclusive per project run (D08), and nothing yet switches a project onto the
+           graph runner. That switch is not P3's."
+        - "watchdog.request_lease_reconciliation ENQUEUES a command and returns. The watchdog is the
+           obvious place to want a recovery scan and the wrong place to run one: INV-01 makes the
+           control database the controller's alone, and a watchdog reconciling from outside that
+           boundary could hand a live agent's worktree away while the orchestrator it just
+           relaunched reached the same conclusion."
+        - "tests/test_limits.py::test_parses_the_real_claude_table remains a PRE-EXISTING failure,
+           unrelated and out of scope, as it was for P00-P02."
+      blockers: []
+      active_branch: "feat/graph-engineering-foundation"
+
   P00:
       what_was_done:
         - "Characterization Fixtures: tests/graph_engineering/fixtures/cases.json already carried the

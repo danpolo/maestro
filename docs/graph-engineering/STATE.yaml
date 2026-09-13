@@ -317,6 +317,13 @@ _p08_open_threads:
      Nothing bounds cross-project pressure until an operator sets it."
   - "RESOLVED 2026-09-13: tests/test_limits.py now pins fixture copies of the tables, and the
      tests/test_cli.py thirdparty-gate test no longer depends on the installed CLI version."
+  - "OPEN 2026-09-13: maestro/limits.py AGENT_TABLE_DIRS reads Antigravity's table from
+     ~/.gemini/model_context_limits.md — inferred from where agy keeps its config, not yet
+     confirmed by Dan. No file exists there yet; the live-table smoke test skips it."
+  - "PLANNED 2026-09-13: agy has no maestro driver (only claude/codex are routable), so its
+     `doctor --thirdparty` drift (verified 1.1.27, installed 1.2.2) is harmless until P07B
+     (specs/phases/P07B_ANTIGRAVITY_BACKEND.md) integrates it: Gemini 3.8 Flash `balanced`,
+     every other agy model `light`, billing `subscription`, effort selection unchanged."
 
 _p11_open_threads:
   # Not blockers: what P11 leaves for P12 and for whoever picks up P08-P10.

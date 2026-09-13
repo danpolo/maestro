@@ -2,7 +2,7 @@
 
 ```
 Phase ID:        PHASE-P12
-Depends On:      Core phases + P11 + the P08 -> P09 -> P10 -> P10B branch (all feature experiment outcomes recorded)
+Depends On:      Core phases + P11 + the P08 -> P09 -> P10 -> P10B -> P07B branch (all feature experiment outcomes recorded)
 Output:          End-to-end qualification report, raw task outcomes for B01/B18, release tag
 Target Files:
   - Create:  tests/graph_engineering/test_end_to_end.py

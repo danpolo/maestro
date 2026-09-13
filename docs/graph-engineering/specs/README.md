@@ -78,6 +78,7 @@ When assigned a specific implementation task or phase, load **ONLY** the relevan
 | **P9: Repository Facts & Structural** | `phases/P09_REPOSITORY_FACTS_STRUCTURAL.md`, `06_REPOSITORY_INTELLIGENCE.md` | `01_DATA_CONTRACTS_AND_SCHEMAS.md` | `.venv/bin/python -m pytest -q tests/repository` |
 | **P10: Affected Validation & Plan Repair** | `phases/P10_AFFECTED_VALIDATION_REPAIR.md`, `04_VALIDATION_STAGING_AND_ACCEPTANCE.md` | `02_EXECUTION_ENGINE_AND_DURABILITY.md` | `.venv/bin/python -m pytest -q tests/test_affected_validation.py tests/workflows/test_plan_repair.py` |
 | **P10B: Host Resource Admission** | `phases/P10B_HOST_RESOURCE_ADMISSION.md`, `05_SCHEDULING_AND_RESOURCES.md` | `02_EXECUTION_ENGINE_AND_DURABILITY.md` | `.venv/bin/python -m pytest -q tests/test_host_resource_admission.py tests/test_scheduling.py tests/control/test_resources.py` |
+| **P07B: Antigravity Backend (light/balanced)** | `phases/P07B_ANTIGRAVITY_BACKEND.md`, `03_BACKENDS_CATALOG_AND_ROUTING.md` | `05_SCHEDULING_AND_RESOURCES.md` | `.venv/bin/python -m pytest -q tests/backends/test_antigravity.py tests/test_routing.py tests/backends/test_catalog.py tests/test_thirdparty.py` |
 | **P11: Operator Views & Bootstrap Pin** | `phases/P11_OPERATOR_LIFECYCLE_BOOTSTRAP.md`, `02_EXECUTION_ENGINE_AND_DURABILITY.md` | `05_SCHEDULING_AND_RESOURCES.md` | `.venv/bin/python -m pytest -q tests/test_workflow_status.py tests/ops/test_graph_service_lifecycle.py` |
 | **P12: Full System Qualification** | `phases/P12_QUALIFICATION_AND_RELEASE.md`, `phases/MIGRATION_GUARDRAILS.md` | `07_EXPERIMENTS_AMENDMENTS_AND_DISPOSITION.md` | `.venv/bin/python scripts/graph_qualification.py --repo /tmp/maestro-graph-qualification --fixture-backends` |
 
@@ -158,6 +159,9 @@ The implementation critical path is strictly linear through the foundational mil
          │                                                    │
          │                                                    ▼
          │                                         [P10B: Host Resource Admission]
+         │                                                    │
+         │                                                    ▼
+         │                                         [P07B: Antigravity Backend]
          │                                                    │
          ▼                                                    ▼
 [P12: Full System End-to-End Qualification & Release Verification]

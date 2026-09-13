@@ -1,9 +1,9 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-13T12:30:00Z"
-current_phase: "P08"
-status: "in_progress"  # P08 engine + ledger landed and verified; orchestrator wiring left. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-13T15:30:00Z"
+current_phase: "P09"
+status: "not_started"  # P08 complete; P09 next (P11 already done, P12 waits on P08-P10). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -278,76 +278,52 @@ completed_phases:
       nothing to undo when the variable is already absent.
 
 
-in_progress_details:
-  active_branch: feat/graph-engineering-foundation
-  what_was_done:
-    - "maestro/scheduling.py — Admission engine (AdmissionEngine over counted dims cpu /
-       ram_mb / vram_mb / agent:<backend> / pool:<pool_id>, exclusive locks worktree:<task>
-       and target_branch:<branch>; HostCapacity.detect reads cpu_count, /proc/meminfo,
-       nvidia-smi). Two ready frontiers: roadmap_frontier (TaskGraph.ready + runtime holds +
-       policy predicate) and workflow_frontier (runner.ready_frontier + input_bindings bound).
-       Greedy rank/schedule: operator priority, aging, leverage, fit; per-candidate
-       RankEntry explanations; EligibilityClock; starvation protection of only the
-       starved candidate's shortfall dimensions."
-    - "maestro/control/resources.py — HostReservationLedger on ~/.maestro/reservations.json
-       (override: $MAESTRO_HOST_LEDGER): flock + atomic replace; reserve (check+insert in
-       one critical section, idempotent per project/run/pool), heartbeat, release,
-       reconcile (purge dead PID or previous boot_id; expired-but-alive still counts),
-       sync_project (heartbeat and restart path in one call; adopts orphans without a
-       limit check); corrupt file quarantined. HostResourcePoolState subclasses P6's
-       ResourcePoolState so resolve_agent's admit() counts every project's reservations."
-    - "tests/test_scheduling.py, tests/control/test_resources.py — including the four
-       acceptance conditions (saturated pool vs deterministic job; two projects sharing a
-       pool; 8-process x 40-round flock stress with limit 3, never oversubscribed; aging
-       admits a starved 2-CPU job behind a priority-3 stream)."
-    - "Verified: .venv/bin/python -m pytest -q tests/test_scheduling.py
-       tests/control/test_resources.py tests/test_backend_exhaustion.py
-       tests/test_quota_thresholds.py -> 69 passed, exit 0."
-  whats_left:
-    - "Adapt maestro/orchestrator.py (the last checklist file). Planned, minimal per D08:
-       (1) launch loop (~L1958 onward): count free agent slots over in_flight entries with
-       role != 'script', and replace `if not is_async and free_slots <= 0: break` with a
-       `continue` that applies only to agent lanes, so a ready kind:script / async-job task
-       is never delayed by full implementer slots (the §1.3 negative invariant — today the
-       `break` violates it); drop `free_slots -= 1` from the script branch. Order `runnable`
-       with scheduling.rank (operator priority = task `priority` int, leverage =
-       scheduling.legacy_task_leverage over roadmap._load_roadmap_tasks(), eligibility from
-       a module-level EligibilityClock). Keep the B8 _resources_conflict mutex as is.
-       (2) host ledger: before create_worktree for an implementer, reserve pool
-       f'backend:{_launch_backend()}' keyed by sid with limit =
-       config.threshold('host_pool_concurrency', 0, cast=int) or None (0 = record only, so
-       multi-project overnight fleets keep today's throughput unless configured); release
-       on the worktree-failure path. After startup _reconcile_and_persist_startup_state and
-       after each per-poll reconcile_in_flight, call ledger.sync_project(str(REPO),
-       {sid: pool for agent entries}, writer_pid=os.getpid()); wrap ledger errors as a
-       journal event, fail closed only when a host limit is configured."
-    - "Test-isolation prerequisite for (2): tests/test_usage_sampling.py,
-       tests/test_orchestrator_switch_hooks.py and tests/characterization/test_orchestrator.py
-       all call orchestrator.main(). Add an autouse fixture in tests/conftest.py that
-       monkeypatch.setenv('MAESTRO_HOST_LEDGER', tmp_path/'reservations.json') BEFORE wiring,
-       so no test can touch the real ~/.maestro. Do NOT use MAESTRO_HOME for this —
-       tests/test_selfupdate.py asserts a child sees MAESTRO_HOME unset."
-    - "Add orchestrator tests for the two behaviours above (a script task launches while
-       agent slots are full; a reservation is released when its entry leaves in_flight),
-       then run the phase command plus the whole suite (known pre-existing failures:
-       tests/test_limits.py and the environmental test_cli thirdparty gate)."
-    - "On completion: the directive text says set current_phase P11, but P11 is already
-       complete; per P11's own note the next runnable phase is P09 (P12 waits on P08-P10)."
-  relevant_context:
-    - "No design drift found against D01-D08. The ledger is coordination metadata only
-       (§3.4) and never enters the per-project control store (D02)."
-    - "Legacy cap semantics are untouched: quota.get_effective_cap() still decides cap and
-       the cap==0 pause still breaks the whole loop; P08 does not change that pause."
-    - "Aging is additive (effective priority = operator priority + aging steps; ties go to
-       the explicit priority). A strictly lexicographic order would let a higher-priority
-       stream starve lower work forever, contradicting the aging acceptance condition."
+  - phase: P08
+    completed_at: "2026-09-13T15:30:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q tests/test_scheduling.py tests/control/test_resources.py
+      tests/test_backend_exhaustion.py tests/test_quota_thresholds.py
+      tests/test_orchestrator_scheduling.py -> 78 passed, exit 0 (the phase file's
+      four-target command plus the new orchestrator wiring tests; the directive's two-target
+      subset is contained in it). Whole suite: exit 1 with only the two known pre-existing failures (tests/test_limits.py::test_parses_the_real_claude_table and the environmental tests/test_cli.py::test_doctor_thirdparty_runs_only_the_gate_and_needs_no_project); everything else green, including tests/graph_engineering/test_baseline_lanes.py after moving the test ledger out of tmp_path.
+    notes: >-
+      orchestrator.main now ranks autonomous runnable tasks with scheduling.rank (task
+      `priority`, aging via a module EligibilityClock, legacy_task_leverage; ties keep
+      ROADMAP order) with prep tasks still last; only agent entries (role != script) count
+      against the cap, and a full agent slate `continue`s past agent candidates instead of
+      `break`ing, so a ready kind:script task is never delayed (§1.3). Every implementer
+      launch reserves host pool `backend:<backend>` in the ledger before its worktree exists
+      (limit = thresholds.host_pool_concurrency; 0/absent records without bounding, and a
+      broken ledger then only journals `host_ledger_error`; with a limit the launch fails
+      closed and journals `launch_skipped_host_pool`), released on worktree failure;
+      sync_project runs after the startup reconcile and each poll before launching. Test
+      isolation: tests/conftest.py autouse `_isolated_host_ledger` sets MAESTRO_HOST_LEDGER to
+      a tmp_path_factory dir (not the test's tmp_path — test_no_lane_writes_outside_its_sandbox
+      requires every tmp_path file inside the lane sandbox).
+
+in_progress_details: null
+
+_p08_open_threads:
+  # Not blockers: what P08 leaves behind.
+  - "The legacy loop uses only scheduling.rank for ordering. AdmissionEngine's counted
+     dimensions (cpu / ram_mb / vram_mb) and scheduling.schedule's starvation protection are
+     not consulted by orchestrator.main: the B8 `resource:` label mutex is still its resource
+     gate. Wiring the engine in needs per-task resource requests the ROADMAP does not carry yet.
+     Now planned as P10B (specs/phases/P10B_HOST_RESOURCE_ADMISSION.md), after P10, before P12."
+  - "Launch order is now priority -> aging -> downstream leverage, so a task that unblocks
+     more ROADMAP work can launch before one listed above it. Ties (no priority, equal
+     leverage) keep ROADMAP order."
+  - "The host limit defaults to record-only (thresholds.host_pool_concurrency absent/0).
+     Nothing bounds cross-project pressure until an operator sets it."
+  - "RESOLVED 2026-09-13: tests/test_limits.py now pins fixture copies of the tables, and the
+     tests/test_cli.py thirdparty-gate test no longer depends on the installed CLI version."
 
 _p11_open_threads:
   # Not blockers: what P11 leaves for P12 and for whoever picks up P08-P10.
   - "P08, P09 and P10 are still unstarted (resource admission/scheduling, repository facts,
      affected validation/repair) — the README's parallel `Conditional Enhancements` branch.
      P12 sits downstream of BOTH branches, so all three must land before qualification.
-     `current_phase` is P08, which is the next runnable one."
+     P08 has since landed; `current_phase` is P09."
   - "`maestro explain` shows no routing decision because none is persisted. The seam is
      metrics.ROUTE_RESOLVED / binding_identity() — durably recording one would complete the
      criteria -> binding -> evidence chain with the binding P06 actually chose."

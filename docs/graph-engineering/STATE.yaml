@@ -1,9 +1,9 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-13T18:30:00Z"
-current_phase: "P10"
-status: "not_started"  # P09 complete; P10 next (then P10B, P07B; P12 waits on all). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-14T09:00:00Z"
+current_phase: "P10B"
+status: "not_started"  # P10 complete; P10B next (then P07B; P12 waits on all). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -338,6 +338,62 @@ completed_phases:
       maestro/thirdparty.json, pyproject.toml and added the evidence artifact (all required by
       the licensing checklist item). `RepositoryQueries.affected` is deliberately NOT
       implemented — it is P10's deliverable.
+
+  - phase: P10
+    completed_at: "2026-09-14T09:00:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q tests/test_affected_validation.py
+      tests/workflows/test_plan_repair.py -> 55 passed, exit 0. Regression (tests/workflows,
+      test_taskgraph, test_validation_evidence, test_integration_acceptance, characterization
+      gates/merge, graph_engineering, control) -> exit 0. Whole suite (pytest -n 8, 4354
+      collected) -> exit 0.
+    notes: >-
+      validation.py: select_affected_checks(specs, changed, mode) — a check is skipped only
+      when it is cacheable, declares its inputs, and no changed path matches them. Full
+      suite when the change set is unknown (changed_paths() returns None on a failed git
+      diff), a path matches SHARED_INPUT_PATTERNS (config, conftest, fixtures, lockfiles), or
+      any REQUIRED check has dependency_completeness=unknown. Default mode is `shadow`
+      (full suite runs, affected subset recorded); ShadowComparison.discrepancies counts
+      skipped-but-not-passed checks and qualify_affected() graduates to `authoritative` only
+      after minimum_runs (default 20) clean comparisons with zero discrepancies ever.
+      invalidate_affected_evidence() marks affected rows invalidated; the input fingerprint
+      already refuses reuse after a body-only edit (tested with an unchanged snapshot id).
+      .
+      taskgraph.py: RoadmapTransaction.discover_prerequisite() refuses a cycle immediately
+      (PrerequisiteCycleError with the concrete path) before staging anything;
+      prerequisite_cycle() helper.
+      .
+      compiler.py: PlanRepairProposal (patch vs base_revision) -> plan_repair() (pure: stale /
+      quota / unknown node-edge / dropped terminal requirement / cycle / uncertain-in-cone are
+      refused; invalidated = changed (added, rewritten, re-wired inputs, rerun_nodes) + their
+      descendants + removed + what removed nodes fed; carried = succeeded, outside the cone,
+      identical NodeSpec) -> apply_repair() (durable: latest stored revision and every node
+      phase must still match the plan; cancels active consumers FIRST via revoke_lease
+      SIGTERM/grace/SIGKILL, fails intents + attempts, cancels the old run, then stores N+1,
+      starts a new run and seeds node_states with carried phases and the old attempt_index
+      for every surviving node id). repair_counters() derives repairs_used / task_attempts /
+      node_attempts from append-only rows, so [INV-08] counters cannot be reset. Emits
+      `WorkflowRepaired` event.
+      .
+      Bug caught by test: writer_leases.writer_pid is NOT NULL and holds a placeholder until
+      the worker binds, so apply_repair checks attempts.writer_pid; revoking on the lease
+      placeholder would have signalled the wrong process. No schema change; runner.py and
+      the files outside the directive's list untouched.
+
+_p10_open_threads:
+  # Not blockers: what P10 leaves behind.
+  - "Nothing in the controller loop calls select_affected_checks, plan_repair or apply_repair
+     yet. The APIs are complete and tested; wiring them into orchestrator/runner dispatch
+     (and feeding a planner/diagnoser node's PlanRepairProposal into apply_repair) is P12
+     work."
+  - "E3 shadow comparisons are not persisted: ShadowComparison/qualify_affected are pure
+     values with no table behind them, so affected selection cannot actually graduate to
+     authoritative until something records a comparison per run."
+  - "RepositoryQueries.affected (structural impact from P09 facts) is still unimplemented.
+     P10 selection uses declared input globs only, which the spec allows ('P09 supplies
+     optional structural impact facts')."
+  - "apply_repair refuses while a live claimed/running attempt sits OUTSIDE the repair cone
+     (P10 does not move a running process between runs); such repairs wait for it to settle."
 
 _p09_open_threads:
   # Not blockers: what P09 leaves behind.

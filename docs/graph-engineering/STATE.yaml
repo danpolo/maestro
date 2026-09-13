@@ -1,9 +1,9 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-13T15:30:00Z"
-current_phase: "P09"
-status: "not_started"  # P08 complete; P09 next (P11 already done, P12 waits on P08-P10). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-13T18:30:00Z"
+current_phase: "P10"
+status: "not_started"  # P09 complete; P10 next (then P10B, P07B; P12 waits on all). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -300,6 +300,56 @@ completed_phases:
       isolation: tests/conftest.py autouse `_isolated_host_ledger` sets MAESTRO_HOST_LEDGER to
       a tmp_path_factory dir (not the test's tmp_path — test_no_lane_writes_outside_its_sandbox
       requires every tmp_path file inside the lane sandbox).
+
+  - phase: P09
+    completed_at: "2026-09-13T18:30:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q tests/repository -> 86 passed, exit 0 (each behavioural
+      test runs once per layer: ast-only and tree-sitter). `maestro doctor --thirdparty` ->
+      exit 0 (10 subjects: 9 verified, 1 drifted = agy, not in use). Whole suite
+      (pytest -n 8): 4297 passed, 1 skipped, 1 xfailed, exit 0.
+    notes: >-
+      maestro/repository/{providers,index,queries,context}.py + tests/repository/{conftest,
+      test_queries,test_overlays,test_context}.py. Layer 0 = git grep over the base COMMIT
+      (never the checkout), rg over overlay-changed worktree files (plain read if rg is
+      absent), stdlib ast. Layer 1 = tree-sitter 0.25.2 + tree-sitter-python 0.25.0, now a
+      `structural` extra in pyproject.toml, installed in .venv, each with its own verified
+      row in maestro/thirdparty.json (evidence artifacts/thirdparty/tree-sitter-licences.json).
+      providers.grammar_gate loads tree-sitter only when the parser row AND every GRAMMARS
+      entry's row is `verified` against the installed version; otherwise Layer 0 with the
+      reason.
+      .
+      Design choices worth knowing. (1) The index is a snapshot registry + parse cache keyed
+      (path, content_hash, extractor), NOT a whole-repo symbol index: queries grep for
+      candidates then parse only those, so no query needs a prebuilt index and deleting
+      .orchestrator/repository.sqlite3 loses only speed. (2) Only a commit id is a base
+      snapshot; a branch name is refused because it moves. (3) Overlay id =
+      hash(base, worktree realpath, edit fingerprint), so two worktrees never share rows even
+      with identical edits. (4) Stale overlay -> StaleSnapshotError by default; on_stale="flag"
+      answers `partial` with the drifted paths excluded (read from base). (5) A partial
+      tree-sitter parse is supplemented lexically: error recovery can swallow a later `def`
+      into an ERROR node (found by test). (6) ContextManifest withholding lives in
+      context.ROLE_PROFILES keyed by role_id and is applied before the budget; an unknown role
+      fails closed; mandatory instructions + acceptance criteria are counted first and never
+      cut, and an overrun is reported in unresolved_queries.
+      .
+      Deviations from the directive's file list, none a design change: added
+      maestro/repository/__init__.py, tests/repository/__init__.py and conftest.py; modified
+      maestro/thirdparty.json, pyproject.toml and added the evidence artifact (all required by
+      the licensing checklist item). `RepositoryQueries.affected` is deliberately NOT
+      implemented — it is P10's deliverable.
+
+_p09_open_threads:
+  # Not blockers: what P09 leaves behind.
+  - "Nothing calls RepositoryQueries or build_context_manifest from dispatch yet; P06's
+     RoutingContext reads 'the slice of P9's ContextManifest routing needs' and is still fed
+     by hand. Wiring is P10/P12 work."
+  - "`affected(changed_inputs, snapshot)` from the §3 API is unimplemented (P10)."
+  - "References are lexical word matches (flagged partial). Precise cross-file resolution
+     is Layer 2 (SCIP), gated behind Experiment E2 — not started."
+  - "Token estimate is chars/4; context_estimate_tokens is a budgeting figure, not billing."
+  - "Only the Python grammar is enabled. Another language needs its own thirdparty row
+     before providers.GRAMMARS may name it."
 
 in_progress_details: null
 

@@ -1,5 +1,14 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
+#
+# OPEN THREADS FORMAT (since 2026-09-14): every entry under a `_<phase>_open_threads` key is a mapping.
+#   - owner: <phase ID>         # still open; next_graph_prompt.py puts it in that phase's directive
+#     thread: "..."
+#   - disposition: accepted | closed | needs-dan   # no phase owns it
+#     note: "why / evidence / what Dan must decide"
+#     thread: "..."
+# A phase must close (disposition: closed + note) or re-own (owner: <later phase>) every thread it was
+# given before it marks itself complete. A bare string thread is a format error (tests/test_next_graph_prompt.py).
 schema_version: 1
 last_updated: "2026-09-14T14:00:00Z"
 current_phase: "P07B"
@@ -416,6 +425,10 @@ completed_phases:
       waiting). No resources blocks -> no capacity detection, no ledger read, same launch order.
 
 _open_threads_audit:
+  # 2026-09-14 planning session: all 28 threads triaged in place (closed 6, accepted 10, owner:P12A 10,
+  # owner:P07B 1, owner:P12 0, needs-dan 1) and P12A_GRAPH_DISPATCH_WIRING.md written. Code checks
+  # disagreed with the audit on: P10 #3 (accepted, not a gap), P10B #6 (graph runner has no admission
+  # at all -- from_node has zero callers), and found a root gap no thread named (_p12a_open_threads #1).
   # 2026-09-14, recorded at P10B close.
   # DECIDED by Dan 2026-09-14: a dedicated graph-dispatch WIRING PHASE goes before P12 (not a
   # widened P12). Planning session pending — see the handoff given at P10B close.
@@ -432,87 +445,135 @@ _open_threads_audit:
      (3) require every open thread to name an owning phase or 'accepted', and have
      next_graph_prompt.py include threads owned by the current phase."
 
+_p12a_open_threads:
+  # Seeded by the 2026-09-14 planning session.
+  - owner: P12A
+    thread: "No controller loop runs the graph runner at all: WorkflowRunner / start_run are only called
+     from tests, and `maestro run` enters only the legacy launch loop. Every other P12A item depends on a
+     per-project runner selector (engineering.runner, default legacy, D08) and a graph poll loop (spec W0)."
+
 _p10b_open_threads:
   # Not blockers: what P10B leaves behind.
-  - "The live loop admits in its own ranked queue order (_order_runnable: priority, aging,
+  - disposition: accepted
+    note: "Deliberate: keeps no-resources ROADMAP order identical; admission code is shared with schedule()."
+    thread: "The live loop admits in its own ranked queue order (_order_runnable: priority, aging,
      leverage, ties in ROADMAP order), not schedule()'s re-ranking with the `fits` term. That is
      what keeps no-resources ROADMAPs in the same order; protection and admission are the same
      code as schedule()."
-  - "Agent slots are still the legacy cap (free_slots), not an engine dimension; script tasks
+  - disposition: accepted
+    note: "Design note: agent slots stay separate from counted dimensions (P08 invariant)."
+    thread: "Agent slots are still the legacy cap (free_slots), not an engine dimension; script tasks
      never consult it."
-  - "SchedulingPolicy is the default (aging 600 s, starvation 1800 s); not exposed in
+  - disposition: accepted
+    note: "Defaults are adequate until P12 qualification data says otherwise."
+    thread: "SchedulingPolicy is the default (aging 600 s, starvation 1800 s); not exposed in
      thresholds."
-  - "Host capacity is detected once per controller process (_HOST_CAPACITY); cpu limit is
+  - owner: P12A
+    thread: "Host capacity is detected once per controller process (_HOST_CAPACITY); cpu limit is
      cores - 1. A request larger than the whole host waits forever with a reason naming the
      capacity — no park/escalation for it yet."
-  - "An awaiting-verification async job's hold is re-derived from its ROADMAP block each poll;
+  - owner: P12A
+    thread: "An awaiting-verification async job's hold is re-derived from its ROADMAP block each poll;
      editing or removing that block while the job runs drops its hold."
-  - "Engineering-mode (graph runner) node dispatch still uses ResourceRequest.from_node without
+  - owner: P12A
+    thread: "Engineering-mode (graph runner) node dispatch still uses ResourceRequest.from_node without
      the host ledger; only the legacy launch loop is wired (P12 territory)."
 
 _p10_open_threads:
   # Not blockers: what P10 leaves behind.
-  - "Nothing in the controller loop calls select_affected_checks, plan_repair or apply_repair
+  - owner: P12A
+    thread: "Nothing in the controller loop calls select_affected_checks, plan_repair or apply_repair
      yet. The APIs are complete and tested; wiring them into orchestrator/runner dispatch
      (and feeding a planner/diagnoser node's PlanRepairProposal into apply_repair) is P12
      work."
-  - "E3 shadow comparisons are not persisted: ShadowComparison/qualify_affected are pure
+  - owner: P12A
+    thread: "E3 shadow comparisons are not persisted: ShadowComparison/qualify_affected are pure
      values with no table behind them, so affected selection cannot actually graduate to
      authoritative until something records a comparison per run."
-  - "RepositoryQueries.affected (structural impact from P09 facts) is still unimplemented.
+  - disposition: accepted
+    note: "Code check 2026-09-14: no affected() method exists, so no caller can hit it (queries.py:18). P10 spec makes structural impact optional; glob selection is complete. Revisit only if E3 shows glob selection too coarse."
+    thread: "RepositoryQueries.affected (structural impact from P09 facts) is still unimplemented.
      P10 selection uses declared input globs only, which the spec allows ('P09 supplies
      optional structural impact facts')."
-  - "apply_repair refuses while a live claimed/running attempt sits OUTSIDE the repair cone
+  - disposition: accepted
+    note: "Deliberate: P10 never moves a running process between runs."
+    thread: "apply_repair refuses while a live claimed/running attempt sits OUTSIDE the repair cone
      (P10 does not move a running process between runs); such repairs wait for it to settle."
 
 _p09_open_threads:
   # Not blockers: what P09 leaves behind.
-  - "Nothing calls RepositoryQueries or build_context_manifest from dispatch yet; P06's
+  - owner: P12A
+    thread: "Nothing calls RepositoryQueries or build_context_manifest from dispatch yet; P06's
      RoutingContext reads 'the slice of P9's ContextManifest routing needs' and is still fed
      by hand. Wiring is P10/P12 work."
-  - "`affected(changed_inputs, snapshot)` from the §3 API is unimplemented (P10)."
-  - "References are lexical word matches (flagged partial). Precise cross-file resolution
+  - disposition: closed
+    note: "Duplicate of _p10_open_threads #3 (accepted there)."
+    thread: "`affected(changed_inputs, snapshot)` from the §3 API is unimplemented (P10)."
+  - disposition: accepted
+    note: "Layer 2 (SCIP) gated behind Experiment E2 by D07."
+    thread: "References are lexical word matches (flagged partial). Precise cross-file resolution
      is Layer 2 (SCIP), gated behind Experiment E2 — not started."
-  - "Token estimate is chars/4; context_estimate_tokens is a budgeting figure, not billing."
-  - "Only the Python grammar is enabled. Another language needs its own thirdparty row
+  - disposition: accepted
+    note: "Budgeting figure by design, not billing."
+    thread: "Token estimate is chars/4; context_estimate_tokens is a budgeting figure, not billing."
+  - disposition: accepted
+    note: "INV-12 gate: each grammar needs its own thirdparty row."
+    thread: "Only the Python grammar is enabled. Another language needs its own thirdparty row
      before providers.GRAMMARS may name it."
 
 in_progress_details: null
 
 _p08_open_threads:
   # Not blockers: what P08 leaves behind.
-  - "The legacy loop uses only scheduling.rank for ordering. AdmissionEngine's counted
+  - disposition: closed
+    note: "P10B landed (c240000): orchestrator.py:743 builds AdmissionEngine per poll and reserves via HostReservationLedger.reserve_counted."
+    thread: "The legacy loop uses only scheduling.rank for ordering. AdmissionEngine's counted
      dimensions (cpu / ram_mb / vram_mb) and scheduling.schedule's starvation protection are
      not consulted by orchestrator.main: the B8 `resource:` label mutex is still its resource
      gate. Wiring the engine in needs per-task resource requests the ROADMAP does not carry yet.
      Now planned as P10B (specs/phases/P10B_HOST_RESOURCE_ADMISSION.md), after P10, before P12."
-  - "Launch order is now priority -> aging -> downstream leverage, so a task that unblocks
+  - disposition: accepted
+    note: "Deliberate launch-order policy."
+    thread: "Launch order is now priority -> aging -> downstream leverage, so a task that unblocks
      more ROADMAP work can launch before one listed above it. Ties (no priority, equal
      leverage) keep ROADMAP order."
-  - "The host limit defaults to record-only (thresholds.host_pool_concurrency absent/0).
+  - disposition: accepted
+    note: "Operator opt-in by design (thresholds.host_pool_concurrency)."
+    thread: "The host limit defaults to record-only (thresholds.host_pool_concurrency absent/0).
      Nothing bounds cross-project pressure until an operator sets it."
-  - "RESOLVED 2026-09-13: tests/test_limits.py now pins fixture copies of the tables, and the
+  - disposition: closed
+    note: "Resolved 2026-09-13; full suite green 2026-09-14."
+    thread: "RESOLVED 2026-09-13: tests/test_limits.py now pins fixture copies of the tables, and the
      tests/test_cli.py thirdparty-gate test no longer depends on the installed CLI version."
-  - "OPEN 2026-09-13: maestro/limits.py AGENT_TABLE_DIRS reads Antigravity's table from
+  - disposition: needs-dan
+    note: "Dan to confirm agy's limits table lives at ~/.gemini/model_context_limits.md (AGENT_TABLE_DIRS, limits.py:189); file still absent 2026-09-14."
+    thread: "OPEN 2026-09-13: maestro/limits.py AGENT_TABLE_DIRS reads Antigravity's table from
      ~/.gemini/model_context_limits.md — inferred from where agy keeps its config, not yet
      confirmed by Dan. No file exists there yet; the live-table smoke test skips it."
-  - "PLANNED 2026-09-13: agy has no maestro driver (only claude/codex are routable), so its
+  - owner: P07B
+    thread: "PLANNED 2026-09-13: agy has no maestro driver (only claude/codex are routable), so its
      `doctor --thirdparty` drift (verified 1.1.27, installed 1.2.2) is harmless until P07B
      (specs/phases/P07B_ANTIGRAVITY_BACKEND.md) integrates it: Gemini 3.8 Flash `balanced`,
      every other agy model `light`, billing `subscription`, effort selection unchanged."
 
 _p11_open_threads:
   # Not blockers: what P11 leaves for P12 and for whoever picks up P08-P10.
-  - "P08, P09 and P10 are still unstarted (resource admission/scheduling, repository facts,
+  - disposition: closed
+    note: "Stale: P08, P09, P10 and P10B are all in completed_phases."
+    thread: "P08, P09 and P10 are still unstarted (resource admission/scheduling, repository facts,
      affected validation/repair) — the README's parallel `Conditional Enhancements` branch.
      P12 sits downstream of BOTH branches, so all three must land before qualification.
      P08 has since landed; `current_phase` is P09."
-  - "`maestro explain` shows no routing decision because none is persisted. The seam is
+  - owner: P12A
+    thread: "`maestro explain` shows no routing decision because none is persisted. The seam is
      metrics.ROUTE_RESOLVED / binding_identity() — durably recording one would complete the
      criteria -> binding -> evidence chain with the binding P06 actually chose."
-  - "`workflow show --html` renders the LATEST run by default and `--run <id>` picks an
+  - owner: P12A
+    thread: "`workflow show --html` renders the LATEST run by default and `--run <id>` picks an
      earlier one; nothing yet lists a task's runs. `_select_run` is the one place to add it."
-  - "The pre-existing tests/test_limits.py failure is still there and still untouched, and
+  - disposition: closed
+    note: "Both fixed 2026-09-13 (see _p08_open_threads #4); full suite green 2026-09-14."
+    thread: "The pre-existing tests/test_limits.py failure is still there and still untouched, and
      tests/test_cli.py's thirdparty gate now also fails on this machine because the `claude`
      CLI auto-updated past the version maestro/thirdparty.json was verified against. Both are
      environmental; neither is this phase's."
@@ -520,18 +581,22 @@ _p11_open_threads:
 _p07_open_threads:
   # Not scratch state and not a blocker: the two seams P07 leaves for whoever wires
   # dispatch. Kept here because `in_progress_details` must be null between phases.
-  - "NOTHING dispatches ModelAgentRuntime yet, and nothing consumes an AgentBinding in core
+  - owner: P12A
+    thread: "NOTHING dispatches ModelAgentRuntime yet, and nothing consumes an AgentBinding in core
      dispatch. P06's four consumer seams (dispatch_plan, execution_deadline_sec,
      token_account_key, status_summary) and model_api.capability_entry() are both ready;
      the wiring is still unwritten. A caller must build a catalog with capability_entry()
      for free_tier_api to have a catalogued backend at runtime."
-  - "maestro.handlers.candidate_select is registered and tested through
+  - owner: P12A
+    thread: "maestro.handlers.candidate_select is registered and tested through
      candidates.select_winner, but no controller code assembles its `inputs['candidates']`
      documents yet. It reads the candidate nodes off `controller.revision` and expects one
      document per candidate_id; a candidate with no document is `abandoned`, never dropped
      (dropping would shrink the set to one, which passes the isolation check by having
      nothing left to pollute). The controller side of that reap is P11/P12 work."
-  - "The pre-existing tests/test_limits.py failure P05, P06 and P07 all recorded is still
+  - disposition: closed
+    note: "Fixed 2026-09-13 (see _p08_open_threads #4); full suite green 2026-09-14."
+    thread: "The pre-existing tests/test_limits.py failure P05, P06 and P07 all recorded is still
      there and still untouched (the host model_context_limits.md table no longer matches
      that test's pinned numbers)."
 

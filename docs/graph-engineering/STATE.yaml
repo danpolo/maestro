@@ -451,6 +451,11 @@ _p12a_open_threads:
     thread: "No controller loop runs the graph runner at all: WorkflowRunner / start_run are only called
      from tests, and `maestro run` enters only the legacy launch loop. Every other P12A item depends on a
      per-project runner selector (engineering.runner, default legacy, D08) and a graph poll loop (spec W0)."
+  - owner: P12A
+    thread: "tests/test_selfupdate.py::test_first_run_adopts_silently_with_no_self_test_ceremony fails
+     in the full suite (FileNotFoundError: <tmp>/maestro_home/current) but passes alone: an order-dependent
+     leak between tests, seen 2026-09-14 on c240000 before any planning edit. P12A's acceptance needs the
+     full suite at exit 0, so find the test that leaks state and fix the isolation first."
 
 _p10b_open_threads:
   # Not blockers: what P10B leaves behind.

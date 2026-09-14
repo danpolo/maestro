@@ -1,9 +1,9 @@
 # Maestro Graph Engineering Implementation State
 # This file is updated by agents at the end of each session and parsed by scripts/next_graph_prompt.py
 schema_version: 1
-last_updated: "2026-09-14T09:00:00Z"
-current_phase: "P10B"
-status: "not_started"  # P10 complete; P10B next (then P07B; P12 waits on all). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-14T14:00:00Z"
+current_phase: "P07B"
+status: "not_started"  # P10B complete; P07B next (P12 waits on all). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -379,6 +379,76 @@ completed_phases:
       the worker binds, so apply_repair checks attempts.writer_pid; revoking on the lease
       placeholder would have signalled the wrong process. No schema change; runner.py and
       the files outside the directive's list untouched.
+  - phase: P10B
+    completed_at: "2026-09-14T14:00:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q tests/test_host_resource_admission.py
+      tests/test_scheduling.py tests/control/test_resources.py -> 61 passed, 0 failed, exit 0.
+      Also green: tests/test_orchestrator_scheduling.py tests/test_taskgraph.py. Whole suite
+      (pytest -q -x) -> exit 0 (one skip, one xfail).
+    notes: >-
+      taskgraph.py: TaskSpec.resources + parse_resources() (RESOURCE_KEYS cpu/ram_mb/vram_mb;
+      non-negative finite numbers, bool refused, unknown key -> ResourceSpecError; amounts keep
+      their written type so round-trips do not rewrite 8000 as 8000.0). validate() reports
+      `invalid_resources`; build_graph(strict=False) drops a bad block instead of raising.
+      `resources` is a consumed key; the B8 `resource:` label stays in legacy_fields.
+      .
+      scheduling.py: ResourceRequest.from_task (counted dims only, never agent:/pool:);
+      AdmissionRound — schedule()'s admission step one candidate at a time with admit/withdraw;
+      schedule() now loops over it (P08 tests unchanged and green).
+      .
+      control/resources.py: Reservation.amounts (omitted from the row when empty, so pool rows
+      keep the P08 shape); COUNTED_POOL = "host:counted"; reserve_counted(amounts, capacity=...)
+      sums every project's live counted rows in the same flock as the insert; held_amounts
+      (exclude_project=); sync_project(counted=run_id->amounts) refreshes / releases / adopts
+      counted rows alongside pool slots (counted omitted == none live). Dead-PID / previous-boot
+      purge unchanged and covers counted rows.
+      .
+      orchestrator.py: after the existing gates (slots, parked, cooldown, B8 mutex, questions)
+      each candidate with a resources block is admitted through an AdmissionRound built lazily
+      per poll: AdmissionEngine(_host_capacity(), held=other projects' held_amounts) with this
+      project's in-flight `resources` (recorded on the in_flight entry) and awaiting-verification
+      async jobs taken first; then reserve_counted in the ledger (fail closed on a ledger error);
+      any later launch failure withdraws + releases. Waiting reasons persist in
+      state["admission_waiting"] (since kept while the reason is unchanged; journal
+      `launch_waiting_admission` once per new reason); `maestro status` lists them and
+      `maestro explain` prints the verdict (exit 0 when the task has no workflow run yet but is
+      waiting). No resources blocks -> no capacity detection, no ledger read, same launch order.
+
+_open_threads_audit:
+  # 2026-09-14, recorded at P10B close.
+  # DECIDED by Dan 2026-09-14: a dedicated graph-dispatch WIRING PHASE goes before P12 (not a
+  # widened P12). Planning session pending — see the handoff given at P10B close.
+  - "No open thread in any _pXX_open_threads section has an owning phase, and
+     scripts/next_graph_prompt.py never feeds them to a later session. Threads labelled
+     'P12 work' / 'P10/P12 wiring' are mis-assigned: specs/phases/P12_QUALIFICATION_AND_RELEASE.md
+     contains only e2e tests, the scratch-project pilot and retention measurement — no wiring."
+  - "Triage of the 28 threads: 7 are built-but-uncalled wiring gaps (P07 #1 #2, P09 #1, P10 #1 #2,
+     P10B #6, P11 #2); 6 small real gaps (P10B #4 #5, P11 #3, P09 #2 == P10 #3, P08 #5 needs Dan);
+     9 deliberate design notes to mark accepted (P10B #1 #2 #3, P08 #2 #3, P09 #3 #4 #5, P10 #4);
+     6 stale/resolved to close (P11 #1 #4, P07 #3, P08 #1 #4 #6)."
+  - "Proposed (awaiting Dan): (1) close stale + mark accepted; (2) add a graph-dispatch wiring
+     phase between P07B and P12 owning the 7 wiring gaps (alternative: widen P12);
+     (3) require every open thread to name an owning phase or 'accepted', and have
+     next_graph_prompt.py include threads owned by the current phase."
+
+_p10b_open_threads:
+  # Not blockers: what P10B leaves behind.
+  - "The live loop admits in its own ranked queue order (_order_runnable: priority, aging,
+     leverage, ties in ROADMAP order), not schedule()'s re-ranking with the `fits` term. That is
+     what keeps no-resources ROADMAPs in the same order; protection and admission are the same
+     code as schedule()."
+  - "Agent slots are still the legacy cap (free_slots), not an engine dimension; script tasks
+     never consult it."
+  - "SchedulingPolicy is the default (aging 600 s, starvation 1800 s); not exposed in
+     thresholds."
+  - "Host capacity is detected once per controller process (_HOST_CAPACITY); cpu limit is
+     cores - 1. A request larger than the whole host waits forever with a reason naming the
+     capacity — no park/escalation for it yet."
+  - "An awaiting-verification async job's hold is re-derived from its ROADMAP block each poll;
+     editing or removing that block while the job runs drops its hold."
+  - "Engineering-mode (graph runner) node dispatch still uses ResourceRequest.from_node without
+     the host ledger; only the legacy launch loop is wired (P12 territory)."
 
 _p10_open_threads:
   # Not blockers: what P10 leaves behind.

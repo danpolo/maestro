@@ -12,7 +12,7 @@
 schema_version: 1
 last_updated: "2026-09-15T18:00:00Z"
 current_phase: "P12A"
-status: "in_progress"  # P12A S1 partial: selfupdate leak (#2) fixed; W12/W0 next (handoffs/2026-09-15-graph-p12a-s1b-w12-w0.md). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+status: "in_progress"  # P12A S1 done (W0, W12, #2); S2 next: W1/W2/W3/W8 (handoffs/2026-09-15-graph-p12a-s2.md). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -473,8 +473,13 @@ _p12a_open_threads:
     thread: "No controller loop runs the graph runner at all: WorkflowRunner / start_run are only called
      from tests, and `maestro run` enters only the legacy launch loop. Every other P12A item depends on a
      per-project runner selector (engineering.runner, default legacy, D08) and a graph poll loop (spec W0)."
-  - owner: P12A
-    thread: "tests/test_selfupdate.py (test_first_run_adopts_silently_with_no_self_test_ceremony,
+    disposition: closed
+    note: "2026-09-15 P12A S1b (W0). config.engineering_runner (default legacy; unknown value or non-mapping block raises ConfigError);
+     orchestrator.main branches once per process after the halt/paused checks: _runner_switch_refusal (graph refused while legacy in_flight /
+     awaiting-verification, or with no control.sqlite3 -- never created silently; legacy refused while task_runs running/paused), else _graph_main
+     (resume running runs via load_revision; open one run per runnable task with no task_runs row, workflow_id wf_<task_id>; tick/ingest_results/settle).
+     Dispatch choke point: WorkflowRunner.launch_worker. Proven under the real main() in tests/graph_engineering/test_dispatch_wiring.py (9 tests)."
+  - thread: "tests/test_selfupdate.py (test_first_run_adopts_silently_with_no_self_test_ceremony,
      test_a_passing_candidate_adopts_cleanly, test_a_red_candidate_is_held_and_current_stays_put) fails
      in the full suite (FileNotFoundError: <tmp>/maestro_home/current) but the file passes alone (14 passed) and after
      tests/test_next_graph_prompt.py (21 passed): an order-dependent
@@ -485,25 +490,39 @@ _p12a_open_threads:
      calls cli in-process; cmd_* sets os.environ['MAESTRO_REPO'] and never restores it, so selfupdate.adopt wrote the
      per-project pin instead of $MAESTRO_HOME/current. Found with a per-test env-diff plugin, not bisection. Fix: the
      _no_leaked_project containment moved from tests/test_workflow_status.py to tests/conftest.py (autouse, session-wide).
-     Evidence: FULLSUITE"
+     Evidence: full suite on cc1aecf+fix, junit tests=4473 failures=0 for tests/test_selfupdate.py (all 14 green in suite order)."
   - owner: P12A
     thread: "F2 (Found in the P00 DuetFlow rehearsal; details in artifacts/graph-engineering/b01-duetflow-pilot.json). maestro/cli.py _derive_repo_facts builds the test command as (git_root/.venv/bin/python3).resolve(),
      which follows the symlink OUT of the virtualenv (/usr/bin/python3.11 -m pytest -q). The first dependency
      that lives only in .venv turns every gate run into a collection error that looks like the task's fault.
      Fix: do not resolve the venv interpreter symlink. Spec W12."
+    disposition: closed
+    note: "2026-09-15 P12A S1b. _derive_repo_facts keeps git_root/.venv/bin/python3 unresolved; test_derived_test_command_stays_inside_the_virtualenv
+     asserts argv[0] == <repo>/.venv/bin/python3 with python3 symlinked to the base interpreter."
   - owner: P12A
     thread: "F3 (Found in the P00 DuetFlow rehearsal; details in artifacts/graph-engineering/b01-duetflow-pilot.json). On a repo with no .orchestrator/, one `maestro init` run creates state.json part-way through (its no-op
      supervised loop check), then reports it as pre-existing and writes a spurious state.json.new containing {}.
      Fix: scaffolding must not treat init's own output as a pre-existing file. Spec W12."
+    disposition: closed
+    note: "2026-09-15 P12A S1b. A single init does not reproduce it (S1a). Mechanism, from code, not executed: init scaffolds state.json {} and its
+     no-op loop check rewrites it, so the pilot's SECOND init (rework_attempts[0]) saw a differing file and wrote state.json.new {}. Hardened:
+     _ensure_orchestrator_dirs reports an existing state.json as unchanged (runtime state, never a scaffold). test_existing_state_json_is_runtime_state_not_a_scaffold."
   - owner: P12A
     thread: "F4 (Found in the P00 DuetFlow rehearsal; details in artifacts/graph-engineering/b01-duetflow-pilot.json). init proposes a .gitignore.new that REPLACES the project's .gitignore instead of appending (DuetFlow: 56
      deletions, 5 insertions), dropping the config.yaml / *.token / tokens/ / *.db / data/ ignores. An operator
      who merges it as offered silently removes secret protection. Fix: propose only the missing lines. Spec W12."
+    disposition: closed
+    note: "2026-09-15 P12A S1b. _scaffold_gitignore: .new = existing content unchanged + only missing entries (unchanged when none missing).
+     On a 56-line file every line survives at the top of .new and the diff has zero - lines (test_gitignore_proposal_only_appends_the_missing_lines)."
   - owner: P12A
     thread: "F5 (Found in the P00 DuetFlow rehearsal; details in artifacts/graph-engineering/b01-duetflow-pilot.json). operating_preamble.md's deny-list block is rendered once by init from a hardcoded placeholder (maestro/cli.py
      mapping dict), before the setup interview produces risky_set / deny_list_extra, and nothing re-renders it
      (not doctor, not a re-run of init). Fixed in the maestro-setup skill, NOT in maestro. Fix: re-render the
      block from project.yaml, or have doctor flag the placeholder. Spec W12."
+    disposition: closed
+    note: "2026-09-15 P12A S1b. Both halves: init renders the preamble deny list from project.yaml risky_set + deny_list_extra (_deny_list_block),
+     and doctor has a required preamble_deny_list check -- cmd_doctor exits 1 with a list set and the placeholder present, 0 once rendered
+     (test_preamble_deny_list_renders_from_project_yaml_or_doctor_fails). Empty lists keep the placeholder and pass."
 
 _p07b_open_threads:
   # Not blockers: what P07B leaves behind.
@@ -603,15 +622,13 @@ _p09_open_threads:
 in_progress_details:
   what_was_done:
     - "_p12a_open_threads #2 (selfupdate order leak) closed: tests/conftest.py _no_leaked_project (session-wide)."
-    - "W12 F2/F4 reproduced on a scratch repo with current code (F2: test command /usr/bin/python3.11; F4: .gitignore.new @@ -1,56 +1,18 drops every existing line). No fix written yet."
-    - "W12 F3 did NOT reproduce on cc1aecf (first init: 19 created, no state.json.new) — needs a reproduction before a fix."
-    - "W0 design seams mapped (no code): see handoffs/2026-09-15-graph-p12a-s1b-w12-w0.md."
+    - "S1b: _p12a_open_threads #1 (W0) and #3-#6 (W12 F2-F5) closed -- see their notes."
+    - "S1b verification: tests/test_cli.py + test_dispatch_wiring.py junit tests=67 failures=0; P12A gate command junit tests=262 failures=0; full suite FULL_SUITE_PENDING."
   whats_left:
-    - "W12 F2-F5 fixes + tests (S1b)"
-    - "W0 runner selector + graph poll loop + dispatch choke point + tests/graph_engineering/test_dispatch_wiring.py (S1b)"
-    - "W1, W2, W3, W8 (S2); W4, W5/W6, W7, W9, W10, W11, full suite, close-out (S3)"
+    - "W1 (+ _p07b #1/#2/#4), W2, W3, W8 (S2 -- handoffs/2026-09-15-graph-p12a-s2.md)"
+    - "W4, W5/W6, W7, W9, W10, W11, full suite, close-out (S3)"
   relevant_context:
-    - "Session stopped at the 160K context threshold, not on a blocker."
+    - "Graph mode refuses (does not create) a missing .orchestrator/control.sqlite3; Dan has not been asked about auto-creating it."
     - "Context Gate is NOT built and is out of scope (memory context-management-not-built-independent)."
   active_branch: "feat/graph-engineering-foundation"
 

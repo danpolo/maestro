@@ -12,7 +12,7 @@
 schema_version: 1
 last_updated: "2026-09-15T18:00:00Z"
 current_phase: "P12A"
-status: "not_started"  # P07B complete (catalog, thirdparty agy row at runtime scope, routing tests); P12A next. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+status: "in_progress"  # P12A S1 partial: selfupdate leak (#2) fixed; W12/W0 next (handoffs/2026-09-15-graph-p12a-s1b-w12-w0.md). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -480,6 +480,12 @@ _p12a_open_threads:
      tests/test_next_graph_prompt.py (21 passed): an order-dependent
      leak between tests, seen 2026-09-14 on c240000 before any planning edit. P12A's acceptance needs the
      full suite at exit 0, so find the test that leaks state and fix the isolation first."
+    disposition: closed
+    note: "2026-09-15 P12A S1. Leaker: tests/test_host_resource_admission.py::test_status_and_explain_can_say_why_a_task_is_waiting
+     calls cli in-process; cmd_* sets os.environ['MAESTRO_REPO'] and never restores it, so selfupdate.adopt wrote the
+     per-project pin instead of $MAESTRO_HOME/current. Found with a per-test env-diff plugin, not bisection. Fix: the
+     _no_leaked_project containment moved from tests/test_workflow_status.py to tests/conftest.py (autouse, session-wide).
+     Evidence: FULLSUITE"
   - owner: P12A
     thread: "F2 (Found in the P00 DuetFlow rehearsal; details in artifacts/graph-engineering/b01-duetflow-pilot.json). maestro/cli.py _derive_repo_facts builds the test command as (git_root/.venv/bin/python3).resolve(),
      which follows the symlink OUT of the virtualenv (/usr/bin/python3.11 -m pytest -q). The first dependency
@@ -594,7 +600,20 @@ _p09_open_threads:
     thread: "Only the Python grammar is enabled. Another language needs its own thirdparty row
      before providers.GRAMMARS may name it."
 
-in_progress_details: null
+in_progress_details:
+  what_was_done:
+    - "_p12a_open_threads #2 (selfupdate order leak) closed: tests/conftest.py _no_leaked_project (session-wide)."
+    - "W12 F2/F4 reproduced on a scratch repo with current code (F2: test command /usr/bin/python3.11; F4: .gitignore.new @@ -1,56 +1,18 drops every existing line). No fix written yet."
+    - "W12 F3 did NOT reproduce on cc1aecf (first init: 19 created, no state.json.new) — needs a reproduction before a fix."
+    - "W0 design seams mapped (no code): see handoffs/2026-09-15-graph-p12a-s1b-w12-w0.md."
+  whats_left:
+    - "W12 F2-F5 fixes + tests (S1b)"
+    - "W0 runner selector + graph poll loop + dispatch choke point + tests/graph_engineering/test_dispatch_wiring.py (S1b)"
+    - "W1, W2, W3, W8 (S2); W4, W5/W6, W7, W9, W10, W11, full suite, close-out (S3)"
+  relevant_context:
+    - "Session stopped at the 160K context threshold, not on a blocker."
+    - "Context Gate is NOT built and is out of scope (memory context-management-not-built-independent)."
+  active_branch: "feat/graph-engineering-foundation"
 
 _p08_open_threads:
   # Not blockers: what P08 leaves behind.

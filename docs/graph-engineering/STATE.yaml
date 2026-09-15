@@ -12,7 +12,7 @@
 schema_version: 1
 last_updated: "2026-09-15T10:15:00Z"
 current_phase: "P07B"
-status: "in_progress"  # P10B complete; P07B sessions 1-2 probed agy and settled design, no code yet (P12 waits on all). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+status: "in_progress"  # P10B complete; P07B session 3 landed driver/registry/limits (83f880c); catalog, thirdparty row, routing tests, close-out remain (P12 waits on all). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -550,8 +550,9 @@ in_progress_details:
   what_was_done:
     - "Probed installed agy 1.2.2 headlessly (models, --effort, json/stream-json output, --conversation resume, quota surface) -> artifacts/graph-engineering/p07b-agy-1.2.2-probe.json"
     - "Session 2 (2026-09-15): read every seam P07B touches and settled the remaining design points; no code written. Findings + implementation plan -> handoffs/2026-09-15-graph-p07b-antigravity-backend-s3.md"
+    - "Session 3 (2026-09-15, 83f880c): plan steps 1-3 — antigravity DriverRef (in_default_chain=False) + roles.default_chain filter; required_subjects keyed on binary; limits prefixed variant fold + context_crossed(backend=) + orchestrator/doctor call sites; base.Usage.token_split/cli_version; maestro/backends/antigravity.py + tests/backends/test_antigravity.py. Verification run1 193 passed, run2 (+ cli scoped test) 799 passed, 0 failures"
   whats_left:
-    - "Every P07B checklist item (driver, registry, catalog row, thirdparty row, limits call sites, tests) — implement per handoffs/2026-09-15-graph-p07b-antigravity-backend-s3.md"
+    - "Plan steps 4-7 per handoffs/2026-09-15-graph-p07b-antigravity-backend-s4.md: catalog backend_id override + ANTIGRAVITY_CATALOG_DEFAULTS + catalog test; thirdparty agy row (runtime, maestro_driver, 1.2.3, effort_control w/o native_values); routing tests; doctor --thirdparty; STATE close-out + _p07b_open_threads"
   relevant_context:
     - "Dan 2026-09-15: build P07B assuming the Context Gate/context management comes later"
     - "Dan 2026-09-15: only gemini-3.8-flash-high is balanced; every other agy id (incl. other 3.8 variants and 3p models) is light; single Gemini usage_pool_id, 3p misattribution -> P12A thread"
@@ -559,6 +560,7 @@ in_progress_details:
     - "agy auto-updated to 1.2.3 on this host (agy --version -> '1.2.3'); the thirdparty row must pin the exact installed string"
     - "roles.default_chain() includes every registered backend: registering agy unguarded would put it in the implicit fallback chain — keep it out via a registry-row flag"
     - "Session 2 stopped at the 160K context handoff mark, not on a blocker"
+    - "Session 3 stopped at the 160K context handoff mark after committing steps 1-3, not on a blocker"
   active_branch: "feat/graph-engineering-foundation"
 
 _p08_open_threads:

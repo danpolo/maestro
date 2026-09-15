@@ -475,7 +475,7 @@ _p12a_open_threads:
     disposition: closed
     note: "2026-09-15 P12A S1b (W0). config.engineering_runner (default legacy; unknown value or non-mapping block raises ConfigError);
      orchestrator.main branches once per process after the halt/paused checks: _runner_switch_refusal (graph refused while legacy in_flight /
-     awaiting-verification, or with no control.sqlite3 -- never created silently; legacy refused while task_runs running/paused), else _graph_main
+     awaiting-verification; otherwise a missing control.sqlite3 is created (Dan, 2026-09-15); legacy refused while task_runs running/paused), else _graph_main
      (resume running runs via load_revision; open one run per runnable task with no task_runs row, workflow_id wf_<task_id>; tick/ingest_results/settle).
      Dispatch choke point: WorkflowRunner.launch_worker. Proven under the real main() in tests/graph_engineering/test_dispatch_wiring.py (9 tests)."
   - thread: "tests/test_selfupdate.py (test_first_run_adopts_silently_with_no_self_test_ceremony,
@@ -618,12 +618,12 @@ in_progress_details:
   what_was_done:
     - "_p12a_open_threads #2 (selfupdate order leak) closed: tests/conftest.py _no_leaked_project (session-wide)."
     - "S1b: _p12a_open_threads #1 (W0) and #3-#6 (W12 F2-F5) closed -- see their notes."
-    - "S1b verification: tests/test_cli.py + test_dispatch_wiring.py junit tests=67 failures=0; P12A gate command junit tests=262 failures=0; full suite FULL_SUITE_PENDING."
+    - "S1b verification: tests/test_cli.py + test_dispatch_wiring.py junit tests=67 failures=0; P12A gate command junit tests=262 failures=0; full suite junit tests=4486 failures=0 skipped=1, exit 0 (after dropping owner: from the closed P12A threads, which test_live_state_threads_are_all_structured requires)."
   whats_left:
     - "W1 (+ _p07b #1/#2/#4), W2, W3, W8 (S2 -- handoffs/2026-09-15-graph-p12a-s2.md)"
     - "W4, W5/W6, W7, W9, W10, W11, full suite, close-out (S3)"
   relevant_context:
-    - "Graph mode refuses (does not create) a missing .orchestrator/control.sqlite3; Dan has not been asked about auto-creating it."
+    - "DECIDED by Dan 2026-09-15: graph mode creates a missing .orchestrator/control.sqlite3 automatically (journal control_db_created), after the switch-refusal checks pass."
     - "Context Gate is NOT built and is out of scope (memory context-management-not-built-independent)."
   active_branch: "feat/graph-engineering-foundation"
 

@@ -10,9 +10,9 @@
 # A phase must close (disposition: closed + note) or re-own (owner: <later phase>) every thread it was
 # given before it marks itself complete. A bare string thread is a format error (tests/test_next_graph_prompt.py).
 schema_version: 1
-last_updated: "2026-09-15T10:15:00Z"
-current_phase: "P07B"
-status: "in_progress"  # P10B complete; P07B session 3 landed driver/registry/limits (83f880c); catalog, thirdparty row, routing tests, close-out remain (P12 waits on all). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-15T18:00:00Z"
+current_phase: "P12A"
+status: "not_started"  # P07B complete (catalog, thirdparty agy row at runtime scope, routing tests); P12A next. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -424,6 +424,28 @@ completed_phases:
       `maestro explain` prints the verdict (exit 0 when the task has no workflow run yet but is
       waiting). No resources blocks -> no capacity detection, no ledger read, same launch order.
 
+  - phase: P07B
+    completed_at: "2026-09-15T18:00:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q tests/backends/test_antigravity.py tests/test_routing.py
+      tests/backends/test_catalog.py tests/test_thirdparty.py tests/test_limits.py -> 203 passed,
+      0 failed, exit 0. Wider: tests/test_no_name_branching.py tests/backends tests/test_switch.py
+      tests/test_orchestrator_switch_hooks.py tests/test_roles.py tests/workflows/test_policy.py
+      tests/test_per_session_usage.py tests/test_cli.py -> 856 passed, 0 failed.
+      maestro doctor --thirdparty: agy verified 1.2.3 (exit 1 only for claude drift 2.1.270 ->
+      2.1.272, an unrelated CLI auto-update).
+    notes: >-
+      Sessions 1-2 probed agy 1.2.2 and settled design; session 3 (83f880c) landed the driver,
+      registry row (in_default_chain=False), and agy/-scoped limits. Session 4:
+      catalog_from_register honours a defaults `backend_id`; catalog.ANTIGRAVITY_CATALOG_DEFAULTS
+      (backend_id antigravity_cli, pool antigravity-gemini, subscription, 14 probed ids each with
+      an explicit profile — only gemini-3.8-flash-high balanced — Flash-family 1_048_576/120K
+      limits with Pro/GPT-OSS/3p-Claude overrides, relative_cost 1.0 unmeasured). thirdparty agy
+      row: scope runtime, maestro_driver true, verified 1.2.3, effort_control kind flag with no
+      native_values (so effort unsupported, effort_args == ()), quota push-only. Routing tests:
+      balanced -> only gemini-3.8-flash-high; strong never agy; paused antigravity-gemini pool ->
+      claude/codex in the same resolution; light via a test-local role binds an agy light model.
+
 _open_threads_audit:
   # 2026-09-14 planning session: all 28 threads triaged in place (closed 6, accepted 10, owner:P12A 10,
   # owner:P07B 1, owner:P12 0, needs-dan 1) and P12A_GRAPH_DISPATCH_WIRING.md written. Code checks
@@ -476,6 +498,32 @@ _p12a_open_threads:
      mapping dict), before the setup interview produces risky_set / deny_list_extra, and nothing re-renders it
      (not doctor, not a re-run of init). Fixed in the maestro-setup skill, NOT in maestro. Fix: re-render the
      block from project.yaml, or have doctor flag the placeholder. Spec W12."
+
+_p07b_open_threads:
+  # Not blockers: what P07B leaves behind.
+  - owner: P12A
+    thread: "agy's 3p-5h / 3p-weekly pools (claude-*, gpt-oss served through agy) bill separately from
+     gemini-5h / gemini-weekly, but the catalog carries one usage_pool_id (antigravity-gemini) and the
+     driver's usage() maps only the Gemini pools, so 3p usage is misattributed and 3p exhaustion is
+     invisible to admission."
+  - owner: P12A
+    thread: "One backend, three names: catalog backend_id `antigravity_cli`, register subject `agy`
+     (the binary), registry driver name `antigravity`. Dispatch from an AgentBinding needs an explicit
+     backend_id -> driver-name mapping; nothing maps them yet."
+  - disposition: accepted
+    note: "Dan 2026-09-15: no shipped role floor changes; the light path is proven with a test-local role."
+    thread: "No shipped role in maestro/templates/roles/ yields `light` demand (all floor at balanced or
+     strong), so agy's light models get no real work yet."
+  - owner: P12A
+    thread: "--sandbox and the permission mode for headless agy edits were never exercised; the driver
+     declares sandbox=false and the row keeps it as an open question."
+  - disposition: closed
+    note: "Closed 2026-09-15 (Dan: harness auto-updates must not break things). thirdparty.status_for/audit now
+     re-read a moved backend's --help; all recorded controls present -> status `reobserved` (non-blocking),
+     a vanished control or unreadable --help -> `drifted`. doctor --thirdparty on this host: claude
+     reobserved 2.1.270 -> 2.1.272, exit 0. DESIGN.md section 15 updated."
+    thread: "maestro doctor --thirdparty exited 1 because claude auto-updated 2.1.270 -> 2.1.272 and the gate
+     compared exact versions only."
 
 _p10b_open_threads:
   # Not blockers: what P10B leaves behind.
@@ -546,22 +594,7 @@ _p09_open_threads:
     thread: "Only the Python grammar is enabled. Another language needs its own thirdparty row
      before providers.GRAMMARS may name it."
 
-in_progress_details:
-  what_was_done:
-    - "Probed installed agy 1.2.2 headlessly (models, --effort, json/stream-json output, --conversation resume, quota surface) -> artifacts/graph-engineering/p07b-agy-1.2.2-probe.json"
-    - "Session 2 (2026-09-15): read every seam P07B touches and settled the remaining design points; no code written. Findings + implementation plan -> handoffs/2026-09-15-graph-p07b-antigravity-backend-s3.md"
-    - "Session 3 (2026-09-15, 83f880c): plan steps 1-3 — antigravity DriverRef (in_default_chain=False) + roles.default_chain filter; required_subjects keyed on binary; limits prefixed variant fold + context_crossed(backend=) + orchestrator/doctor call sites; base.Usage.token_split/cli_version; maestro/backends/antigravity.py + tests/backends/test_antigravity.py. Verification run1 193 passed, run2 (+ cli scoped test) 799 passed, 0 failures"
-  whats_left:
-    - "Plan steps 4-7 per handoffs/2026-09-15-graph-p07b-antigravity-backend-s4.md: catalog backend_id override + ANTIGRAVITY_CATALOG_DEFAULTS + catalog test; thirdparty agy row (runtime, maestro_driver, 1.2.3, effort_control w/o native_values); routing tests; doctor --thirdparty; STATE close-out + _p07b_open_threads"
-  relevant_context:
-    - "Dan 2026-09-15: build P07B assuming the Context Gate/context management comes later"
-    - "Dan 2026-09-15: only gemini-3.8-flash-high is balanced; every other agy id (incl. other 3.8 variants and 3p models) is light; single Gemini usage_pool_id, 3p misattribution -> P12A thread"
-    - "Dan 2026-09-15 (session 2): NO shipped role floor changes; prove the light path with a test-local role only"
-    - "agy auto-updated to 1.2.3 on this host (agy --version -> '1.2.3'); the thirdparty row must pin the exact installed string"
-    - "roles.default_chain() includes every registered backend: registering agy unguarded would put it in the implicit fallback chain — keep it out via a registry-row flag"
-    - "Session 2 stopped at the 160K context handoff mark, not on a blocker"
-    - "Session 3 stopped at the 160K context handoff mark after committing steps 1-3, not on a blocker"
-  active_branch: "feat/graph-engineering-foundation"
+in_progress_details: null
 
 _p08_open_threads:
   # Not blockers: what P08 leaves behind.
@@ -585,14 +618,20 @@ _p08_open_threads:
     note: "Resolved 2026-09-13; full suite green 2026-09-14."
     thread: "RESOLVED 2026-09-13: tests/test_limits.py now pins fixture copies of the tables, and the
      tests/test_cli.py thirdparty-gate test no longer depends on the installed CLI version."
-  - owner: P07B
-    note: "Parse + scoping FIXED 2026-09-14 (outside a phase): Dan's agy table now uses ranges (low end = old
+  - disposition: closed
+    note: "Closed by P07B session 3 (83f880c): limits._lookup folds agy variant ids (all 14 probed ids +
+     display form) onto agy/ rows only under a harness prefix; switch.context_crossed(backend=) and the
+     orchestrator/doctor call sites pass the backend; a backend-less lookup returns None (tests/test_limits.py).
+     Earlier: Parse + scoping FIXED 2026-09-14 (outside a phase): Dan's agy table now uses ranges (low end = old
      value - 5K) and every row carries the `agy/` harness prefix (agy serves third-party models with agy-specific
      limits); limits.AGENT_MODEL_PREFIX, scoped_model_name, resolve(..., backend=). Remaining for P07B: agy
      sessions' limits lookups pass backend='antigravity' (spec P07B §2 'Limits table')."
     thread: "OPEN 2026-09-14: the agy driver/rotation/doctor must resolve limits through the `agy/` prefix;
      a backend-less lookup deliberately never reaches agy rows."
-  - owner: P07B
+  - disposition: closed
+    note: "Closed by P07B: maestro/backends/antigravity.py driver + registry row; thirdparty agy row now
+     runtime scope, maestro_driver true, verified 1.2.3 (doctor: verified); catalog grades
+     gemini-3.8-flash-high balanced and every other agy id light, billing subscription."
     thread: "PLANNED 2026-09-13: agy has no maestro driver (only claude/codex are routable), so its
      `doctor --thirdparty` drift (verified 1.1.27, installed 1.2.2) is harmless until P07B
      (specs/phases/P07B_ANTIGRAVITY_BACKEND.md) integrates it: Gemini 3.8 Flash `balanced`,

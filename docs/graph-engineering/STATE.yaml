@@ -10,9 +10,9 @@
 # A phase must close (disposition: closed + note) or re-own (owner: <later phase>) every thread it was
 # given before it marks itself complete. A bare string thread is a format error (tests/test_next_graph_prompt.py).
 schema_version: 1
-last_updated: "2026-09-14T14:00:00Z"
+last_updated: "2026-09-15T10:15:00Z"
 current_phase: "P07B"
-status: "not_started"  # P10B complete; P07B next (P12 waits on all). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+status: "in_progress"  # P10B complete; P07B sessions 1-2 probed agy and settled design, no code yet (P12 waits on all). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -452,10 +452,30 @@ _p12a_open_threads:
      from tests, and `maestro run` enters only the legacy launch loop. Every other P12A item depends on a
      per-project runner selector (engineering.runner, default legacy, D08) and a graph poll loop (spec W0)."
   - owner: P12A
-    thread: "tests/test_selfupdate.py::test_first_run_adopts_silently_with_no_self_test_ceremony fails
-     in the full suite (FileNotFoundError: <tmp>/maestro_home/current) but passes alone: an order-dependent
+    thread: "tests/test_selfupdate.py (test_first_run_adopts_silently_with_no_self_test_ceremony,
+     test_a_passing_candidate_adopts_cleanly, test_a_red_candidate_is_held_and_current_stays_put) fails
+     in the full suite (FileNotFoundError: <tmp>/maestro_home/current) but the file passes alone (14 passed) and after
+     tests/test_next_graph_prompt.py (21 passed): an order-dependent
      leak between tests, seen 2026-09-14 on c240000 before any planning edit. P12A's acceptance needs the
      full suite at exit 0, so find the test that leaks state and fix the isolation first."
+  - owner: P12A
+    thread: "F2 (Found in the P00 DuetFlow rehearsal; details in artifacts/graph-engineering/b01-duetflow-pilot.json). maestro/cli.py _derive_repo_facts builds the test command as (git_root/.venv/bin/python3).resolve(),
+     which follows the symlink OUT of the virtualenv (/usr/bin/python3.11 -m pytest -q). The first dependency
+     that lives only in .venv turns every gate run into a collection error that looks like the task's fault.
+     Fix: do not resolve the venv interpreter symlink. Spec W12."
+  - owner: P12A
+    thread: "F3 (Found in the P00 DuetFlow rehearsal; details in artifacts/graph-engineering/b01-duetflow-pilot.json). On a repo with no .orchestrator/, one `maestro init` run creates state.json part-way through (its no-op
+     supervised loop check), then reports it as pre-existing and writes a spurious state.json.new containing {}.
+     Fix: scaffolding must not treat init's own output as a pre-existing file. Spec W12."
+  - owner: P12A
+    thread: "F4 (Found in the P00 DuetFlow rehearsal; details in artifacts/graph-engineering/b01-duetflow-pilot.json). init proposes a .gitignore.new that REPLACES the project's .gitignore instead of appending (DuetFlow: 56
+     deletions, 5 insertions), dropping the config.yaml / *.token / tokens/ / *.db / data/ ignores. An operator
+     who merges it as offered silently removes secret protection. Fix: propose only the missing lines. Spec W12."
+  - owner: P12A
+    thread: "F5 (Found in the P00 DuetFlow rehearsal; details in artifacts/graph-engineering/b01-duetflow-pilot.json). operating_preamble.md's deny-list block is rendered once by init from a hardcoded placeholder (maestro/cli.py
+     mapping dict), before the setup interview produces risky_set / deny_list_extra, and nothing re-renders it
+     (not doctor, not a re-run of init). Fixed in the maestro-setup skill, NOT in maestro. Fix: re-render the
+     block from project.yaml, or have doctor flag the placeholder. Spec W12."
 
 _p10b_open_threads:
   # Not blockers: what P10B leaves behind.
@@ -526,7 +546,20 @@ _p09_open_threads:
     thread: "Only the Python grammar is enabled. Another language needs its own thirdparty row
      before providers.GRAMMARS may name it."
 
-in_progress_details: null
+in_progress_details:
+  what_was_done:
+    - "Probed installed agy 1.2.2 headlessly (models, --effort, json/stream-json output, --conversation resume, quota surface) -> artifacts/graph-engineering/p07b-agy-1.2.2-probe.json"
+    - "Session 2 (2026-09-15): read every seam P07B touches and settled the remaining design points; no code written. Findings + implementation plan -> handoffs/2026-09-15-graph-p07b-antigravity-backend-s3.md"
+  whats_left:
+    - "Every P07B checklist item (driver, registry, catalog row, thirdparty row, limits call sites, tests) — implement per handoffs/2026-09-15-graph-p07b-antigravity-backend-s3.md"
+  relevant_context:
+    - "Dan 2026-09-15: build P07B assuming the Context Gate/context management comes later"
+    - "Dan 2026-09-15: only gemini-3.8-flash-high is balanced; every other agy id (incl. other 3.8 variants and 3p models) is light; single Gemini usage_pool_id, 3p misattribution -> P12A thread"
+    - "Dan 2026-09-15 (session 2): NO shipped role floor changes; prove the light path with a test-local role only"
+    - "agy auto-updated to 1.2.3 on this host (agy --version -> '1.2.3'); the thirdparty row must pin the exact installed string"
+    - "roles.default_chain() includes every registered backend: registering agy unguarded would put it in the implicit fallback chain — keep it out via a registry-row flag"
+    - "Session 2 stopped at the 160K context handoff mark, not on a blocker"
+  active_branch: "feat/graph-engineering-foundation"
 
 _p08_open_threads:
   # Not blockers: what P08 leaves behind.
@@ -550,11 +583,13 @@ _p08_open_threads:
     note: "Resolved 2026-09-13; full suite green 2026-09-14."
     thread: "RESOLVED 2026-09-13: tests/test_limits.py now pins fixture copies of the tables, and the
      tests/test_cli.py thirdparty-gate test no longer depends on the installed CLI version."
-  - disposition: needs-dan
-    note: "Dan to confirm agy's limits table lives at ~/.gemini/model_context_limits.md (AGENT_TABLE_DIRS, limits.py:189); file still absent 2026-09-14."
-    thread: "OPEN 2026-09-13: maestro/limits.py AGENT_TABLE_DIRS reads Antigravity's table from
-     ~/.gemini/model_context_limits.md — inferred from where agy keeps its config, not yet
-     confirmed by Dan. No file exists there yet; the live-table smoke test skips it."
+  - owner: P07B
+    note: "Parse + scoping FIXED 2026-09-14 (outside a phase): Dan's agy table now uses ranges (low end = old
+     value - 5K) and every row carries the `agy/` harness prefix (agy serves third-party models with agy-specific
+     limits); limits.AGENT_MODEL_PREFIX, scoped_model_name, resolve(..., backend=). Remaining for P07B: agy
+     sessions' limits lookups pass backend='antigravity' (spec P07B §2 'Limits table')."
+    thread: "OPEN 2026-09-14: the agy driver/rotation/doctor must resolve limits through the `agy/` prefix;
+     a backend-less lookup deliberately never reaches agy rows."
   - owner: P07B
     thread: "PLANNED 2026-09-13: agy has no maestro driver (only claude/codex are routable), so its
      `doctor --thirdparty` drift (verified 1.1.27, installed 1.2.2) is harmless until P07B

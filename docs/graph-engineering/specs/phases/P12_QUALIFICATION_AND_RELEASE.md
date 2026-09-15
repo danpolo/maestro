@@ -32,6 +32,7 @@ Execute full-system end-to-end qualification across script, subscription, free, 
     - **Fast, Deterministic Verification Chain:** Set `gate.chain: [test]` in `project.yaml` to run the project's existing 1.44s unit test suite (`pytest -q`), avoiding external network calls (Instagram/Telegram APIs) or heavy ASR/OCR model invocations during worktree verification.
     - **TMUX Session Isolation:** Background services operate in their dedicated sessions (`itv-bot`, `itv-worker`); Maestro implementer tasks run in the `agents` session without terminal/process collision.
   - Retain raw per-task outcomes (transcripts, rework counts, tool logs) rather than summaries.
+  - Per attempt, also retain the telemetry P12A records on the attempt: model id, agent version, session id, fresh vs resumed, the token split and quota windows at start and settle, and wall time. Add reset-crossing flags, rework and reopen amendments, and verification pass/fail. Leave unmeasurable values null. This is the first real dataset the Context Gate (after P12) can seed from; do not convert it to the gate's JSONL schema here.
 - [ ] **Artifact Volume Measurement (`[INV-A03]`, B15)**:
   - Measure actual bytes of artifacts and transcripts produced during qualification run.
   - Set default retention settings in `maestro init` based on empirical measurement.
@@ -48,4 +49,11 @@ Execute full-system end-to-end qualification across script, subscription, free, 
   ```bash
   .venv/bin/python -m pytest -q
   .venv/bin/python scripts/graph_qualification.py --repo /tmp/maestro-graph-qualification --fixture-backends
-  ```\n
+  ```
+
+---
+
+## 4. FORWARD COMPATIBILITY: CONTEXT GATE (DO NOT IMPLEMENT)
+The next work after P12 is `docs/maestro-context-gate-integration.md` (companion specs in `~/agents-context/`). P12 does not implement or qualify it. Two things matter here:
+- Qualification evidence keeps the per-attempt telemetry above in raw form, so the gate can later be evaluated against a pre-gate baseline without re-running the pilots.
+- The qualification report lists, as a short section, the gate plan's §1 inspection mapping (Goal / WorkUnit / Session / ContextSnapshot / GateDecision / OutcomeRecord → the maestro structures that now exist: task, run, node, attempt, `Usage`, outcome). Record any seam P12A left that would force a second wrapper process or a gate bypass as an open thread owned by the gate work, with `disposition: needs-dan` until Dan names that phase.

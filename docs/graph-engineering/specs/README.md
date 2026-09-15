@@ -189,3 +189,15 @@ All implementation rules incorporate amendments through **Revision 2 (2026-09-08
 - **A10 (E1/E2)**: Fixture calibration required before gating. E2 runs on Maestro's own repository mix.
 - **A11 (Durability)**: Surviving disk loss is an explicit non-goal; backups must use a separate filesystem.
 - **A12 (Gate)**: Integration verification gate (`maestro doctor --thirdparty`) applies to every phase.
+
+---
+
+## 8. DOWNSTREAM WORK: CONTEXT GATE (AFTER P12, NOT A PHASE HERE)
+
+`docs/maestro-context-gate-integration.md` (companion specs: `~/agents-context/context-gate-common-spec.md`, `~/agents-context/interactive-context-gate-and-learning.md`) is implemented **after** P12. No graph-engineering phase implements any part of it. It will place one gate (CONTINUE / COMPACT / HANDOFF) at the Work Unit dispatch boundary, through existing orchestration abstractions and with no second wrapper process. So the remaining phases must leave these seams in a shape it can use:
+
+- **P07B**: per-harness context limits (`~/.gemini/model_context_limits.md` parses, and resolution is backend-scoped); split token telemetry; verified agy session-control facts.
+- **P12A**: one agent-node dispatch choke point that no path bypasses; one fresh-vs-resume decision point; no second context-rotation mechanism; nullable per-attempt telemetry plus append-only outcomes.
+- **P12**: raw per-attempt telemetry retained; a gate-concept → maestro-structure mapping in the qualification report.
+
+Each phase spec's §4 "FORWARD COMPATIBILITY: CONTEXT GATE" holds the binding details. Load the gate plan itself only when a §4 constraint is unclear.

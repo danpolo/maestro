@@ -114,6 +114,8 @@ Start implementing Phase P12A. The orientation session (2026-09-15) read the spe
 - `tests/test_graph_update_compatibility.py` sets `bootstrap.ENV_VAR` / `PROJECT_ENV_VAR`.
 - Suspect module-level state cached at import (`selfupdate`, `bootstrap` or `paths`) by an earlier test, not the env var itself. Bisect with `pytest -p no:randomly <prefix-files> tests/test_selfupdate.py`.
 
+**Baseline (orientation, `cc1aecf`, full suite with `-x`):** junit reported `tests=3968 failures=1 skipped=1`, exit 1. The only failure is `tests/test_selfupdate.py::test_first_run_adopts_silently_with_no_self_test_ceremony` (`FileNotFoundError: <tmp>/maestro_home/current`), which is thread #2 and reproduces on an unmodified tree. Because `-x` stopped there, any tests collected after it did not run.
+
 **Repo quirks**
 - pytest's summary line is suppressed in this repo. Get counts with `--junit-xml=<scratch>/r.xml` and read `tests`/`failures` off the root `testsuite`.
 - `maestro/backends/catalog.py` is 48 KB, so grep it; don't cat it.

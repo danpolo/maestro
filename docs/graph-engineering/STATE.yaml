@@ -521,12 +521,23 @@ _p12a_open_threads:
 
 _p07b_open_threads:
   # Not blockers: what P07B leaves behind.
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S2 step D (S-10). ModelProfile carries an optional usage_pool_id and
+     BackendCapabilityEntry.pool_for(model_id) prefers it over the entry's (mirrors profile(): unknown id
+     raises, listed-but-ungraded falls back). agy's claude-* / gpt-oss-* profiles carry antigravity-3p;
+     router.resolve_agent uses pool_for for BOTH admission (resources.pool/admit) and binding.usage_pool_id,
+     so an exhausted 3p pool no longer pauses Gemini routes and vice versa. Usage gained
+     pools: {usage_pool_id: {window_minutes: WindowUsage}}; agy's usage() fills antigravity-gemini from
+     gemini-5h/weekly and antigravity-3p from 3p-5h/3p-weekly. Usage.windows deliberately stays the Gemini
+     pools (the driver's one headline account reading) and pools is deliberately NOT in
+     to_usage_json/from_usage_json, which is the statusline sampler's shared document."
     thread: "agy's 3p-5h / 3p-weekly pools (claude-*, gpt-oss served through agy) bill separately from
      gemini-5h / gemini-weekly, but the catalog carries one usage_pool_id (antigravity-gemini) and the
      driver's usage() maps only the Gemini pools, so 3p usage is misattributed and 3p exhaustion is
      invisible to admission."
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S2 step A (b738faa): an explicit backend_id -> driver-name map now backs dispatch from an
+     AgentBinding; ticked here by step D."
     thread: "One backend, three names: catalog backend_id `antigravity_cli`, register subject `agy`
      (the binary), registry driver name `antigravity`. Dispatch from an AgentBinding needs an explicit
      backend_id -> driver-name mapping; nothing maps them yet."
@@ -534,7 +545,15 @@ _p07b_open_threads:
     note: "Dan 2026-09-15: no shipped role floor changes; the light path is proven with a test-local role."
     thread: "No shipped role in maestro/templates/roles/ yields `light` demand (all floor at balanced or
      strong), so agy's light models get no real work yet."
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S2 step D (S-11), observed 2026-09-16 at agy 1.2.3. Two bounded headless probes in a scratch
+     git repo, rc 0 both: maestro's own completion_argv shape edited a workspace file with NO permission
+     prompt and NO permission flag, and the same run under --sandbox STILL wrote to the workspace. So
+     --sandbox runs non-interactively but restricts the TERMINAL, not the filesystem (matching --help), and
+     Capabilities.sandbox -- defined as 'can constrain filesystem/network access' -- stays False; flipping it
+     would advertise confinement maestro does not have. Only the stated reason changed, in the driver
+     docstring and thirdparty.json findings.sandbox_mode. Honest gap kept as a register open_question:
+     --mode accept-edits was NOT characterised."
     thread: "--sandbox and the permission mode for headless agy edits were never exercised; the driver
      declares sandbox=false and the row keeps it as an open question."
   - disposition: closed
@@ -568,7 +587,10 @@ _p10b_open_threads:
   - owner: P12A
     thread: "An awaiting-verification async job's hold is re-derived from its ROADMAP block each poll;
      editing or removing that block while the job runs drops its hold."
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S2 step C (0bc0e97, W8): graph dispatch now runs one admission round per poll over the live
+     graph reservations, reserves through HostReservationLedger and releases on attempt finish, reusing
+     _admission_round / _reserve_host_resources / _record_admission_waits rather than copying them."
     thread: "Engineering-mode (graph runner) node dispatch still uses ResourceRequest.from_node without
      the host ledger; only the legacy launch loop is wired (P12 territory)."
 
@@ -595,7 +617,11 @@ _p10_open_threads:
 
 _p09_open_threads:
   # Not blockers: what P09 leaves behind.
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S2 step A (b738faa, W2): WorkflowRunner.advance builds the ContextManifest through
+     build_context_manifest(routing.queries) and hands the manifest object itself to resolve_agent, which
+     does from_manifest -- nobody builds a RoutingContext by hand any more. The manifest is stored as a
+     context_manifest artifact on the claim."
     thread: "Nothing calls RepositoryQueries or build_context_manifest from dispatch yet; P06's
      RoutingContext reads 'the slice of P9's ContextManifest routing needs' and is still fed
      by hand. Wiring is P10/P12 work."
@@ -619,8 +645,10 @@ in_progress_details:
     - "_p12a_open_threads #2 (selfupdate order leak) closed: tests/conftest.py _no_leaked_project (session-wide)."
     - "S1b: _p12a_open_threads #1 (W0) and #3-#6 (W12 F2-F5) closed -- see their notes."
     - "S1b verification: tests/test_cli.py + test_dispatch_wiring.py junit tests=67 failures=0; P12A gate command junit tests=262 failures=0; full suite junit tests=4486 failures=0 skipped=1, exit 0 (after dropping owner: from the closed P12A threads, which test_live_state_threads_are_all_structured requires)."
+    - "S2 step A (b738faa): W1 binding resolution at dispatch, W2 manifest-fed routing, _p07b #2 backend_id->driver map. Verified: graph_engineering+workflows+backends+repository+routing+cli+host_admission+workflow_status junit tests=949 failures=0. Threads not yet ticked in STATE (step D does it)."
   whats_left:
-    - "W1 (+ _p07b #1/#2/#4), W2, W3, W8 (S2 -- handoffs/2026-09-15-graph-p12a-s2.md)"
+    - "S2 steps B (W3), C (W8), D (_p07b #1/#4 + STATE updates) -- handoffs/2026-09-15-graph-p12a-s2b.md, contract handoffs/2026-09-15-graph-p12a-s2-design.md"
+    - "Resolved 2026-09-15 (Dan chose each value): catalog.CLAUDE_CATALOG_DEFAULTS / CODEX_CATALOG_DEFAULTS / SHIPPED_CATALOG_DEFAULTS; _graph_routing reads SHIPPED. Follow-up same day: claude ladder rescaled onto the codex cost scale (sonnet-5 = terra = 0.5); register rows now carry effort vocabularies (claude --effort, codex -c model_reasoning_effort) and dispatch_plan delivers them. Default policy binds implementer -> claude/claude-sonnet-5 --effort medium, proof_review -> codex/gpt-5.6-sol model_reasoning_effort=medium."
     - "W4, W5/W6, W7, W9, W10, W11, full suite, close-out (S3)"
   relevant_context:
     - "DECIDED by Dan 2026-09-15: graph mode creates a missing .orchestrator/control.sqlite3 automatically (journal control_db_created), after the switch-refusal checks pass."
@@ -676,7 +704,9 @@ _p11_open_threads:
      affected validation/repair) — the README's parallel `Conditional Enhancements` branch.
      P12 sits downstream of BOTH branches, so all three must land before qualification.
      P08 has since landed; `current_phase` is P09."
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S2 step B (4ec3a69, W3): the routing decision is now durable on the attempt, so explain
+     shows the binding P06 actually chose and the criteria -> binding -> evidence chain closes."
     thread: "`maestro explain` shows no routing decision because none is persisted. The seam is
      metrics.ROUTE_RESOLVED / binding_identity() — durably recording one would complete the
      criteria -> binding -> evidence chain with the binding P06 actually chose."
@@ -693,7 +723,10 @@ _p11_open_threads:
 _p07_open_threads:
   # Not scratch state and not a blocker: the two seams P07 leaves for whoever wires
   # dispatch. Kept here because `in_progress_details` must be null between phases.
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S2 step A (b738faa, W1): WorkflowRunner.advance is the one dispatch choke point -- it calls
+     resolve_agent exactly once per node, claims with execution_deadline_sec(binding, node), and the worker
+     runs ModelAgentRuntime for model_endpoint_harness bindings and driver.complete for agent_cli ones."
     thread: "NOTHING dispatches ModelAgentRuntime yet, and nothing consumes an AgentBinding in core
      dispatch. P06's four consumer seams (dispatch_plan, execution_deadline_sec,
      token_account_key, status_summary) and model_api.capability_entry() are both ready;

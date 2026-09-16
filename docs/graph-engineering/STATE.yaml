@@ -10,9 +10,9 @@
 # A phase must close (disposition: closed + note) or re-own (owner: <later phase>) every thread it was
 # given before it marks itself complete. A bare string thread is a format error (tests/test_next_graph_prompt.py).
 schema_version: 1
-last_updated: "2026-09-15T18:00:00Z"
-current_phase: "P12A"
-status: "in_progress"  # P12A S1 done (W0, W12, #2) and S2 done (W1/W2/W3/W8 + _p07b #1/#2/#4, steps A-D); S3 next: W4, W5/W6, W7, W9, W10, W11. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-16T21:30:00Z"
+current_phase: "P12B"  # model-failure handling (D-FAIL-1/2); name kept by the 2026-09-17 planning session; P12 follows it
+status: "not_started"  # P12A completed 2026-09-16 (S1-S3). P12B planned 2026-09-17: spec docs/graph-engineering/specs/phases/P12B_MODEL_FAILURE_HANDLING.md (F0-F8), registered in scripts/next_graph_prompt.py; run it with no --phase for the directive. Dan decisions 2026-09-17: only bad_output failures use up the 2 retries; retry 1 same model fresh session, retry 2 another equal-or-better model; step-down needs ROADMAP `fallback: step_down` AND a controller full-verification check; the free-mode diagnoser uses free models only (no hybrid overlay). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -446,6 +446,23 @@ completed_phases:
       balanced -> only gemini-3.8-flash-high; strong never agy; paused antigravity-gemini pool ->
       claude/codex in the same resolution; light via a test-local role binds an agy light model.
 
+  - phase: P12A
+    completed_at: "2026-09-16T21:30:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q (full suite) -> junit tests=4560 failures=0 errors=0
+      skipped=1, exit 0 (HEAD 2ee754c). Phase gate command (test_dispatch_wiring,
+      test_host_resource_admission, test_workflow_status, tests/workflows) green in step D
+      (318/0); orchestrator re-runs after steps B and C: 981/0 and 1111/0.
+    notes: >-
+      S1/S1b: W0 (engineering.runner switch), W12 F2-F5, selfupdate leak. S2 (b738faa, 4ec3a69,
+      0bc0e97, ea82b01): W1 binding at dispatch, W2 manifest routing, W3 durable routing decision,
+      W8 graph host admission, S-10 agy 3p pools, S-11 agy --sandbox observation. S3 (67ed72b,
+      4616f2d, 8e0de58, 2ee754c): W4 candidate reap, W5/W6 affected checks + persisted shadow
+      comparisons, W7 plan repair in the loop (max_plan_repairs default 1), W9 oversized park in
+      both loops, W10 async hold snapshot, W11 `maestro workflow runs`. Context Gate not built
+      (out of scope by Dan). Design contracts: handoffs/2026-09-15-graph-p12a-s2-design.md,
+      handoffs/2026-09-16-graph-p12a-s3-design.md.
+
 _open_threads_audit:
   # 2026-09-14 planning session: all 28 threads triaged in place (closed 6, accepted 10, owner:P12A 10,
   # owner:P07B 1, owner:P12 0, needs-dan 1) and P12A_GRAPH_DISPATCH_WIRING.md written. Code checks
@@ -519,6 +536,24 @@ _p12a_open_threads:
      and doctor has a required preamble_deny_list check -- cmd_doctor exits 1 with a list set and the placeholder present, 0 once rendered
      (test_preamble_deny_list_renders_from_project_yaml_or_doctor_fails). Empty lists keep the placeholder and pass."
 
+_p12b_open_threads:
+  # Seeded by the 2026-09-17 P12B planning session (spec P12B_MODEL_FAILURE_HANDLING.md).
+  - owner: P12B
+    thread: "Dead-writer candidate stalls the join (P12A W4 known limit, from the closed _p07_open_threads #2 note): a candidate
+     whose writer dies with no receipt is reconciled to attempt `uncertain` (agent_editing_worktree is not repeatable, A05) and
+     its node stays `running`, so candidate_select waits forever. Under routing only, the reconciler must also decide the node:
+     candidate -> failed/worker_crashed (reported abandoned); non-candidate writer -> a worker_crashed bad_output retry from its
+     start_sha. routing-None behaviour unchanged. Spec F8."
+  - owner: P12B
+    thread: "apply_repair refusal leaves the proposing node `succeeded` and the old run unrepaired (P12A W7 known limit, runner._apply_repair
+     docstring). Harmless for W7 alone, but an escalation diagnoser whose repair cannot be applied would leave the task with no path to park.
+     For the diagnose node the refusal must write it `failed` so its on_failure edge parks. Spec F7."
+  - owner: P12B
+    thread: "The graph loop has no failure handling at all: every compiled node has RetryPolicy(max_attempts=1), `failed` is terminal,
+     worker._run_agent_cli discards the driver's Completion (a rate-limited CLI run is adopted as if it had worked), and
+     ModelAgentRuntime collapses every HTTP error into endpoint_unavailable. D-FAIL-1/D-FAIL-2 (Dan, 2026-09-16) require the
+     classify -> switch -> wait/step-down -> 2 retries -> stronger diagnoser -> one final run -> park ladder. Spec F0-F7."
+
 _p07b_open_threads:
   # Not blockers: what P07B leaves behind.
   - disposition: closed
@@ -580,11 +615,13 @@ _p10b_open_threads:
     note: "Defaults are adequate until P12 qualification data says otherwise."
     thread: "SchedulingPolicy is the default (aging 600 s, starvation 1800 s); not exposed in
      thresholds."
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S3 step D (2ee754c, W9): scheduling.exceeds_capacity names the dimension, amount and capacity; the legacy loop parks an oversized task (park_failed, journal launch_parked_oversized, never added to admission_waits) and the graph loop refuses the node through _refuse -> _fail_claim with the same text on route_refusal, so its on_failure edge reaches park. Tests in test_host_resource_admission.py, test_dispatch_wiring.py, test_scheduling.py."
     thread: "Host capacity is detected once per controller process (_HOST_CAPACITY); cpu limit is
      cores - 1. A request larger than the whole host waits forever with a reason naming the
      capacity — no park/escalation for it yet."
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S3 step D (2ee754c, W10): launch_async_job records the admitted `resources` on the awaiting-verification entry and _live_counted uses that snapshot whenever the key is present (even {}); only entries written before this change re-derive from the ROADMAP. Tests: block edited, block removed, pre-change entry (test_host_resource_admission.py)."
     thread: "An awaiting-verification async job's hold is re-derived from its ROADMAP block each poll;
      editing or removing that block while the job runs drops its hold."
   - disposition: closed
@@ -596,12 +633,14 @@ _p10b_open_threads:
 
 _p10_open_threads:
   # Not blockers: what P10 leaves behind.
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S3 steps B (4616f2d, W5) and C (8e0de58, W7): advance attaches an affected_selection artifact to a routed verification claim and the handler runs only `selected` (the full suite in shadow); _commit_result consumes a planner/diagnoser outputs.plan_repair via plan_repair + repair_counters (engineering.max_plan_repairs, default 1 per D-FAIL-2) and apply_repair, and the loop moves to the successor run (graph_run_repaired). Refusals fail the node with a WorkflowRepairRefused event. Known limit: an apply_repair refusal leaves the node succeeded and the old run unrepaired. The automatic 2-retries -> stronger-diagnoser trigger belongs to the failure-handling phase after P12A."
     thread: "Nothing in the controller loop calls select_affected_checks, plan_repair or apply_repair
      yet. The APIs are complete and tested; wiring them into orchestrator/runner dispatch
      (and feeding a planner/diagnoser node's PlanRepairProposal into apply_repair) is P12
      work."
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S3 step B (4616f2d, W6): control-store table shadow_comparisons (UNIQUE run/node/snapshot, INSERT OR IGNORE, controller-only) written in _commit_result for shadow-mode verification results; validation.load_shadow_comparisons feeds qualify_affected in _graph_main, which refuses engineering.affected_checks: authoritative below minimum_runs (journal affected_mode_refused naming the count). A row survives a store reopen (lane test)."
     thread: "E3 shadow comparisons are not persisted: ShadowComparison/qualify_affected are pure
      values with no table behind them, so affected selection cannot actually graduate to
      authoritative until something records a comparison per run."
@@ -640,30 +679,7 @@ _p09_open_threads:
     thread: "Only the Python grammar is enabled. Another language needs its own thirdparty row
      before providers.GRAMMARS may name it."
 
-in_progress_details:
-  what_was_done:
-    - "_p12a_open_threads #2 (selfupdate order leak) closed: tests/conftest.py _no_leaked_project (session-wide)."
-    - "S1b: _p12a_open_threads #1 (W0) and #3-#6 (W12 F2-F5) closed -- see their notes."
-    - "S1b verification: tests/test_cli.py + test_dispatch_wiring.py junit tests=67 failures=0; P12A gate command junit tests=262 failures=0; full suite junit tests=4486 failures=0 skipped=1, exit 0 (after dropping owner: from the closed P12A threads, which test_live_state_threads_are_all_structured requires)."
-    - "S2 step A (b738faa): W1 binding resolution at dispatch, W2 manifest-fed routing, _p07b #2 backend_id->driver map. Verified: graph_engineering+workflows+backends+repository+routing+cli+host_admission+workflow_status junit tests=949 failures=0. Threads ticked in STATE by step D."
-    - "S2 step B (4ec3a69): W3 -- the routing decision is durable on the attempt, so `maestro explain` shows the binding P06 chose."
-    - "S2 step C (0bc0e97): W8 -- host admission for graph nodes. One admission round per poll over live graph reservations, reserve via HostReservationLedger, release on attempt finish, reusing _admission_round / _reserve_host_resources / _record_admission_waits."
-    - "S2 step D (this commit): S-10 agy 3p pools + S-11 --sandbox observation + these STATE ticks. S-10: ModelProfile.usage_pool_id (optional) + BackendCapabilityEntry.pool_for(model_id), which router.resolve_agent uses for BOTH admission and binding.usage_pool_id; agy claude-* / gpt-oss-* profiles carry antigravity-3p; Usage.pools reports antigravity-gemini and antigravity-3p separately while Usage.windows stays Gemini-only and pools stays OUT of to_usage_json/from_usage_json (the statusline sampler's shared document). S-11: two bounded headless agy probes (2026-09-16, 1.2.3) recorded in thirdparty.json findings.sandbox_mode and the driver docstring; Capabilities.sandbox stays False on purpose -- --sandbox restricts the terminal, not the filesystem."
-    - "S2 step D verification: dispatch_wiring junit tests=40 failures=0; gate (dispatch_wiring+host_admission+workflow_status+workflows) tests=295 failures=0; backends+graph_engineering+next_graph_prompt tests=571 failures=0; FULL SUITE tests=4531 failures=0 skipped=1, exit 0. The 3p compatibility pin test_the_3p_pools_are_not_attributed_to_a_gemini_window stayed green unchanged."
-    - "S3 step A (67ed72b): W4 candidate reap. compose joins a widened (>=2) candidate stage into the join with required `always` edges and no per-candidate on_failure->park; WorkflowRunner.candidate_documents builds one document per candidate from its latest attempt with a committed result (outcome_ref), applied last in node_inputs. Verified by the orchestrator: workflows+backends+graph_engineering junit tests=778 failures=0. Design contract: handoffs/2026-09-16-graph-p12a-s3-design.md."
-    - "S3 step A known limit (record on the W4 thread when closing it): a candidate whose writer dies with no receipt is reconciled to attempt `uncertain` (agent_editing_worktree is not repeatable, A05) and its node stays `running`, so the join waits. The lane test crashes c3 through a failed launch instead. Making a dead-writer candidate reach the join needs a reconcile->node-phase transition that also changes routing-None behaviour -- a needs-dan item, not built."
-    - "S3 step B (4616f2d): W5/W6 -- verification nodes get an affected_selection artifact at claim (routing on only); shadow-mode results record one shadow_comparisons row (INSERT OR IGNORE, survives store reopen); engineering.affected_checks: authoritative is refused (journal affected_mode_refused, count missing) until qualify_affected passes on stored rows. Extras: invalid value -> runner_config_error, exit 1; authoritative_specs error at claim -> no selection. Verified by the orchestrator: graph_engineering+workflows+backends+affected_validation+host_admission+workflow_status+control junit tests=981 failures=0."
-    - "S3 step C (8e0de58): W7 -- a succeeded planner/diagnoser result carrying outputs.plan_repair is decided in _commit_result via plan_repair + repair_counters(max_repairs); refusal (malformed/stale/over quota) fails the node + WorkflowRepairRefused event; acceptance -> apply_repair -> runner.successor, tick reports repaired_to, _graph_main swaps runners and journals graph_run_repaired. engineering.max_plan_repairs default 1 (D-FAIL-2). Known limit: apply_repair refusal leaves the node succeeded and the old run unrepaired (docstring). Verified by the orchestrator: graph_engineering+workflows+backends+affected_validation+host_admission+workflow_status+control+orchestrator_scheduling+switch_hooks+next_graph_prompt junit tests=1111 failures=0."
-  whats_left:
-    - "S2 is DONE (steps A-D). S3 is what remains of P12A: W4, W5/W6, W7, W9, W10, W11 -- the six threads still carrying owner: P12A (_p07 #2 candidate reap, _p10 #1 and #2, _p10b host-capacity park and async hold, _p11 run listing). Contract for the S2 shape that S3 builds on: handoffs/2026-09-15-graph-p12a-s2-design.md."
-    - "Register open_question left deliberately open on agy: `--mode accept-edits` was never characterised (the 2026-09-16 probes covered the bare headless shape and --sandbox only)."
-    - "Resolved 2026-09-15 (Dan chose each value): catalog.CLAUDE_CATALOG_DEFAULTS / CODEX_CATALOG_DEFAULTS / SHIPPED_CATALOG_DEFAULTS; _graph_routing reads SHIPPED. Follow-up same day: claude ladder rescaled onto the codex cost scale (sonnet-5 = terra = 0.5); register rows now carry effort vocabularies (claude --effort, codex -c model_reasoning_effort) and dispatch_plan delivers them. Default policy binds implementer -> claude/claude-sonnet-5 --effort medium, proof_review -> codex/gpt-5.6-sol model_reasoning_effort=medium."
-    - "S3b: steps B (W5/W6), C (W7), D (W9/W10/W11) of handoffs/2026-09-16-graph-p12a-s3-design.md, then close all six threads, full suite, close-out. Brief: handoffs/2026-09-16-graph-p12a-s3b.md"
-  relevant_context:
-    - "DECIDED by Dan 2026-09-16: (D-FAIL-1) crash/failure handling for every graph run and mode is a NEW PHASE after P12A -- a failing model must not lower quality: fall back to another model; with no equal model, step down only for tasks fully checkable by tests/evals (accept only on success), otherwise wait for reset. (D-FAIL-2) after 2 failed retries escalate to a stronger diagnoser: bad graph -> replan + one final run; poor agent -> enhance that node prompt/context + one last relaunch; then park. W7 max_plan_repairs default = 1. Full text: end of handoffs/2026-09-16-graph-p12a-s3-design.md."
-    - "DECIDED by Dan 2026-09-15: graph mode creates a missing .orchestrator/control.sqlite3 automatically (journal control_db_created), after the switch-refusal checks pass."
-    - "Context Gate is NOT built and is out of scope (memory context-management-not-built-independent)."
-  active_branch: "feat/graph-engineering-foundation"
+in_progress_details: null
 
 _p08_open_threads:
   # Not blockers: what P08 leaves behind.
@@ -720,7 +736,8 @@ _p11_open_threads:
     thread: "`maestro explain` shows no routing decision because none is persisted. The seam is
      metrics.ROUTE_RESOLVED / binding_identity() — durably recording one would complete the
      criteria -> binding -> evidence chain with the binding P06 actually chose."
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S3 step D (2ee754c, W11): status.list_runs shares _task_runs with _select_run (ORDER BY started_at, rowid, so equal timestamps keep insertion order); `maestro workflow runs <task> [--json]` lists a task's runs in start order. Tests in test_workflow_status.py and test_cli.py seed two runs with the same started_at."
     thread: "`workflow show --html` renders the LATEST run by default and `--run <id>` picks an
      earlier one; nothing yet lists a task's runs. `_select_run` is the one place to add it."
   - disposition: closed
@@ -742,7 +759,8 @@ _p07_open_threads:
      token_account_key, status_summary) and model_api.capability_entry() are both ready;
      the wiring is still unwritten. A caller must build a catalog with capability_entry()
      for free_tier_api to have a catalogued backend at runtime."
-  - owner: P12A
+  - disposition: closed
+    note: "P12A S3 step A (67ed72b, W4): compose joins a widened (>=2) candidate stage into candidate_select with required `always` edges and no per-candidate on_failure->park; WorkflowRunner.candidate_documents builds one document per candidate from its latest committed attempt (applied last in node_inputs), so a crashed candidate is reported abandoned, never dropped. KNOWN LIMIT: a candidate whose writer dies with no receipt is reconciled to attempt `uncertain` (agent_editing_worktree is not repeatable, A05) and its node stays `running`, so the join waits; the lane test crashes c3 through a failed launch. Resolving that is the failure-handling phase after P12A (Dan, D-FAIL-1, 2026-09-16)."
     thread: "maestro.handlers.candidate_select is registered and tested through
      candidates.select_winner, but no controller code assembles its `inputs['candidates']`
      documents yet. It reads the candidate nodes off `controller.revision` and expects one
@@ -864,6 +882,30 @@ _retired_in_progress_details:
 # decisions that ARE the B01 evidence, so it is moved here rather than deleted. Nothing
 # parses this key; it is read by the next agent and by whoever closes B01.
 phase_records:
+  P12A:
+    what_was_done:
+      - "_p12a_open_threads #2 (selfupdate order leak) closed: tests/conftest.py _no_leaked_project (session-wide)."
+      - "S1b: _p12a_open_threads #1 (W0) and #3-#6 (W12 F2-F5) closed -- see their notes."
+      - "S1b verification: tests/test_cli.py + test_dispatch_wiring.py junit tests=67 failures=0; P12A gate command junit tests=262 failures=0; full suite junit tests=4486 failures=0 skipped=1, exit 0 (after dropping owner: from the closed P12A threads, which test_live_state_threads_are_all_structured requires)."
+      - "S2 step A (b738faa): W1 binding resolution at dispatch, W2 manifest-fed routing, _p07b #2 backend_id->driver map. Verified: graph_engineering+workflows+backends+repository+routing+cli+host_admission+workflow_status junit tests=949 failures=0. Threads ticked in STATE by step D."
+      - "S2 step B (4ec3a69): W3 -- the routing decision is durable on the attempt, so `maestro explain` shows the binding P06 chose."
+      - "S2 step C (0bc0e97): W8 -- host admission for graph nodes. One admission round per poll over live graph reservations, reserve via HostReservationLedger, release on attempt finish, reusing _admission_round / _reserve_host_resources / _record_admission_waits."
+      - "S2 step D (this commit): S-10 agy 3p pools + S-11 --sandbox observation + these STATE ticks. S-10: ModelProfile.usage_pool_id (optional) + BackendCapabilityEntry.pool_for(model_id), which router.resolve_agent uses for BOTH admission and binding.usage_pool_id; agy claude-* / gpt-oss-* profiles carry antigravity-3p; Usage.pools reports antigravity-gemini and antigravity-3p separately while Usage.windows stays Gemini-only and pools stays OUT of to_usage_json/from_usage_json (the statusline sampler's shared document). S-11: two bounded headless agy probes (2026-09-16, 1.2.3) recorded in thirdparty.json findings.sandbox_mode and the driver docstring; Capabilities.sandbox stays False on purpose -- --sandbox restricts the terminal, not the filesystem."
+      - "S2 step D verification: dispatch_wiring junit tests=40 failures=0; gate (dispatch_wiring+host_admission+workflow_status+workflows) tests=295 failures=0; backends+graph_engineering+next_graph_prompt tests=571 failures=0; FULL SUITE tests=4531 failures=0 skipped=1, exit 0. The 3p compatibility pin test_the_3p_pools_are_not_attributed_to_a_gemini_window stayed green unchanged."
+      - "S3 step A (67ed72b): W4 candidate reap. compose joins a widened (>=2) candidate stage into the join with required `always` edges and no per-candidate on_failure->park; WorkflowRunner.candidate_documents builds one document per candidate from its latest attempt with a committed result (outcome_ref), applied last in node_inputs. Verified by the orchestrator: workflows+backends+graph_engineering junit tests=778 failures=0. Design contract: handoffs/2026-09-16-graph-p12a-s3-design.md."
+      - "S3 step A known limit (record on the W4 thread when closing it): a candidate whose writer dies with no receipt is reconciled to attempt `uncertain` (agent_editing_worktree is not repeatable, A05) and its node stays `running`, so the join waits. The lane test crashes c3 through a failed launch instead. Making a dead-writer candidate reach the join needs a reconcile->node-phase transition that also changes routing-None behaviour -- a needs-dan item, not built."
+      - "S3 step B (4616f2d): W5/W6 -- verification nodes get an affected_selection artifact at claim (routing on only); shadow-mode results record one shadow_comparisons row (INSERT OR IGNORE, survives store reopen); engineering.affected_checks: authoritative is refused (journal affected_mode_refused, count missing) until qualify_affected passes on stored rows. Extras: invalid value -> runner_config_error, exit 1; authoritative_specs error at claim -> no selection. Verified by the orchestrator: graph_engineering+workflows+backends+affected_validation+host_admission+workflow_status+control junit tests=981 failures=0."
+      - "S3 step C (8e0de58): W7 -- a succeeded planner/diagnoser result carrying outputs.plan_repair is decided in _commit_result via plan_repair + repair_counters(max_repairs); refusal (malformed/stale/over quota) fails the node + WorkflowRepairRefused event; acceptance -> apply_repair -> runner.successor, tick reports repaired_to, _graph_main swaps runners and journals graph_run_repaired. engineering.max_plan_repairs default 1 (D-FAIL-2). Known limit: apply_repair refusal leaves the node succeeded and the old run unrepaired (docstring). Verified by the orchestrator: graph_engineering+workflows+backends+affected_validation+host_admission+workflow_status+control+orchestrator_scheduling+switch_hooks+next_graph_prompt junit tests=1111 failures=0."
+    whats_left:
+      - "S2 is DONE (steps A-D). S3 is what remains of P12A: W4, W5/W6, W7, W9, W10, W11 -- the six threads still carrying owner: P12A (_p07 #2 candidate reap, _p10 #1 and #2, _p10b host-capacity park and async hold, _p11 run listing). Contract for the S2 shape that S3 builds on: handoffs/2026-09-15-graph-p12a-s2-design.md."
+      - "Register open_question left deliberately open on agy: `--mode accept-edits` was never characterised (the 2026-09-16 probes covered the bare headless shape and --sandbox only)."
+      - "Resolved 2026-09-15 (Dan chose each value): catalog.CLAUDE_CATALOG_DEFAULTS / CODEX_CATALOG_DEFAULTS / SHIPPED_CATALOG_DEFAULTS; _graph_routing reads SHIPPED. Follow-up same day: claude ladder rescaled onto the codex cost scale (sonnet-5 = terra = 0.5); register rows now carry effort vocabularies (claude --effort, codex -c model_reasoning_effort) and dispatch_plan delivers them. Default policy binds implementer -> claude/claude-sonnet-5 --effort medium, proof_review -> codex/gpt-5.6-sol model_reasoning_effort=medium."
+      - "S3b: steps B (W5/W6), C (W7), D (W9/W10/W11) of handoffs/2026-09-16-graph-p12a-s3-design.md, then close all six threads, full suite, close-out. Brief: handoffs/2026-09-16-graph-p12a-s3b.md"
+    relevant_context:
+      - "DECIDED by Dan 2026-09-16: (D-FAIL-1) crash/failure handling for every graph run and mode is a NEW PHASE after P12A -- a failing model must not lower quality: fall back to another model; with no equal model, step down only for tasks fully checkable by tests/evals (accept only on success), otherwise wait for reset. (D-FAIL-2) after 2 failed retries escalate to a stronger diagnoser: bad graph -> replan + one final run; poor agent -> enhance that node prompt/context + one last relaunch; then park. W7 max_plan_repairs default = 1. Full text: end of handoffs/2026-09-16-graph-p12a-s3-design.md."
+      - "DECIDED by Dan 2026-09-15: graph mode creates a missing .orchestrator/control.sqlite3 automatically (journal control_db_created), after the switch-refusal checks pass."
+      - "Context Gate is NOT built and is out of scope (memory context-management-not-built-independent)."
+    active_branch: "feat/graph-engineering-foundation"
   P04:
       what_was_done:
         - "maestro/validation.py: the whole of P4's engineering. VerificationSpec /

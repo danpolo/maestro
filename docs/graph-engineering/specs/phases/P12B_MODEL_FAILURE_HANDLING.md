@@ -167,5 +167,5 @@ Rules that hold throughout:
 ---
 
 ## 5. OPEN ITEMS CARRIED, NOT BUILT
-- agy's `--mode accept-edits` is still not characterised, so `Capabilities.sandbox` stays `False` for agy. A probe was refused by the permission classifier; Dan decides whether to run it. Until then, agy is a normal route for F4 switching, never a special case.
+- agy `--mode accept-edits` was characterised on 2026-09-17 (agy 1.2.4). With this host's `toolPermission: always-proceed`, it made no observable difference. The real hazard was agy running without an active workspace, so the model sometimes worked in `$HOME`. That is fixed: the driver now always passes `--add-dir <cwd>`. `Capabilities.sandbox` stays `False`, and agy is a normal route for F4 switching. Still unobserved: behaviour under a stricter `toolPermission` (see `maestro/thirdparty.json`).
 - New failure kinds found in Dan's free-model pilots are added to `FAILURE_KINDS` by a later change, from `maestro workflow failures --kind unknown` evidence.

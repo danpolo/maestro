@@ -12,7 +12,7 @@ Working directory: `/home/dan/projects/maestro`. Branch `feat/graph-engineering-
 ## Where things stand
 
 - **P12A is complete** (last commit `2ee754c`; full suite then: junit tests=4560 failures=0 skipped=1).
-- **P12B was planned on 2026-09-17.** The planning commit is on the branch: spec, generator registration and its tests.
+- **P12B was planned on 2026-09-17.** The planning commit contains only the generator registration and its tests. The spec lives under `docs/graph-engineering/`, which is git-ignored like every other phase spec, so it is on disk only. Planning-time full suite: junit tests=4562 failures=0 skipped=1, exit 0.
   - Spec: `docs/graph-engineering/specs/phases/P12B_MODEL_FAILURE_HANDLING.md`, items **F0–F8**.
   - `scripts/next_graph_prompt.py` now runs `... P12A → P12B → P12`. With no `--phase` it prints the P12B directive, exit 0.
 - **STATE** (`docs/graph-engineering/STATE.yaml`, git-ignored): `current_phase: P12B`, `status: not_started`. The status comment records Dan's decisions.
@@ -47,7 +47,7 @@ Write a design contract for each session in `handoffs/` before coding, as P12A S
 
 - There is one dispatch choke point (`advance` → `resolve` once → `claim` → `launch_worker`). There is one fresh-vs-resume decision (`routing.session_decision`). There is no context rotation. The Context Gate is NOT built.
 - New transitions run only when `routing is not None`. With `compile_workflow` called without `escalation`, output stays byte-identical (`tests/workflows/test_compatibility.py`).
-- Keep `Usage.pools` out of `to_usage_json`. Keep `Capabilities.sandbox=False` for agy; `--mode accept-edits` is uncharacterised, and whether to probe it is Dan's call. Don't flip `engineering.runner`, and don't touch the `P12A_*` spec.
+- Keep `Usage.pools` out of `to_usage_json`. Keep `Capabilities.sandbox=False` for agy. `--mode accept-edits` was characterised on 2026-09-17 and gives nothing extra here. The driver now passes `--add-dir <cwd>` (see `antigravity.WORKSPACE_FLAG`); don't remove it. Don't flip `engineering.runner`, and don't touch the `P12A_*` spec.
 
 ## Coordination
 
@@ -59,7 +59,7 @@ Write a design contract for each session in `handoffs/` before coding, as P12A S
 ## In scope / Out of scope
 
 - **In:** F0–F8 with their §3 acceptance tests; closing the 3 P12B threads; recording P12B in STATE `completed_phases`/`phase_records` at close-out.
-- **Out:** P12; the Context Gate; the agy probe (unless Dan approves it); flipping `legacy`.
+- **Out:** P12; the Context Gate; flipping `legacy`.
 
 ## Verification (report the numbers)
 

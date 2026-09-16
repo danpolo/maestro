@@ -12,7 +12,7 @@
 schema_version: 1
 last_updated: "2026-09-15T18:00:00Z"
 current_phase: "P12A"
-status: "in_progress"  # P12A S1 done (W0, W12, #2); S2 next: W1/W2/W3/W8 (handoffs/2026-09-15-graph-p12a-s2.md). # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+status: "in_progress"  # P12A S1 done (W0, W12, #2) and S2 done (W1/W2/W3/W8 + _p07b #1/#2/#4, steps A-D); S3 next: W4, W5/W6, W7, W9, W10, W11. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -645,9 +645,14 @@ in_progress_details:
     - "_p12a_open_threads #2 (selfupdate order leak) closed: tests/conftest.py _no_leaked_project (session-wide)."
     - "S1b: _p12a_open_threads #1 (W0) and #3-#6 (W12 F2-F5) closed -- see their notes."
     - "S1b verification: tests/test_cli.py + test_dispatch_wiring.py junit tests=67 failures=0; P12A gate command junit tests=262 failures=0; full suite junit tests=4486 failures=0 skipped=1, exit 0 (after dropping owner: from the closed P12A threads, which test_live_state_threads_are_all_structured requires)."
-    - "S2 step A (b738faa): W1 binding resolution at dispatch, W2 manifest-fed routing, _p07b #2 backend_id->driver map. Verified: graph_engineering+workflows+backends+repository+routing+cli+host_admission+workflow_status junit tests=949 failures=0. Threads not yet ticked in STATE (step D does it)."
+    - "S2 step A (b738faa): W1 binding resolution at dispatch, W2 manifest-fed routing, _p07b #2 backend_id->driver map. Verified: graph_engineering+workflows+backends+repository+routing+cli+host_admission+workflow_status junit tests=949 failures=0. Threads ticked in STATE by step D."
+    - "S2 step B (4ec3a69): W3 -- the routing decision is durable on the attempt, so `maestro explain` shows the binding P06 chose."
+    - "S2 step C (0bc0e97): W8 -- host admission for graph nodes. One admission round per poll over live graph reservations, reserve via HostReservationLedger, release on attempt finish, reusing _admission_round / _reserve_host_resources / _record_admission_waits."
+    - "S2 step D (this commit): S-10 agy 3p pools + S-11 --sandbox observation + these STATE ticks. S-10: ModelProfile.usage_pool_id (optional) + BackendCapabilityEntry.pool_for(model_id), which router.resolve_agent uses for BOTH admission and binding.usage_pool_id; agy claude-* / gpt-oss-* profiles carry antigravity-3p; Usage.pools reports antigravity-gemini and antigravity-3p separately while Usage.windows stays Gemini-only and pools stays OUT of to_usage_json/from_usage_json (the statusline sampler's shared document). S-11: two bounded headless agy probes (2026-09-16, 1.2.3) recorded in thirdparty.json findings.sandbox_mode and the driver docstring; Capabilities.sandbox stays False on purpose -- --sandbox restricts the terminal, not the filesystem."
+    - "S2 step D verification: dispatch_wiring junit tests=40 failures=0; gate (dispatch_wiring+host_admission+workflow_status+workflows) tests=295 failures=0; backends+graph_engineering+next_graph_prompt tests=571 failures=0; FULL SUITE tests=4531 failures=0 skipped=1, exit 0. The 3p compatibility pin test_the_3p_pools_are_not_attributed_to_a_gemini_window stayed green unchanged."
   whats_left:
-    - "S2 steps B (W3), C (W8), D (_p07b #1/#4 + STATE updates) -- handoffs/2026-09-15-graph-p12a-s2b.md, contract handoffs/2026-09-15-graph-p12a-s2-design.md"
+    - "S2 is DONE (steps A-D). S3 is what remains of P12A: W4, W5/W6, W7, W9, W10, W11 -- the six threads still carrying owner: P12A (_p07 #2 candidate reap, _p10 #1 and #2, _p10b host-capacity park and async hold, _p11 run listing). Contract for the S2 shape that S3 builds on: handoffs/2026-09-15-graph-p12a-s2-design.md."
+    - "Register open_question left deliberately open on agy: `--mode accept-edits` was never characterised (the 2026-09-16 probes covered the bare headless shape and --sandbox only)."
     - "Resolved 2026-09-15 (Dan chose each value): catalog.CLAUDE_CATALOG_DEFAULTS / CODEX_CATALOG_DEFAULTS / SHIPPED_CATALOG_DEFAULTS; _graph_routing reads SHIPPED. Follow-up same day: claude ladder rescaled onto the codex cost scale (sonnet-5 = terra = 0.5); register rows now carry effort vocabularies (claude --effort, codex -c model_reasoning_effort) and dispatch_plan delivers them. Default policy binds implementer -> claude/claude-sonnet-5 --effort medium, proof_review -> codex/gpt-5.6-sol model_reasoning_effort=medium."
     - "W4, W5/W6, W7, W9, W10, W11, full suite, close-out (S3)"
   relevant_context:

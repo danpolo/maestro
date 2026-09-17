@@ -12,7 +12,7 @@
 schema_version: 1
 last_updated: "2026-09-16T21:30:00Z"
 current_phase: "P12B"  # model-failure handling (D-FAIL-1/2); name kept by the 2026-09-17 planning session; P12 follows it
-status: "not_started"  # P12A completed 2026-09-16 (S1-S3). P12B planned 2026-09-17: spec docs/graph-engineering/specs/phases/P12B_MODEL_FAILURE_HANDLING.md (F0-F8), registered in scripts/next_graph_prompt.py; run it with no --phase for the directive. Dan decisions 2026-09-17: only bad_output failures use up the 2 retries; retry 1 same model fresh session, retry 2 another equal-or-better model; step-down needs ROADMAP `fallback: step_down` AND a controller full-verification check; the free-mode diagnoser uses free models only (no hybrid overlay). agy (2026-09-17, Dan asked): --mode accept-edits characterised as a no-op under this host's always-proceed; found and fixed a real escape (no --add-dir = no active workspace = model wrote in $HOME in 2/6 probes); driver now passes --add-dir <cwd>, 3/3 clean. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+status: "in_progress"  # P12B S1a 2026-09-17: F0+F1 done (2b572de, 761bacc); next handoffs/2026-09-17-graph-p12b-s1b.md. P12A completed 2026-09-16 (S1-S3). P12B planned 2026-09-17: spec docs/graph-engineering/specs/phases/P12B_MODEL_FAILURE_HANDLING.md (F0-F8), registered in scripts/next_graph_prompt.py; run it with no --phase for the directive. Dan decisions 2026-09-17: only bad_output failures use up the 2 retries; retry 1 same model fresh session, retry 2 another equal-or-better model; step-down needs ROADMAP `fallback: step_down` AND a controller full-verification check; the free-mode diagnoser uses free models only (no hybrid overlay). agy (2026-09-17, Dan asked): --mode accept-edits characterised as a no-op under this host's always-proceed; found and fixed a real escape (no --add-dir = no active workspace = model wrote in $HOME in 2/6 probes); driver now passes --add-dir <cwd>, 3/3 clean. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -679,7 +679,16 @@ _p09_open_threads:
     thread: "Only the Python grammar is enabled. Another language needs its own thirdparty row
      before providers.GRAMMARS may name it."
 
-in_progress_details: null
+in_progress_details:
+  what_was_done:
+    - "F0 maestro/workflows/failures.py + tests/workflows/test_failures.py (2b572de)"
+    - "F1 model_api typed TransportErrors + parse_retry_headers, runtime stop_reason=kind, empty_output, malformed_tool_calls, worker outputs[failure]; tests/backends/test_model_api.py (761bacc)"
+  whats_left:
+    - "F2 worker._run_agent_cli classification (no adoption on a classified failure)"
+    - "F3 attempts failure columns, lifecycle.record_failure, explain_view, maestro workflow failures"
+    - "F4-F8 (S2, S3), close-out, 3 P12B open threads"
+  relevant_context: "Design contract handoffs/2026-09-17-graph-p12b-s1-design.md binds F0-F3. Full suite after F1: tests=4629 failures=0 skipped=1."
+  active_branch: "feat/graph-engineering-foundation"
 
 _p08_open_threads:
   # Not blockers: what P08 leaves behind.

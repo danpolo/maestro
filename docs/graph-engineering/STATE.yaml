@@ -683,11 +683,12 @@ in_progress_details:
   what_was_done:
     - "F0 maestro/workflows/failures.py + tests/workflows/test_failures.py (2b572de)"
     - "F1 model_api typed TransportErrors + parse_retry_headers, runtime stop_reason=kind, empty_output, malformed_tool_calls, worker outputs[failure]; tests/backends/test_model_api.py (761bacc)"
+    - "F2 worker._run_agent_cli classification, no adoption on a classified failure (b469f71)"
+    - "F3 attempts failure columns, lifecycle.record_failure (routing-guarded), explain_view, maestro workflow failures; tests/graph_engineering/test_failure_ladder.py (d356b7f)"
   whats_left:
-    - "F2 worker._run_agent_cli classification (no adoption on a classified failure)"
-    - "F3 attempts failure columns, lifecycle.record_failure, explain_view, maestro workflow failures"
-    - "F4-F8 (S2, S3), close-out, 3 P12B open threads"
-  relevant_context: "Design contract handoffs/2026-09-17-graph-p12b-s1-design.md binds F0-F3. Full suite after F1: tests=4629 failures=0 skipped=1."
+    - "S2: F4 (blocked -> pool pause + re-route), F5 (wait / step down with checks) -- contract handoffs/2026-09-17-graph-p12b-s2-design.md"
+    - "S3: F6-F8, close-out, 3 P12B open threads"
+  relevant_context: "S1 contract handoffs/2026-09-17-graph-p12b-s1-design.md (done); S2 contract handoffs/2026-09-17-graph-p12b-s2-design.md binds F4-F5. After F3: gate tests=814 failures=0; full suite tests=4642 failures=0 skipped=1 (exit 0)."
   active_branch: "feat/graph-engineering-foundation"
 
 _p08_open_threads:

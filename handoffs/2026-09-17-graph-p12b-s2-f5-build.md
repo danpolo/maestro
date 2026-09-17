@@ -6,7 +6,7 @@
 Working directory `/home/dan/projects/maestro`, branch `feat/graph-engineering-foundation`
 (**no upstream**; `git pull` fails, expected). HEAD should be the **F4 commit**
 (`feat(graph): P12B F4 — …`) on top of `d356b7f`, with a clean tree. Check with
-`git log -2 --oneline && git status --short`.
+`git log -2 --oneline && git status --short` (F4 = `1e78300`).
 
 ## Why this file exists
 
@@ -112,4 +112,4 @@ over 300 lines. Measure with `python3 ~/.claude/skills/close-session/scripts/con
 
 - F4 gate command (contract §Verification): **tests=900, failures=0**. The S1 baseline was
   814.
-- F4 full suite: see the F4 commit message, or re-run it.
+- F4 full suite: **tests=4657, failures=0, skipped=1**. F4 commit is `1e78300`. STATE has not been updated yet.

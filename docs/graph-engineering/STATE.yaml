@@ -685,10 +685,12 @@ in_progress_details:
     - "F1 model_api typed TransportErrors + parse_retry_headers, runtime stop_reason=kind, empty_output, malformed_tool_calls, worker outputs[failure]; tests/backends/test_model_api.py (761bacc)"
     - "F2 worker._run_agent_cli classification, no adoption on a classified failure (b469f71)"
     - "F3 attempts failure columns, lifecycle.record_failure (routing-guarded), explain_view, maestro workflow failures; tests/graph_engineering/test_failure_ladder.py (d356b7f)"
+    - "F4 blocked -> pool_pauses table + in-memory pause, re-route with no retry used, context_overflow route exclusion, auth pause + notify, legacy backend_exhausted mirror (1e78300)"
+    - "F5 routed wait carries its reset; unknown-reset park (route_blocked_wait_exceeded); fallback: step_down flag + compiler.fallback_refusal; one-rung step-down inside routing.resolve, attempts.stepped_down, full-suite gate (929248a)"
   whats_left:
-    - "S2: F4 (blocked -> pool pause + re-route), F5 (wait / step down with checks) -- contract handoffs/2026-09-17-graph-p12b-s2-design.md"
-    - "S3: F6-F8, close-out, 3 P12B open threads"
-  relevant_context: "S1 contract handoffs/2026-09-17-graph-p12b-s1-design.md (done); S2 contract handoffs/2026-09-17-graph-p12b-s2-design.md binds F4-F5. After F3: gate tests=814 failures=0; full suite tests=4642 failures=0 skipped=1 (exit 0)."
+    - "S3: F6-F8 (bad_output retries, diagnoser, dead writers), close-out, 3 P12B open threads -- contract handoffs/2026-09-17-graph-p12b-s3-design.md (to be written)"
+    - "S3 carry-over: under routing pre_validate checks permits(quality_failures) and nothing increments it yet; F6 must increment it on bad_output"
+  relevant_context: "S1 contract handoffs/2026-09-17-graph-p12b-s1-design.md (done); S2 contract handoffs/2026-09-17-graph-p12b-s2-design.md binds F4-F5. After F3: gate tests=814 failures=0; full suite tests=4642 failures=0 skipped=1 (exit 0). After F4: gate 900/0, full 4657/0 skipped=1. After F5: gate 915/0, full FULL_F5."
   active_branch: "feat/graph-engineering-foundation"
 
 _p08_open_threads:

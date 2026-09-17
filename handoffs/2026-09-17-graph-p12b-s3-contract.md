@@ -114,6 +114,6 @@ STATE: targeted replacements only.
 
 ## Numbers so far
 - F4: gate tests=900 failures=0; full tests=4657 failures=0 skipped=1 (`1e78300`).
-- F5: gate tests=915 failures=0; full FULL_F5 (`929248a`).
+- F5: gate tests=915 failures=0; full tests=4672 failures=0 skipped=1 (`929248a`).
 - Gate command (S2 contract §Verification):
   `.venv/bin/python -m pytest -q tests/workflows/test_failures.py tests/graph_engineering/test_failure_ladder.py tests/graph_engineering/test_dispatch_wiring.py tests/backends tests/workflows tests/test_workflow_status.py tests/test_taskgraph*.py --junit-xml=.scratch/p12b/gate.xml`

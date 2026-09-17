@@ -9,7 +9,7 @@ Working directory `/home/dan/projects/maestro`, branch `feat/graph-engineering-f
 ## Where the previous session stopped
 
 It built **all of F6's behaviour** and its **unit tests**, and committed them as
-`<F6_HASH>` (see `git log -3 --oneline`; the commit is
+`782ea77` (see `git log -3 --oneline`; the commit is
 `feat(graph): P12B F6 — bad output retries twice, fresh then on another model`).
 It stopped at 182K tokens, past the 160K handoff line, **before writing F6's
 lane-level (`run_lane`) tests** — items 1–8 of the contract's §"F6 tests".
@@ -23,9 +23,9 @@ lane retries twice and then parks has not been written yet. **That is the first 
    §F6 describes what was built; §F7 and §F8 are still ahead.
 2. `docs/graph-engineering/specs/phases/P12B_MODEL_FAILURE_HANDLING.md` — §2 F6/F7,
    §3's F6/F7 bullets.
-3. `git show <F6_HASH>` — what actually landed.
+3. `git show 782ea77` — what actually landed.
 
-## What F6 built (verified, at `<F6_HASH>`)
+## What F6 built (verified, at `782ea77`)
 
 - `maestro/workflows/failures.py`: `QUALITY_ATTEMPTS = 3`, `ROLE_DIAGNOSER`,
   `retry_cone(revision, node_id)` (agent → itself; verification handler → nearest upstream
@@ -59,7 +59,7 @@ lane retries twice and then parks has not been written yet. **That is the first 
   `requeue_cone`, `fail_quality`, `start_sha` as attempt telemetry.
 - `tests/test_confinement.py` — `restore` happy path, three refusals, a git failure raised.
 
-### Existing tests the new behaviour changed (already updated in `<F6_HASH>`)
+### Existing tests the new behaviour changed (already updated in `782ea77`)
 - `tests/graph_engineering/test_dispatch_wiring.py` `_settled_run` now drives the failure
   `QUALITY_ATTEMPTS` times, because a `failed` agent result is a bad output and is retried.
 - `tests/graph_engineering/test_failure_ladder.py` F5 step-down test: its `cmd: "false"`
@@ -132,8 +132,8 @@ replacements only.
 .venv/bin/python -m pytest -q tests/workflows/test_failures.py tests/graph_engineering tests/backends tests/workflows tests/test_workflow_status.py tests/test_taskgraph*.py tests/control tests/test_confinement.py --junit-xml=.scratch/p12b/gate.xml
 .venv/bin/python -m pytest -q --junit-xml=.scratch/p12b/full.xml   # exit 0; run in background, check xml mtime
 ```
-Baseline at `<F6_HASH>`: gate tests=1198 failures=0 skipped=0; full tests=<FULL_TESTS>
-failures=0 skipped=<FULL_SKIPPED>. (The gate command above is wider than S2's — it now
+Baseline at `782ea77`: gate tests=1198 failures=0 skipped=0; full tests=4688
+failures=0 skipped=1. (The gate command above is wider than S2's — it now
 includes `tests/control` and `tests/test_confinement.py`, which F6 touches.)
 
 Also still open: STATE's `in_progress_details` was updated for F6 but the three

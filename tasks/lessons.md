@@ -217,3 +217,46 @@ and every subsequent test in the session.
 Contain an environment variable a test's code-under-test *writes* with an explicit
 snapshot/restore fixture, not with `delenv(raising=False)`. And when a failure appears in a file
 you did not touch, suspect process-global state before suspecting your change to the other file.
+
+## 2026-09-18 — Measure the context before naming the next task, and close out on the seam
+
+Having finished F6's lane tests I reported the numbers and announced "starting F7 now unless you
+want something else", citing context as "roughly 50K — comfortably inside the 160K handoff line".
+The measured figure was 156K. I was at the handoff line, not comfortably inside it, and F7 is the
+largest of the three Fs: starting it would have produced a half-built stage at the ceiling.
+
+Two distinct errors, and the second is the one that bit:
+
+1. I estimated the context instead of running
+   `python3 ~/.claude/skills/close-session/scripts/context_usage.py`, which CLAUDE.md explicitly
+   requires ("Measure the context, don't estimate it"). A three-fold underestimate is not a near
+   miss — the percentage (16%) reads reassuring while the absolute count is the thing that binds.
+2. Finishing a committable unit of work *is* the seam a session closes on. I treated it as a
+   checkpoint to narrate and pushed straight on to naming the next job, so the sweep, the STATE
+   update and the handoff only happened when Dan asked why they hadn't.
+
+Measure at every commit, not once per session; and when a unit lands, run the close-session sweep
+before proposing the next one rather than after being asked for it.
+
+## 2026-09-18 (later) — Doing the skill's job by hand is still skipping the skill
+
+Same day, same screw, one turn further. This time I did measure the context (164K), did stop at
+the handoff line instead of starting F7, and did write a handoff. Then Dan asked why I hadn't used
+`close-session`. I hadn't used `handoff` either. I had hand-rolled both.
+
+The rationalisation is worth recording because it is not obviously wrong: the context-governor
+hook said "write a handoff, and close the session", and the F7 brief said "write a handoff at
+160K". I executed both sentences literally, produced a file that looked like the deliverable, and
+never checked whether a skill owned the job. Having something that resembles the output is exactly
+when the skill check feels most skippable and is most load-bearing — the skill is a checklist, and
+a checklist's value is the items you would not have thought of.
+
+What the hand-rolled version missed, concretely: `docs/graph-engineering/STATE.yaml:693` still
+pointed the next session at the superseded handoff. `next_graph_prompt.py` prints from that field,
+so the next session would have been handed the old brief and re-derived the whole code survey — the
+~70K this session spent earning it, spent again. The sweep step catches that; my summary did not,
+because I was recalling what I'd done rather than walking a list against disk.
+
+Producing the artifact is not the same as running the process that decides which artifacts are
+needed. When a skill exists for the job, invoke it *and then* write the file — not the reverse,
+and not instead.

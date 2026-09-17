@@ -47,7 +47,7 @@ Write a design contract for each session in `handoffs/` before coding, as P12A S
 
 - There is one dispatch choke point (`advance` → `resolve` once → `claim` → `launch_worker`). There is one fresh-vs-resume decision (`routing.session_decision`). There is no context rotation. The Context Gate is NOT built.
 - New transitions run only when `routing is not None`. With `compile_workflow` called without `escalation`, output stays byte-identical (`tests/workflows/test_compatibility.py`).
-- Keep `Usage.pools` out of `to_usage_json`. Keep `Capabilities.sandbox=False` for agy. `--mode accept-edits` was characterised on 2026-09-17 and gives nothing extra here. The driver now passes `--add-dir <cwd>` (see `antigravity.WORKSPACE_FLAG`); don't remove it. Don't flip `engineering.runner`, and don't touch the `P12A_*` spec.
+- Keep `Usage.pools` out of `to_usage_json`. Keep `Capabilities.sandbox=False` for agy. `--mode accept-edits` was characterised on 2026-09-17 and gives nothing extra here. The driver now passes `--add-dir <cwd>` and `--dangerously-skip-permissions` on every run (see `antigravity.WORKSPACE_FLAG` and `PERMISSION_FLAG`); don't remove either. Don't flip `engineering.runner`, and don't touch the `P12A_*` spec.
 
 ## Coordination
 

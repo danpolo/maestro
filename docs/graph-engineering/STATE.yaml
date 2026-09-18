@@ -731,12 +731,16 @@ in_progress_details:
     - "s2d 2fc8faf: interrupted integration BUG: merge declared reconciliation_handler maestro.reconcile.merge_probe but no probe existed; a controller lost inside merge left the node running forever. Now _decide_dead_writers runs the probe: impl/<task> absent from target -> re-readied as 'interrupted' (new blocked-class kind, spends no budget: pre_validate subtracts blocked_attempts for non-agent nodes); present/unknown -> node failed, run failed, never replayed. Lanes: crash before swap lands on rerun; crash after swap escalates."
     - "s2d 87ba99c: transaction rollback BUG: commit_acceptance autocommitted event, decision row and task status separately; a failure part-way left an accepted decision on a non-accepted task. Now one store.transaction()."
     - "s2d end: full suite tests=4732 failures=0 errors=0 (rc 0); test_end_to_end.py 15 lanes green."
+    - "s2e 5f61b9d: manual prep BUG: the graph loop read only parse_runnable_tasks() (excludes dispatch:manual), so a B14 prep task never got a run under runner: graph. Now + parse_prep_tasks(), as legacy. Found by tests/graph_engineering/test_qualification.py (six classes x subscription fixture + free/hybrid/script)."
+    - "s2e d4af85f: scripts/graph_qualification.py (exit 0: 10/10 lanes, 1 task per class x6, invariants 6/6 checked passed, 6 not checkable and named with covering tests, 2 acceptance_decisions per accepted run, 17,180,686 bytes across 9 runs) -> artifacts/graph-engineering/p12-qualification.json. B15: retention {prune: false, warn_bytes: 1 GiB} in config.RETENTION_DEFAULTS + project.yaml.tmpl, doctor _check_retention warns past it; prune: true refused (A03)."
+    - "s2e end: full suite tests=4744 failures=0 errors=0 skipped=1 (rc 0)."
+    - "s2f 46b0dae: the gate refuses an uncommitted task tree (uncommitted_changes: <paths>); run parks at the gate, no evidence."
+    - "s2f 0f14a1b: a widened task lands only the candidate winner (candidate worker reports evidence + head_commit; post-join nodes use the winner's tree; merge gets the winner's branch). Candidates stay off (E1)."
+    - "s2f docs: DESIGN.md section 16, EXECUTION.md 'Graph qualification (P12)', PROGRESS.md P12 entry. s3 handoff written."
   whats_left:
-    - "scripts/graph_qualification.py (fixture run, invariants, raw telemetry, E1-E5 table, Context Gate mapping, non-scratch refusal)."
-    - "B15 artifact volume measurement -> maestro init retention default."
-    - "docs/DESIGN.md, docs/EXECUTION.md, docs/PROGRESS.md."
-    - "Real pilots (DuetFlow + instagram-to-value, paid subscription) in session s3."
-  relevant_context: "Full plan: handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md (sections 1, 4-7 still apply). Next session: handoffs/2026-09-18-graph-p12-s2e-qualification-script.md."
+    - "Real pilots (DuetFlow + instagram-to-value, paid subscription) in session s3; pre-flight blockers: DuetFlow 01-auth open (needs-dan consent) and no DuetFlow task has verifications (graph gate fails closed); ITV waits for Dan's grill-me."
+    - "Re-measure retention in the pilots (_p12_open_threads owner P12-pilots), subscription verdict, then close P12."
+  relevant_context: "Next session: handoffs/2026-09-18-graph-p12-s3-pilots.md (the whole prompt)."
   active_branch: feat/graph-engineering-foundation
 
 _p12_open_threads:
@@ -748,7 +752,8 @@ _p12_open_threads:
      exists, so no code-changing task can reach accept under engineering.runner: graph. P12B lanes passed --worktree by hand
      (test_failure_ladder.py). Wiring gap, not design drift (A08 branch + confinement.worktree_for path already fixed). Found
      from code in P12 s1; fix plan in handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md section 3."
-  - owner: P12-or-later
+  - disposition: closed
+    note: "s2f 0f14a1b: fixed as three wiring gaps, no design change. A candidate writer's worker runs the task's checks on its committed tree and reports evidence + head_commit (worker._with_candidate_proof; before, nothing did, so the join could never find a winner outside the W4 lane's faked results); worktree_for resolves unlabelled nodes after the join to the winner's tree (runner._tree_candidate); node_inputs hands merge the winner's branch. Lane test_a_widened_task_lands_only_the_candidate_winner. Candidates stay off by default (E1 unqualified)."
     thread: "The candidate winner is never merged: merge_handler integrates params/inputs['branch'] or impl/<task>, and
      nothing feeds it the candidate_select winner's branch or tree. A widened (candidates) task cannot land. Decide
      whether it is in P12 scope (not on the s2 checklist)."
@@ -756,7 +761,8 @@ _p12_open_threads:
     thread: "Every accepted graph run writes two acceptance_decisions rows (merge's, then accept's re-derivation), both
      bound to the merged commit since 55dcd15. Existing design; the qualification report should count decisions per
      run rather than assume one."
-  - owner: P12
+  - disposition: closed
+    note: "s2f: docs/DESIGN.md section 16 (graph runner as qualified in P12) + docs/EXECUTION.md 'Graph qualification (P12)'."
     thread: "Docs owed (s2 section 4 docs): the worktree_unavailable claim refusal, the TaskTreeReleased event, the
      brief header, that a parked run settles failed while park stays claimed, the harness/script commit
      (task_tree.commit_all, author 'maestro harness'), and that hybrid.paid_roles takes role ids, in docs/EXECUTION.md."
@@ -769,11 +775,22 @@ _p12_open_threads:
     thread: "Only merge has a postcondition probe (runner._POSTCONDITION_PROBES). worktree_probe, human_receipt_probe and
      async_job_probe are declared by the compiler but unimplemented, so those nodes still hang uncertain after a
      controller/worker death with no receipt."
-  - owner: P12
+  - disposition: closed
+    note: "s2f 46b0dae: the gate refuses a dirty tree (verification_handler -> failed, detail 'uncommitted_changes: <paths>'), so the run parks at the gate with no evidence, instead of at merge's freeze. Lane test_the_gate_refuses_an_uncommitted_tree_and_the_run_parks_there."
     thread: "The gate verifies the task tree's working state, not a commit: in the free lane before 08e3a02 the gate
      passed on an uncommitted file and only merge's freeze refused. Safe (merge catches it, the run parks) but the
      gate's evidence is not bound to a commit for an agent_cli writer that leaves work uncommitted. Decide: gate
      refuses a dirty tree (cheap, earlier park) or accept as is."
+  - owner: P12-pilots
+    thread: "B15 retention default (retention.warn_bytes 1 GiB, prune false; d4af85f) rests on fixture runs whose
+     transcripts are tiny (evidence 14 KB/run; the 2.07 MB control DB + WAL dominates). Re-measure .orchestrator
+     bytes per accepted task in the s3 real pilots and revise config.RETENTION_DEFAULTS / RETENTION_BASIS and the
+     template if real transcripts change the picture."
+  - disposition: closed
+    note: "s2f: same docs commit (DESIGN.md section 16, EXECUTION.md, PROGRESS.md P12 entry)."
+    thread: "Docs owed from s2e (with the docs thread above): the graph loop now opens B14 prep tasks (5f61b9d; manual
+     template prep -> human_action, which holds its claim until the operator's receipt, run stays open); the
+     qualification script and its report; the retention block and doctor's retention check."
 
 _p08_open_threads:
   # Not blockers: what P08 leaves behind.

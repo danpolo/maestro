@@ -318,3 +318,11 @@ noticed, because no lane drove a task to a settled `succeeded` run.
 produced, that is a finding, not test setup: stop and check that the controller produces it.
 For any runner, keep at least one lane that drives a task from open to accepted with nothing
 hand-fed in between.
+
+## 2026-09-18 — Wiring gaps are fixes, not decisions; fix before documenting
+- Correction: the P12 s2f handoff put docs before two open threads and offered `disposition: needs-dan` for them.
+  Both threads (gate checks an uncommitted tree; candidate winner never merged) are wiring gaps whose intended
+  behaviour the spec already fixes, so they are ours to fix, and fixing them first keeps the docs from describing
+  soon-to-change behaviour.
+- How to apply: in a handoff, order behaviour fixes before docs. Reserve needs-dan for real design/scope choices
+  (e.g. a D01-D08 change), never as a default fallback for "not small".

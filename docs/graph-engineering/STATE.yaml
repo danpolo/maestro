@@ -730,6 +730,7 @@ in_progress_details:
     - "s2d f6b62ab: fault lane, quota switch: first pool quota_exhausted and paused, implementer and every later node land on the second pool. No bug."
     - "s2d 2fc8faf: interrupted integration BUG: merge declared reconciliation_handler maestro.reconcile.merge_probe but no probe existed; a controller lost inside merge left the node running forever. Now _decide_dead_writers runs the probe: impl/<task> absent from target -> re-readied as 'interrupted' (new blocked-class kind, spends no budget: pre_validate subtracts blocked_attempts for non-agent nodes); present/unknown -> node failed, run failed, never replayed. Lanes: crash before swap lands on rerun; crash after swap escalates."
     - "s2d 87ba99c: transaction rollback BUG: commit_acceptance autocommitted event, decision row and task status separately; a failure part-way left an accepted decision on a non-accepted task. Now one store.transaction()."
+    - "s2d end: full suite tests=4732 failures=0 errors=0 (rc 0); test_end_to_end.py 15 lanes green."
   whats_left:
     - "scripts/graph_qualification.py (fixture run, invariants, raw telemetry, E1-E5 table, Context Gate mapping, non-scratch refusal)."
     - "B15 artifact volume measurement -> maestro init retention default."

@@ -4279,3 +4279,40 @@ why a `free_quality` resolution against the shipped catalog correctly *blocks* t
 strength ladder is `("light", "balanced", "strong")` because the shipped role definitions already
 say `balanced`/`strong`, and role effort floors are read from their own `paid_default` /
 `free_default` keys.
+
+## 2026-09-18 — P12 code complete: the graph runner qualified end to end on fixtures; real pilots next
+
+**Phase P12 of the graph-engineering migration, maestro-side work (sessions 1 to 2f).** `STATE.yaml`
+keeps P12 `in_progress`: the real pilots (DuetFlow, then instagram-to-value, paid subscription only)
+run in session s3 (`handoffs/2026-09-18-graph-p12-s3-pilots.md`). The runtime behaviour P12 fixed is
+written up in `docs/DESIGN.md` §16; how to run qualification is in `docs/EXECUTION.md`.
+
+**Verification:** full suite `tests=4746 failures=0 errors=0 skipped=1`, exit 0.
+`scripts/graph_qualification.py --repo /tmp/maestro-graph-qualification --fixture-backends`: exit 0,
+10/10 lanes, one task per class for all six classes, invariants 6/6 checked and passed (the other 6
+are not checkable in a fixture run; each is named with its covering tests), 2 acceptance decisions
+per accepted run, 17,180,686 bytes across 9 runs. Retention default
+`{prune: false, warn_bytes: 1073741824}`.
+
+**Integration bugs the end-to-end lanes found, one line each.** Before P12, no code-changing task could
+reach an accepted run under `engineering.runner: graph`.
+- `387e902` the graph loop never created a task worktree (the implementer ran in its inbox).
+- `55dcd15` merge and accept were handed no specs, and accept was not bound to the merged commit.
+- `55f6d5e` a parked run never settled.
+- `08e3a02` free mode never committed (the model-endpoint harness has no shell).
+- `afd677e` the script lane never committed.
+- `2fc8faf` a controller lost inside merge left the node running forever (no merge probe existed).
+- `87ba99c` the acceptance commit was three separate writes, not one transaction.
+- `5f61b9d` B14 manual prep tasks never ran under the graph loop.
+- `46b0dae` the gate passed on an uncommitted tree, binding its evidence to a commit that lacked the file.
+- `0f14a1b` a widened task could never land: nothing produced candidate evidence, the nodes after the
+  join read the wrong tree, and merge integrated `impl/<task>` rather than the winner's branch.
+
+**What stays unqualified.** Every mode in the report until a real pilot qualifies it, and only paid
+subscription is planned for that. Free, hybrid and the script lane pass fixture lanes only. E1 to E5
+all stay off or as shipped, unqualified, for lack of real measurements. The retention default rests on
+fixture runs (about 2 MB per accepted run, almost all control DB and WAL) and is re-measured in the pilots.
+
+**Carried into s3.** DuetFlow `01-auth` is still open pending Dan's Spotify consent, and no DuetFlow task
+declares `verifications:`, which the graph gate requires (an empty closed world is a rejection). Both
+are pre-flight steps in the s3 handoff.

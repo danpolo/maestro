@@ -27,6 +27,17 @@ per-attempt outcomes, re-measures retention and qualifies **paid subscription on
   `jobs/ staging/ media/ out/ logs/ config/`; `gate.chain: [test]`. Never stop or restart them.
 
 ## 2. Pre-flight blockers found while writing this handoff (resolve before any run)
+> **Update 2026-09-18 (session 3a): blockers 1 and 2 are DONE. Do not redo them.** DuetFlow commit `628d51d`:
+> Dan confirmed the consent, so `01-auth` is `status: complete`, and tasks 02 to 08 each declare `kind: auto`
+> verifications (task-specific V1 to V3, plus `V-SUITE` = the full pytest run), using the absolute interpreter
+> `/home/dan/projects/duetflow/.venv/bin/python`. A task worktree has no `.venv`, and the graph `CheckRunner`
+> does not rewrite a bare `python`. Checked: worktree code is imported ahead of the editable install. Every check
+> fails closed on today's tree (V-SUITE passes: 73 tests). `parse_runnable_tasks` returns `['02-collector-schema']`,
+> and `maestro doctor` is clean apart from the existing systemd_unit WARN. 09 has no checks on purpose
+> (`hold: true`, operator-only). 08's V3 pins its units and install script under `deploy/`, because `systemd/`
+> holds maestro's watchdog unit. Note: doctor reports the loop runs the **adopted** checkout
+> `~/.maestro/versions/2f555c28…`, not this branch's HEAD. Resolve that before the pilots (§3 step 1 pins the SHA).
+> Pilots NOT started; next step is §3 step 1 (the manifest). Record DuetFlow HEAD `628d51d` in it.
 1. **DuetFlow `01-auth` is `status: open` and `mode: needs-dan`, but its code is committed** (`979727d`, `fd977d2`,
    2026-09-11). Its done-condition is Dan walking the Spotify consent for two accounts. Every other task depends
    on it transitively (`02-collector-schema` deps `[01-auth]`). **Ask Dan** (one AskUserQuestion) whether the

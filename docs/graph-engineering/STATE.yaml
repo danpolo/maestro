@@ -726,13 +726,16 @@ in_progress_details:
     - "08e3a02: free mode could never land a task: the model-endpoint harness (4 tools, no shell) wrote the tree but nothing committed it, so merge refused. The worker now commits a writer's tree on a clean finish as the harness (task_tree.commit_all, HARNESS_AUTHOR); the ToolBox boundary takes the candidate id."
     - "afd677e: script lane could never land a changing task: graph script_handler never committed (legacy did). Now commits via task_tree.commit_all. Hybrid lane added: no code bug, but hybrid needs policy hybrid.paid_roles naming ROLE ids (reviewer, diagnoser), not node ids."
     - "e087520: fault lane 1/5, lost controller after the claim: resumes, adopts the same attempt, lands. No bug."
+    - "s2d abd8078: fault lane, writer crash mid-task (half commit + dirty file, dead PID): retried from start_sha, only the retry lands. No bug."
+    - "s2d f6b62ab: fault lane, quota switch: first pool quota_exhausted and paused, implementer and every later node land on the second pool. No bug."
+    - "s2d 2fc8faf: interrupted integration BUG: merge declared reconciliation_handler maestro.reconcile.merge_probe but no probe existed; a controller lost inside merge left the node running forever. Now _decide_dead_writers runs the probe: impl/<task> absent from target -> re-readied as 'interrupted' (new blocked-class kind, spends no budget: pre_validate subtracts blocked_attempts for non-agent nodes); present/unknown -> node failed, run failed, never replayed. Lanes: crash before swap lands on rerun; crash after swap escalates."
+    - "s2d 87ba99c: transaction rollback BUG: commit_acceptance autocommitted event, decision row and task status separately; a failure part-way left an accepted decision on a non-accepted task. Now one store.transaction()."
   whats_left:
-    - "test_end_to_end.py fault matrix, 4 of 5 left: transaction rollback, writer crash, quota switch, interrupted integration."
     - "scripts/graph_qualification.py (fixture run, invariants, raw telemetry, E1-E5 table, Context Gate mapping, non-scratch refusal)."
     - "B15 artifact volume measurement -> maestro init retention default."
     - "docs/DESIGN.md, docs/EXECUTION.md, docs/PROGRESS.md."
     - "Real pilots (DuetFlow + instagram-to-value, paid subscription) in session s3."
-  relevant_context: "Full plan: handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md (sections 1, 4-7 still apply). Next session: handoffs/2026-09-18-graph-p12-s2d-fault-matrix-and-qualification.md."
+  relevant_context: "Full plan: handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md (sections 1, 4-7 still apply). Next session: handoffs/2026-09-18-graph-p12-s2e-qualification-script.md."
   active_branch: feat/graph-engineering-foundation
 
 _p12_open_threads:
@@ -756,6 +759,15 @@ _p12_open_threads:
     thread: "Docs owed (s2 section 4 docs): the worktree_unavailable claim refusal, the TaskTreeReleased event, the
      brief header, that a parked run settles failed while park stays claimed, the harness/script commit
      (task_tree.commit_all, author 'maestro harness'), and that hybrid.paid_roles takes role ids, in docs/EXECUTION.md."
+  - owner: failure-handling-phase
+    thread: "An inline controller node whose handler raises is written `uncertain` (execute_inline) and its node phase
+     `uncertain` never settles the run: e.g. merge fast-forwarded, then its acceptance commit failed (the rollback lane
+     stops there). A05 says escalate to the operator; nothing notifies and the run stays open. Same family as the
+     _p07 KNOWN LIMIT. Decide: settle failed + notify, or run the node's probe (merge_probe exists since 2fc8faf)."
+  - owner: failure-handling-phase
+    thread: "Only merge has a postcondition probe (runner._POSTCONDITION_PROBES). worktree_probe, human_receipt_probe and
+     async_job_probe are declared by the compiler but unimplemented, so those nodes still hang uncertain after a
+     controller/worker death with no receipt."
   - owner: P12
     thread: "The gate verifies the task tree's working state, not a commit: in the free lane before 08e3a02 the gate
      passed on an uncommitted file and only merge's freeze refused. Safe (merge catches it, the run parks) but the

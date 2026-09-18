@@ -306,3 +306,15 @@ that stops at the last controller-owned row proves the plumbing and not the feat
 the text the driver was handed. And when a role's own declared floor means no existing test can
 reach the code under it, that is not a detail — it is a statement that the path is unrun, and
 the first lane that reaches it will find whatever is there.
+
+## 2026-09-18 — P12 s1: a test that supplies its own input hides the wiring that should supply it
+
+The P12B failure-ladder lanes passed `--worktree` to the worker by hand in their `on_poll`, so
+every lane was green while the graph loop itself never created a task worktree or passed one to
+anything. Under `engineering.runner: graph` no code task could reach `accept`, and no test
+noticed, because no lane drove a task to a settled `succeeded` run.
+
+**The rule this leaves.** When a lane has to inject an argument the controller should have
+produced, that is a finding, not test setup: stop and check that the controller produces it.
+For any runner, keep at least one lane that drives a task from open to accepted with nothing
+hand-fed in between.

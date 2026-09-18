@@ -10,9 +10,9 @@
 # A phase must close (disposition: closed + note) or re-own (owner: <later phase>) every thread it was
 # given before it marks itself complete. A bare string thread is a format error (tests/test_next_graph_prompt.py).
 schema_version: 1
-last_updated: "2026-09-16T21:30:00Z"
-current_phase: "P12B"  # model-failure handling (D-FAIL-1/2); name kept by the 2026-09-17 planning session; P12 follows it
-status: "in_progress"  # P12B S1a 2026-09-17: F0+F1 done (2b572de, 761bacc); next handoffs/2026-09-17-graph-p12b-s1b.md. P12A completed 2026-09-16 (S1-S3). P12B planned 2026-09-17: spec docs/graph-engineering/specs/phases/P12B_MODEL_FAILURE_HANDLING.md (F0-F8), registered in scripts/next_graph_prompt.py; run it with no --phase for the directive. Dan decisions 2026-09-17: only bad_output failures use up the 2 retries; retry 1 same model fresh session, retry 2 another equal-or-better model; step-down needs ROADMAP `fallback: step_down` AND a controller full-verification check; the free-mode diagnoser uses free models only (no hybrid overlay). agy (2026-09-17, Dan asked): --mode accept-edits characterised as a no-op under this host's always-proceed; found and fixed a real escape (no --add-dir = no active workspace = model wrote in $HOME in 2/6 probes); driver now passes --add-dir <cwd>, 3/3 clean. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
+last_updated: "2026-09-18T18:00:00Z"
+current_phase: "P12"  # P12B (model-failure handling, D-FAIL-1/2) completed 2026-09-18
+status: "in_progress"  # P12 session 1 (2026-09-18, ac92f2c): thread #4 closed, graph-loop worktree gap found; continue from handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
 completed_phases:
   - phase: P00
@@ -462,6 +462,21 @@ completed_phases:
       both loops, W10 async hold snapshot, W11 `maestro workflow runs`. Context Gate not built
       (out of scope by Dan). Design contracts: handoffs/2026-09-15-graph-p12a-s2-design.md,
       handoffs/2026-09-16-graph-p12a-s3-design.md.
+  - phase: P12B
+    completed_at: "2026-09-18T12:00:00Z"
+    test_result: >-
+      .venv/bin/python -m pytest -q (full suite) -> junit tests=4716 failures=0 errors=0 skipped=1,
+      exit 0 (HEAD 4b64e8c). Phase gate command (test_failures, tests/graph_engineering, tests/backends,
+      tests/workflows, test_workflow_status, test_taskgraph*, tests/control, test_confinement)
+      -> junit tests=1226 failures=0 skipped=0.
+    notes: >-
+      F0 vocabulary, F1 endpoint and F2 CLI classification, F3 durable failure record + operator view,
+      F4 blocked -> pool pause and re-route, F5 wait or checked step-down, F6 two bad-output retries
+      (fresh, then another model) from start_sha, F7 escalation to a one-rung-stronger diagnoser whose
+      PlanRepairProposal (bad_graph | poor_agent) buys one final run then park, with the failure
+      context delivered in the diagnoser's brief (verification output bounded at 16k tokens, sizes
+      recorded), F8 dead writers decided (candidate abandoned, writer retried). Contracts:
+      handoffs/2026-09-17-graph-p12b-s1-design.md, -s2-design.md, -s3-design.md.
 
 _open_threads_audit:
   # 2026-09-14 planning session: all 28 threads triaged in place (closed 6, accepted 10, owner:P12A 10,
@@ -538,21 +553,43 @@ _p12a_open_threads:
 
 _p12b_open_threads:
   # Seeded by the 2026-09-17 P12B planning session (spec P12B_MODEL_FAILURE_HANDLING.md).
-  - owner: P12B
+  - disposition: closed
+    note: "P12B F8 (4b64e8c): WorkflowRunner._decide_dead_writers runs in tick right after reconcile, under routing only, from durable
+     state. A candidate reaped by the join -> node failed + worker_crashed, no outcome_ref, attempt left uncertain -> the join reports it
+     abandoned; any other writer -> worker_crashed through F6's retry cone from start_sha. reconcile.py unchanged; routing-None unchanged.
+     Lanes: test_a_killed_candidate_is_abandoned_and_the_join_still_picks_one_winner, test_a_killed_implementer_is_retried_once_from_its_start_sha,
+     test_without_routing_a_killed_writer_is_left_uncertain_as_before (test_failure_ladder.py)."
     thread: "Dead-writer candidate stalls the join (P12A W4 known limit, from the closed _p07_open_threads #2 note): a candidate
      whose writer dies with no receipt is reconciled to attempt `uncertain` (agent_editing_worktree is not repeatable, A05) and
      its node stays `running`, so candidate_select waits forever. Under routing only, the reconciler must also decide the node:
      candidate -> failed/worker_crashed (reported abandoned); non-candidate writer -> a worker_crashed bad_output retry from its
      start_sha. routing-None behaviour unchanged. Spec F8."
-  - owner: P12B
+  - disposition: closed
+    note: "P12B F7 (faead85): a diagnoser whose proposal apply_repair refuses is written failed, so its on_failure edge parks. Proof:
+     test_a_repair_refused_after_the_fact_still_fails_the_diagnoser_and_parks (test_failure_ladder.py)."
     thread: "apply_repair refusal leaves the proposing node `succeeded` and the old run unrepaired (P12A W7 known limit, runner._apply_repair
      docstring). Harmless for W7 alone, but an escalation diagnoser whose repair cannot be applied would leave the task with no path to park.
      For the diagnose node the refusal must write it `failed` so its on_failure edge parks. Spec F7."
-  - owner: P12B
+  - disposition: closed
+    note: "P12B F0-F8 built the whole ladder: F0 2b572de, F1 761bacc, F2 b469f71, F3 d356b7f, F4 1e78300, F5 929248a, F6 782ea77+b8ef073,
+     F7 faead85+903ff60+a329ddf, F7's diagnoser inputs (the failure context reaches the model's brief, bounded verification output,
+     full-vs-delivered sizes) ca3032e, F8 4b64e8c. Every compiled node still has RetryPolicy(max_attempts=1); the ladder lives in the
+     runner under routing, not in the policy."
     thread: "The graph loop has no failure handling at all: every compiled node has RetryPolicy(max_attempts=1), `failed` is terminal,
      worker._run_agent_cli discards the driver's Completion (a rate-limited CLI run is adopted as if it had worked), and
      ModelAgentRuntime collapses every HTTP error into endpoint_unavailable. D-FAIL-1/D-FAIL-2 (Dan, 2026-09-16) require the
      classify -> switch -> wait/step-down -> 2 retries -> stronger diagnoser -> one final run -> park ladder. Spec F0-F7."
+  - disposition: closed
+    note: "P12 s1 (ac92f2c): WorkflowRunner.tick wraps each advance; _decide_controller_error fails the claim (made first if
+     none) with route_refusal `controller_error: <Type>: <msg>` when no worker launched, leaves the node to its worker when one
+     had, and appends a ControllerError store event with the traceback tail either way. Errors outside advance become one
+     GraphTickFailed run event per distinct error (orchestrator._record_graph_tick_failure) beside the journal line. Accepted
+     design note: a controller-error failure takes the same on_failure -> diagnose edge as every route refusal (W9, F5).
+     Lanes: tests/graph_engineering/test_end_to_end.py (4)."
+    thread: "An unexpected exception inside WorkflowRunner.advance (or ingest_results) is swallowed by the graph event loop's
+     `except Exception`, leaving the node `claimed` with no binding, no durable record and no failure. A lane then polls to MAX_POLLS
+     with nothing failed; that is how a one-line SQL typo (903ff60) hid. Pre-existing loop behaviour, outside P12B; found in the
+     P12B F7 session. Wants a durable record (journal/event) and a decision for the node rather than silence."
 
 _p07b_open_threads:
   # Not blockers: what P07B leaves behind.
@@ -681,18 +718,26 @@ _p09_open_threads:
 
 in_progress_details:
   what_was_done:
-    - "F0 maestro/workflows/failures.py + tests/workflows/test_failures.py (2b572de)"
-    - "F1 model_api typed TransportErrors + parse_retry_headers, runtime stop_reason=kind, empty_output, malformed_tool_calls, worker outputs[failure]; tests/backends/test_model_api.py (761bacc)"
-    - "F2 worker._run_agent_cli classification, no adoption on a classified failure (b469f71)"
-    - "F3 attempts failure columns, lifecycle.record_failure (routing-guarded), explain_view, maestro workflow failures; tests/graph_engineering/test_failure_ladder.py (d356b7f)"
-    - "F4 blocked -> pool_pauses table + in-memory pause, re-route with no retry used, context_overflow route exclusion, auth pause + notify, legacy backend_exhausted mirror (1e78300)"
-    - "F5 routed wait carries its reset; unknown-reset park (route_blocked_wait_exceeded); fallback: step_down flag + compiler.fallback_refusal; one-rung step-down inside routing.resolve, attempts.stepped_down, full-suite gate (929248a)"
-    - "F6 behaviour + units: failures.QUALITY_ATTEMPTS/retry_cone, node_states.retry_resets, attempts.start_sha, lifecycle.override_phase/requeue_cone/fail_quality, runner._commit_quality_failure/_soft_exclude/_restore_start_tree, routing.resolve(soft_exclude=), CommitBoundary.restore (782ea77)."
-    - "F6 lane tests: 9 run_lane proofs of contract items 1-8 in tests/graph_engineering/test_failure_ladder.py (_ScriptedCliDriver, _drive_implementer, _halt_when, _retry_rows); verified by mutation (QUALITY_ATTEMPTS=1 fails all 9) (b8ef073). F6 COMPLETE."
+    - "Dan's decisions (2026-09-18): code now, real pilots in a later session; ITV waits for Dan's own grill-me run; ITV daemons keep running under config guards; real pilots qualify paid subscription only."
+    - "ac92f2c: _p12b_open_threads #4 closed (controller errors decided + durable ControllerError / GraphTickFailed events); tests/graph_engineering/test_end_to_end.py created (4 lanes)."
   whats_left:
-    - "S3: F7 (diagnoser escalation), then F8 (dead writers), close-out, 3 P12B open threads -- contract handoffs/2026-09-17-graph-p12b-s3-design.md; next session continues from handoffs/2026-09-18-graph-p12b-s3-f7-build.md (supersedes ...-f7-diagnoser.md: same three jobs plus a code survey locating every seam F7 touches at b8ef073, so F7 is not re-derived a third time). F7 NOT started; b8ef073 still HEAD."
-  relevant_context: "S1 contract handoffs/2026-09-17-graph-p12b-s1-design.md (done); S2 contract handoffs/2026-09-17-graph-p12b-s2-design.md binds F4-F5. After F3: gate tests=814 failures=0; full suite tests=4642 failures=0 skipped=1 (exit 0). After F4: gate 900/0, full 4657/0 skipped=1. After F5: gate 915/0, full 4672/0 skipped=1. F6's gate command is wider (adds tests/control and tests/test_confinement.py): gate 1198/0 skipped=0. After F6's lane tests (b8ef073): gate 1207/0 skipped=0, full 4697/0 skipped=1."
-  active_branch: "feat/graph-engineering-foundation"
+    - "Fix the graph-loop task worktree gap (_p12_open_threads #1) -- prerequisite for every e2e happy path and every pilot."
+    - "test_end_to_end.py: happy path to an accepted run under each fixture mode + the five-fault matrix."
+    - "scripts/graph_qualification.py (fixture run, invariants, raw telemetry, E1-E5 table, Context Gate mapping, non-scratch refusal)."
+    - "B15 artifact volume measurement -> maestro init retention default."
+    - "docs/DESIGN.md, docs/EXECUTION.md, docs/PROGRESS.md."
+    - "Real pilots (DuetFlow + instagram-to-value, paid subscription) in session s3."
+  relevant_context: "Full plan: handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md. Session 2 stopped mid-fix with UNCOMMITTED work (task_tree.py, runner/worker wiring, a red happy-path lane): handoffs/2026-09-18-graph-p12-s2b-happy-path-debug.md."
+  active_branch: feat/graph-engineering-foundation
+
+_p12_open_threads:
+  - owner: P12
+    thread: "The graph loop never creates the task worktree: WorkflowRunner.worktree_for reads node.params['worktree'], which the
+     compiler never sets; _default_worker_argv passes no --worktree; nothing in the graph path runs git worktree add. The
+     implementer runs in its attempt inbox, the gate checks the inbox, and merge integrates impl/<task>, a branch that never
+     exists, so no code-changing task can reach accept under engineering.runner: graph. P12B lanes passed --worktree by hand
+     (test_failure_ladder.py). Wiring gap, not design drift (A08 branch + confinement.worktree_for path already fixed). Found
+     from code in P12 s1; fix plan in handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md section 3."
 
 _p08_open_threads:
   # Not blockers: what P08 leaves behind.
@@ -895,6 +940,23 @@ _retired_in_progress_details:
 # decisions that ARE the B01 evidence, so it is moved here rather than deleted. Nothing
 # parses this key; it is read by the next agent and by whoever closes B01.
 phase_records:
+  P12B:
+    what_was_done:
+      - "S3 F7 (faead85, 903ff60, a329ddf): diagnose stage under escalation, one-rung-stronger diagnoser, PlanRepairProposal verdicts, final run, refusal parks."
+      - "S4 (ca3032e): the failure context reaches the diagnoser's brief (worker.agent_brief, workflows/failure_context.py); gate check output stored at ingest; sizes telemetry. Lane runs a real gate + real diagnoser worker and asserts on the driver's prompt."
+      - "S4 F8 (4b64e8c): WorkflowRunner._decide_dead_writers + Lifecycle.fail_dead_candidate; three lanes, mutation-checked (is_alive always true fails lanes 1-2; dropping the routing guard fails lane 3)."
+      - "F0 maestro/workflows/failures.py + tests/workflows/test_failures.py (2b572de)"
+      - "F1 model_api typed TransportErrors + parse_retry_headers, runtime stop_reason=kind, empty_output, malformed_tool_calls, worker outputs[failure]; tests/backends/test_model_api.py (761bacc)"
+      - "F2 worker._run_agent_cli classification, no adoption on a classified failure (b469f71)"
+      - "F3 attempts failure columns, lifecycle.record_failure (routing-guarded), explain_view, maestro workflow failures; tests/graph_engineering/test_failure_ladder.py (d356b7f)"
+      - "F4 blocked -> pool_pauses table + in-memory pause, re-route with no retry used, context_overflow route exclusion, auth pause + notify, legacy backend_exhausted mirror (1e78300)"
+      - "F5 routed wait carries its reset; unknown-reset park (route_blocked_wait_exceeded); fallback: step_down flag + compiler.fallback_refusal; one-rung step-down inside routing.resolve, attempts.stepped_down, full-suite gate (929248a)"
+      - "F6 behaviour + units: failures.QUALITY_ATTEMPTS/retry_cone, node_states.retry_resets, attempts.start_sha, lifecycle.override_phase/requeue_cone/fail_quality, runner._commit_quality_failure/_soft_exclude/_restore_start_tree, routing.resolve(soft_exclude=), CommitBoundary.restore (782ea77)."
+      - "F6 lane tests: 9 run_lane proofs of contract items 1-8 in tests/graph_engineering/test_failure_ladder.py (_ScriptedCliDriver, _drive_implementer, _halt_when, _retry_rows); verified by mutation (QUALITY_ATTEMPTS=1 fails all 9) (b8ef073). F6 COMPLETE."
+    whats_left:
+      - "S3: F7 (diagnoser escalation), then F8 (dead writers), close-out, 3 P12B open threads -- contract handoffs/2026-09-17-graph-p12b-s3-design.md; next session continues from handoffs/2026-09-18-graph-p12b-s3-f7-build.md (supersedes ...-f7-diagnoser.md: same three jobs plus a code survey locating every seam F7 touches at b8ef073, so F7 is not re-derived a third time). F7 NOT started; b8ef073 still HEAD."
+    relevant_context: "S1 contract handoffs/2026-09-17-graph-p12b-s1-design.md (done); S2 contract handoffs/2026-09-17-graph-p12b-s2-design.md binds F4-F5. After F3: gate tests=814 failures=0; full suite tests=4642 failures=0 skipped=1 (exit 0). After F4: gate 900/0, full 4657/0 skipped=1. After F5: gate 915/0, full 4672/0 skipped=1. F6's gate command is wider (adds tests/control and tests/test_confinement.py): gate 1198/0 skipped=0. After F6's lane tests (b8ef073): gate 1207/0 skipped=0, full 4697/0 skipped=1."
+    active_branch: "feat/graph-engineering-foundation"
   P12A:
     what_was_done:
       - "_p12a_open_threads #2 (selfupdate order leak) closed: tests/conftest.py _no_leaked_project (session-wide)."

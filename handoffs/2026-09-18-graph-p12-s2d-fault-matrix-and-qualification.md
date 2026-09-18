@@ -28,7 +28,11 @@ Continue Phase P12 on `feat/graph-engineering-foundation`. The working tree is c
 - 2c `e087520`: fault lane 1/5, **lost controller** after the implementer claim. A fresh `main()` resumes the run,
   adopts the same attempt and lands. No bug. The mode lanes: `..._free_route_...`, `..._hybrid_catalog_...`,
   `..._script_task_...`. e2e file: 10 tests, all green. `tests/graph_engineering tests/workflows tests/control`
-  were green after afd677e. **The full suite was NOT run in 2c.** Run it first.
+  were green after afd677e. Full suite at the end of 2c: `tests=4726 failures=1 errors=0`. The one failure was
+  `tests/test_next_graph_prompt.py::test_live_state_threads_are_all_structured`: `_p12_open_threads` entries
+  carried both `owner` and `disposition`. A thread names exactly one of them (open = `owner`; decided =
+  `disposition` in accepted/closed/needs-dan). Fixed in STATE, and that file re-ran green. The full suite was not
+  re-run after that fix, so run it first.
 
 ## 2. Traps (in addition to s2c's)
 - The `attempts` table has `backend_id`, `binding_json`, `route_refusal`. It has no `billing_category` column.

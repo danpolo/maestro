@@ -720,24 +720,52 @@ in_progress_details:
   what_was_done:
     - "Dan's decisions (2026-09-18): code now, real pilots in a later session; ITV waits for Dan's own grill-me run; ITV daemons keep running under config guards; real pilots qualify paid subscription only."
     - "ac92f2c: _p12b_open_threads #4 closed (controller errors decided + durable ControllerError / GraphTickFailed events); tests/graph_engineering/test_end_to_end.py created (4 lanes)."
+    - "387e902: graph-loop task worktree (_p12_open_threads #1 closed): task_tree.ensure/release, worktree_for for writer/readers/merge, --worktree in worker argv, brief header (task id/title, WORKTREE, commit instruction, DONE/FAILED sentinel for agent_cli)."
+    - "55dcd15: merge + accept were handed no specs (no task could be accepted) and accept was not bound to the merged commit. Happy-path lane (subscription agent_cli fixture) reaches an accepted run with main fast-forwarded."
+    - "55f6d5e: a parked run never settled (park, an inline wait node, stayed claimed and counted as live). Parked lane added. Full suite after: tests=4722 failures=0 errors=0."
+    - "08e3a02: free mode could never land a task: the model-endpoint harness (4 tools, no shell) wrote the tree but nothing committed it, so merge refused. The worker now commits a writer's tree on a clean finish as the harness (task_tree.commit_all, HARNESS_AUTHOR); the ToolBox boundary takes the candidate id."
+    - "afd677e: script lane could never land a changing task: graph script_handler never committed (legacy did). Now commits via task_tree.commit_all. Hybrid lane added: no code bug, but hybrid needs policy hybrid.paid_roles naming ROLE ids (reviewer, diagnoser), not node ids."
+    - "e087520: fault lane 1/5, lost controller after the claim: resumes, adopts the same attempt, lands. No bug."
   whats_left:
-    - "Fix the graph-loop task worktree gap (_p12_open_threads #1) -- prerequisite for every e2e happy path and every pilot."
-    - "test_end_to_end.py: happy path to an accepted run under each fixture mode + the five-fault matrix."
+    - "test_end_to_end.py fault matrix, 4 of 5 left: transaction rollback, writer crash, quota switch, interrupted integration."
     - "scripts/graph_qualification.py (fixture run, invariants, raw telemetry, E1-E5 table, Context Gate mapping, non-scratch refusal)."
     - "B15 artifact volume measurement -> maestro init retention default."
     - "docs/DESIGN.md, docs/EXECUTION.md, docs/PROGRESS.md."
     - "Real pilots (DuetFlow + instagram-to-value, paid subscription) in session s3."
-  relevant_context: "Full plan: handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md. Session 2 stopped mid-fix with UNCOMMITTED work (task_tree.py, runner/worker wiring, a red happy-path lane): handoffs/2026-09-18-graph-p12-s2b-happy-path-debug.md."
+  relevant_context: "Full plan: handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md (sections 1, 4-7 still apply). Next session: handoffs/2026-09-18-graph-p12-s2d-fault-matrix-and-qualification.md."
   active_branch: feat/graph-engineering-foundation
 
 _p12_open_threads:
   - owner: P12
+    disposition: closed
+    note: "387e902 (+ 55dcd15, 55f6d5e for the bugs the happy lane then found). Non-git sandboxes still get no tree from the runner; test_failure_ladder lanes supply one via --worktree as a documented test seam."
     thread: "The graph loop never creates the task worktree: WorkflowRunner.worktree_for reads node.params['worktree'], which the
      compiler never sets; _default_worker_argv passes no --worktree; nothing in the graph path runs git worktree add. The
      implementer runs in its attempt inbox, the gate checks the inbox, and merge integrates impl/<task>, a branch that never
      exists, so no code-changing task can reach accept under engineering.runner: graph. P12B lanes passed --worktree by hand
      (test_failure_ladder.py). Wiring gap, not design drift (A08 branch + confinement.worktree_for path already fixed). Found
      from code in P12 s1; fix plan in handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md section 3."
+  - owner: P12-or-later
+    disposition: open
+    thread: "The candidate winner is never merged: merge_handler integrates params/inputs['branch'] or impl/<task>, and
+     nothing feeds it the candidate_select winner's branch or tree. A widened (candidates) task cannot land. Decide
+     whether it is in P12 scope (not on the s2 checklist)."
+  - owner: P12
+    disposition: open
+    thread: "Every accepted graph run writes two acceptance_decisions rows (merge's, then accept's re-derivation), both
+     bound to the merged commit since 55dcd15. Existing design; the qualification report should count decisions per
+     run rather than assume one."
+  - owner: P12
+    disposition: open
+    thread: "Docs owed (s2 section 4 docs): the worktree_unavailable claim refusal, the TaskTreeReleased event, the
+     brief header, that a parked run settles failed while park stays claimed, the harness/script commit
+     (task_tree.commit_all, author 'maestro harness'), and that hybrid.paid_roles takes role ids, in docs/EXECUTION.md."
+  - owner: P12
+    disposition: open
+    thread: "The gate verifies the task tree's working state, not a commit: in the free lane before 08e3a02 the gate
+     passed on an uncommitted file and only merge's freeze refused. Safe (merge catches it, the run parks) but the
+     gate's evidence is not bound to a commit for an agent_cli writer that leaves work uncommitted. Decide: gate
+     refuses a dirty tree (cheap, earlier park) or accept as is."
 
 _p08_open_threads:
   # Not blockers: what P08 leaves behind.

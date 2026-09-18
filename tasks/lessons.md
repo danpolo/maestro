@@ -260,3 +260,49 @@ because I was recalling what I'd done rather than walking a list against disk.
 Producing the artifact is not the same as running the process that decides which artifacts are
 needed. When a skill exists for the job, invoke it *and then* write the file — not the reverse,
 and not instead.
+
+---
+
+## A green lane plus a stalled lane are the same bug class: nobody ran the code
+
+2026-09-18, P12B F7.
+
+Two things went wrong in the same feature, and they have one root.
+
+**A lane that polls to `MAX_POLLS` with nothing failed is an exception swallowed inside
+`advance`.** `_failure_context` selected `attempt_index`, a column `attempts` has never had.
+The `OperationalError` fired inside `advance`, the event loop's `except Exception` turned it
+into "that task didn't work out", and the attempt sat `claimed` with no binding while the loop
+polled forever. The previous session spent its remaining budget theorising about which route
+the implementer had bound. The answer cost one run:
+
+```python
+real = wf_runner.WorkflowRunner.advance
+def advance(self, node, **kw):
+    try: return real(self, node, **kw)
+    except BaseException: traceback.print_exc(); raise
+monkeypatch.setattr(wf_runner.WorkflowRunner, "advance", advance)
+```
+
+Reach for that *before* theorising about the scenario. A stalled lane with no failure is
+almost never a routing mistake — routing mistakes produce a bound route you can read off the
+attempt row.
+
+**Why no test had caught it:** the shipped `diagnoser` role declares
+`min_reasoning_strength: strong`, so in every lane before F7's the diagnoser was refused a
+route *before* the claim, and everything downstream of the claim had never run. Unit tests
+covered the compile, the verdict round-trip and the router floor — all the parts — and nothing
+ran the path.
+
+**The same root, worse form.** Asking "what else did those unexercised paths hide?" found that
+the failure context is assembled, stored, flagged onto the worker argv, parsed by the worker —
+and never read. `grep -rn 'failure_context' maestro/` returns only producers. The brief the
+model sees is built from the context manifest. So the escalation picked a stronger model and
+told it nothing about the failure, with a green suite, because the lane tests write the
+diagnoser's answer straight into the attempt inbox and never run its worker.
+
+**The rule this leaves.** When a feature's value depends on something reaching a model, a test
+that stops at the last controller-owned row proves the plumbing and not the feature. Assert on
+the text the driver was handed. And when a role's own declared floor means no existing test can
+reach the code under it, that is not a detail — it is a statement that the path is unrun, and
+the first lane that reaches it will find whatever is there.

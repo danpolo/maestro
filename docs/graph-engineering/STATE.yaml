@@ -740,7 +740,7 @@ in_progress_details:
   whats_left:
     - "Real pilots (DuetFlow + instagram-to-value, paid subscription) in session s3; pre-flight blockers: DuetFlow 01-auth open (needs-dan consent) and no DuetFlow task has verifications (graph gate fails closed); ITV waits for Dan's grill-me."
     - "Re-measure retention in the pilots (_p12_open_threads owner P12-pilots), subscription verdict, then close P12."
-  relevant_context: "Next session: handoffs/2026-09-18-graph-p12-s3-pilots.md (the whole prompt)."
+  relevant_context: "Next session: handoffs/2026-09-24-graph-p12-s3b-restart-pilot.md (the whole prompt; s3b found and fixed D1-D3, run 02 hung on D4, Dan chose archive-and-restart)."
   active_branch: feat/graph-engineering-foundation
 
 _p12_open_threads:
@@ -781,6 +781,36 @@ _p12_open_threads:
      passed on an uncommitted file and only merge's freeze refused. Safe (merge catches it, the run parks) but the
      gate's evidence is not bound to a commit for an agent_cli writer that leaves work uncommitted. Decide: gate
      refuses a dirty tree (cheap, earlier park) or accept as is."
+  - disposition: closed
+    note: "s3b 9b21e3e: _graph_routing wires routing.driver_usage + observed_agent_version. Lane
+     test_an_accepted_run_keeps_its_quota_windows_and_the_observed_cli_version."
+    thread: "Pilot finding D1/D2: real attempts recorded usage_start/settle NULL (production never wired
+     DispatchRouting.usage_reader) and agent_version from the register's verified row (2.1.270 while 2.1.281 ran)."
+  - disposition: closed
+    note: "s3b 396e2cc: the worker grants the attempt workspace via CompletionSpec.add_dirs. Lane
+     test_a_sandboxed_agent_can_report_into_its_workspace."
+    thread: "Pilot finding D3: DuetFlow 02's proof review ran on Codex (workspace-write rooted at the task worktree),
+     finished a sound review, and could not write DONE into .orchestrator/attempts/<id>/; the node settled uncertain."
+  - owner: model-catalog-config (new work AFTER the P12 pilots; Dan, 2026-09-24. Not in P12)
+    thread: "Graph routing's model choice is hardcoded in maestro/backends/catalog.py SHIPPED_CATALOG_DEFAULTS
+     (available_models, strength light/balanced/strong, relative_cost, pools, context limits per model). A backend is
+     used only if its maestro/thirdparty.json row has a verified_version. The router takes the cheapest model that
+     meets the node's demanded strength under objective=paid_efficiency, which is why DuetFlow 02's proof_review went
+     to gpt-5.6-sol (strong, 1.0) and not claude-opus-5 (strong, 1.25). project.yaml `roles:` binds only the legacy
+     runner: graph routing ignores it, and the P12 manifest's `roles` block reads as if it applied. A new model is
+     never used until catalog.py is edited, committed and adopted. A retired model stays routable, and it is
+     unverified what its launch failure classifies as, or whether doctor's model_ids probe covers the catalog.
+     WANTED: move the catalog's model judgement (models, strengths, costs, optional prefer/exclude, and the roles
+     relationship) into a config file Dan can edit, next to the per-agent model_context_limits.md files (memory:
+     per-agent-model-context-limits). Doctor must flag ids a CLI no longer accepts, and a retired or unknown id
+     must never crash routing (fail closed to the next eligible model). Decide in that session whether `roles:`
+     becomes a graph-routing preference or is retired. TDD, with a lane."
+  - owner: failure-handling phase (record only in P12)
+    thread: "Pilot finding D4: an agent node settled `uncertain` (no sentinel, no result) never settles, its run stays
+     `running` forever, and no operator command can cancel or retry a graph node (ctl verbs are legacy-only; plan
+     repair is runner-internal). Also: a non-editing node (proof_review/judge) that reports nothing is repeatable and
+     could settle `failed` for the ladder instead of `uncertain`. DuetFlow run_Qk52s47aQCwcU4Hm hit it; Dan chose
+     (2026-09-24) archive-and-restart for the pilot, not a new ctl verb."
   - owner: P12-pilots
     thread: "B15 retention default (retention.warn_bytes 1 GiB, prune false; d4af85f) rests on fixture runs whose
      transcripts are tiny (evidence 14 KB/run; the 2.07 MB control DB + WAL dominates). Re-measure .orchestrator

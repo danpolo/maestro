@@ -27,17 +27,45 @@ per-attempt outcomes, re-measures retention and qualifies **paid subscription on
   `jobs/ staging/ media/ out/ logs/ config/`; `gate.chain: [test]`. Never stop or restart them.
 
 ## 2. Pre-flight blockers found while writing this handoff (resolve before any run)
-> **Update 2026-09-18 (session 3a): blockers 1 and 2 are DONE. Do not redo them.** DuetFlow commit `628d51d`:
-> Dan confirmed the consent, so `01-auth` is `status: complete`, and tasks 02 to 08 each declare `kind: auto`
-> verifications (task-specific V1 to V3, plus `V-SUITE` = the full pytest run), using the absolute interpreter
-> `/home/dan/projects/duetflow/.venv/bin/python`. A task worktree has no `.venv`, and the graph `CheckRunner`
-> does not rewrite a bare `python`. Checked: worktree code is imported ahead of the editable install. Every check
-> fails closed on today's tree (V-SUITE passes: 73 tests). `parse_runnable_tasks` returns `['02-collector-schema']`,
-> and `maestro doctor` is clean apart from the existing systemd_unit WARN. 09 has no checks on purpose
-> (`hold: true`, operator-only). 08's V3 pins its units and install script under `deploy/`, because `systemd/`
-> holds maestro's watchdog unit. Note: doctor reports the loop runs the **adopted** checkout
-> `~/.maestro/versions/2f555c28…`, not this branch's HEAD. Resolve that before the pilots (§3 step 1 pins the SHA).
-> Pilots NOT started; next step is §3 step 1 (the manifest). Record DuetFlow HEAD `628d51d` in it.
+> **Update 2026-09-19 (session 3a): ALL pre-pilot work is DONE. Do not redo §2 or §3 step 1.**
+> - DuetFlow `628d51d`: 01-auth complete + auto verifications 02-08 (absolute venv python; fail closed on today's tree).
+> - DuetFlow `0dece04`: `engineering.runner: graph`. DuetFlow `e56a9b4`: `kind: dan` V-DAN checks on 06/07/08.
+> - NEW maestro feature (Dan's request): `kind: dan` verifications. The task waits BEFORE merge for Dan's Approve/Reject
+>   on Telegram (`/verify <id> approve|reject <reason>`, listed in `/waiting`); watchdog does not count it as a stall.
+>   Commits 9bca264..dacb69d; DESIGN §16. Suite 4777 passed, 1 xfailed, rc 0 (re-run by the parent session).
+> - DuetFlow pinned to maestro `dacb69d` via `selfupdate.adopt` (`duetflow/.orchestrator/current`); maestro installed
+>   editable into `duetflow/.venv` (launch.sh needs `.venv/bin/maestro`); python-dotenv held at 1.2.2.
+> - Manifest committed: maestro `f32321f`, `artifacts/graph-engineering/p12-pilots/manifest.json` (28 checks, equal weights).
+> - `doctor` (with MAESTRO_REPO): only WARNs are systemd_unit not installed (start via `bash launch.sh`) and
+>   meta_branch push (DuetFlow has no `origin`; the graph merge path never pushes).
+> - DuetFlow state has `paused_by_user: true`: after launching, send `/resume` (Telegram or `maestro ctl`).
+> **Session 3a addendum (2026-09-24) — do these first, they are small:**
+> 1. **Telegram: SETTLED, nothing left to do.** Dan chose the maestro dev bot
+>    (`~/.config/maestro/dev_bot_token` = `@MaestroGenericTestingBot`). `duetflow/.env` holds it plus
+>    `TELEGRAM_ALERT_CHAT_ID=1101436848` (0600, gitignored). `doctor` reports `telegram: getMe OK`, and a test
+>    message was delivered to Dan (`ok: true`), so the chat is open. No other config on this machine names that
+>    bot, so nothing else polls it; the earlier send-to-me/codex-bridge clash does not apply. AbuAliArchive's
+>    running bot is a different token and needs no action.
+> 2. **The Duet playlist creates itself; do not ask Dan for an id.** docs/PLAN.md §5 already specifies
+>    `POST /users/{id}/playlists` with `public: false, collaborative: true` as one-off setup, and the owner
+>    token already carries `playlist-modify-private` (duetflow/auth.py), so no re-consent. Edit 06's notes:
+>    when `duet.playlist_id` is unset, create the Duet, persist the id (config.yaml), and print the share link.
+> 3. **`duetflow playlists` — Dan's decision 2026-09-24: it also REGISTERS the choice, and it is the pilot's
+>    first `kind: dan` check (deliberately, to exercise the Telegram wait early).** Add to task 03's notes and
+>    give 03 a `kind: dan` V-DAN whose instructions are the command. Behaviour: list the owner's playlists by
+>    name with a selection number (scope `playlist-read-private` is already granted), let Dan choose **by name
+>    or number**, then write the chosen id to `person_a.source_playlist_id` in config.yaml itself and echo back
+>    the name + id it registered. Dan must never copy an id by hand. Keep the selection step usable over a
+>    terminal Dan is reading from his phone (numbered list, one command to choose, no long-lived prompt is
+>    required — a two-step `duetflow playlists` then `duetflow use-source <n|name>` is acceptable and is the
+>    safer shape). Auto checks for 03 must stay offline: cover the listing/registration against a fake
+>    transport (e.g. test name `use_source_registers`), not the live pick.
+> 4. Re-pin the manifest (`artifacts/graph-engineering/p12-pilots/manifest.json`) after 2 and 3 change the
+>    ROADMAP, since nothing has run yet; after the first run those become amendments instead.
+
+**Waiting on Dan before starting:** (a) `duetflow/.env` with TELEGRAM_BOT_TOKEN (dev bot) + TELEGRAM_ALERT_CHAT_ID and
+> a /start to the bot; (b) `duetflow/config.yaml` with `duet.playlist_id` and `person_a.source_playlist_id` before
+> 06's live check. Then §3 step 2 = launch.
 1. **DuetFlow `01-auth` is `status: open` and `mode: needs-dan`, but its code is committed** (`979727d`, `fd977d2`,
    2026-09-11). Its done-condition is Dan walking the Spotify consent for two accounts. Every other task depends
    on it transitively (`02-collector-schema` deps `[01-auth]`). **Ask Dan** (one AskUserQuestion) whether the

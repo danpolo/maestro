@@ -834,12 +834,56 @@ _p12_open_threads:
      merge_and_eval), so DuetFlow 02 stayed status: open and 03 could never open a run. Fix in _graph_main (graduate any
      task with a succeeded run still in the ROADMAP, every poll); lane test_an_accepted_task_graduates_so_its_dependent_runs_next
      still red because the lane ROADMAP fixture has no `### <id>` headings, so remove_task_section strips to EOF."
-  - owner: P12 (s3d; fix uncommitted/committed per handoffs/2026-09-25-graph-p12-s3e-*.md)
+  - disposition: closed
+    note: "s3d 9c61367; lanes test_the_checkout_of_the_target_follows_the_fast_forward + D7 lane assertions."
     thread: "Pilot finding D8: merge moves the target by update-ref (CAS) and never updated a checkout of that branch
      (DuetFlow's own main checkout), whose index then reads as a staged revert of the merge; mark_roadmap_complete's
      whole-index `git commit` landed that revert on main (reproduced in the D7 lane: TASK-001.txt vanished from main).
      Fix: StagingPipeline._follow_checkouts runs `read-tree -m -u old new` in every checkout of the target (refusal ->
      stale_checkouts on the event), and graduation commits only its staged paths (`git commit -- <paths>`)."
+  - owner: P12-pilots (s3e, fixing now)
+    thread: "Pilot finding D9: the watchdog skips its 20-min journal-silence stall check only while state.json
+     in_flight is non-empty. The graph runner never fills in_flight and journals only at run open/settle, so any graph
+     run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
+     right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
+     in_flight."
+  - owner: P12-pilots (record; from the D10 fix s3e)
+    thread: "D10 fix edges: (1) the reviewer floor is one strength rung above the strongest succeeded writer in the
+     run, so a risky edit written by a `strong` model (e.g. after an escalation, or when both balanced routes are
+     unavailable) has no stronger reviewer and parks (route_no_stronger_reviewer) - Dan's rule, but a liveness cost;
+     revisit with the failure-handling phase (D4) if it bites. (2) After a plan repair the successor run does not
+     count the old run's writers when setting the floor. (3) A model-endpoint harness reviewer is still not judged by
+     review.json, so it yields no approval merge accepts (fails closed). (4) The graph deny-list scans only added
+     lines and matches secrets as globs (legacy scanned the whole diff and substring-matched)."
+  - owner: P12-pilots (s3e, fixing now)
+    thread: "Pilot finding D10: run 3 (run_vSNPmKFwtFb65fq5) parked: 02 needs spotify.py (risky_set) changes but
+     DuetFlow's operating_preamble.md forbade any autonomous risky-set edit, and the graph has no path for it (legacy
+     escalated at merge via sonnet_risky_reviewer, G2). Reviewer rejected twice (risky edit + real defects: collect
+     still cmd_not_yet, no max_collection_gap check, ms played_at collapsed, no 401 refresh, no 429 Retry-After);
+     implementer_03 (codex terra) refused; diagnose named the conflict. Dan 2026-09-25: risky-set edits are allowed;
+     the gate is a proof review by a model stronger than the implementer, whose brief names the touched risky files
+     and asks for scrutiny; no Dan approval at merge. So: DuetFlow preamble amended; graph review required on risky
+     touch, risky files named in the reviewer brief, reviewer strength > implementer. Diagnoser also noted 'the retry
+     worktree reset is secondary' (a rework started from a reset tree?) — check."
+  - owner: "P12-pilots (s3e parity audit; Dan 2026-09-25 - fix or record every gap unless irrelevant to graph AND
+     already replaced by something better)"
+    thread: "Legacy-loop behaviours absent from _graph_main (the 2nd dropped behaviour after D7 graduation). Status per
+     item is tracked here until closed.
+     G1 Telegram: no dependency-map push on ROADMAP change (maybe_push_roadmap_map_change), no completion report + map
+        after accept (phase_report), no Starting notice, no notice on park/failure. The graph package has no telegram
+        call except the kind:dan channel.
+     G2 Merge safety: integrate_candidate skips merge.deny_list_guard (hard patterns, project deny_list_extra, secret
+        files) and sonnet_risky_reviewer escalation to Dan.
+     G3 After accept: no `git push origin main`, no metabranch.reconcile_meta (DuetFlow has no remote; matters elsewhere).
+     G4 State/status: state.json phase and in_flight never set; poll_control_commands([]) so /status shows nothing
+        live; run_dep_map/run_status run only at loop exit (and at graduation).
+     G5 HITL (unverified, grep only): _send_hitl_reminders; poll_proposal_answer (proposals are sent at queue
+        exhausted but answers never read); hitl_mode / mode:needs-dan park before merge; B12 questions: gate;
+        self_modifying only forces review instead of escalating to Dan.
+     G6 Smaller (unverified, grep only): _order_runnable priority ordering; resumable resume_after cooldown; canary
+        deploy for bot files (_touches_bot_files); _self_update_maybe on idle.
+     Judged replaced, not gaps: usage cap / paused_until break (graph pool pauses P12B F4/F5); _threshold_switches
+     (routing fallback); _context_rotations (Context Gate is excluded by the standing rule)."
   - owner: control-plane (record only in P12; found s3c)
     thread: "The watchdog enqueues clear_pause / clear_blocked_on / reconcile_leases commands once a project has a control
      DB (request_state_change), but no code consumes those command types: they are dead letters. An expired

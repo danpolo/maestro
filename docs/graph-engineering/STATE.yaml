@@ -847,6 +847,27 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
+  - owner: P12-pilots (found s3e; fix first in s3f)
+    thread: "Pilot finding D11: run 4 (run_8HKdj2Aq2ZHEgb2i) parked at 08:02Z in ~3 min after both subscriptions hit
+     their limits ~08:00Z. The usage-limit texts were classified kind=worker_crashed / failure_class=bad_output, not
+     quota, so implementer, review and diagnose retries burned the budget instead of pausing the pool until reset.
+     Unrecognised texts: codex 'ERROR: You've hit your usage limit. Upgrade to Pro (...) or try again at 2:02 PM.' and
+     claude 'You've hit your monthly spend limit · raise it at claude.ai/settings/usage?from=cc_cli_limit_message ·
+     your session limit resets 2pm (Asia/Jerusalem)' (memory: that claude text also fires for ordinary 5h/weekly caps).
+     Fix in the failure classifier (P12B F3/F4/F5 pool pause with reset parsed from the text), plus fixture tests
+     with these exact strings. Before the limit, run 4's first real review (claude-opus-5 over a claude-sonnet-5
+     writer) rejected validly: app.py `collect` still wired to cmd_not_yet."
+  - owner: P12-pilots (s3e parity batch G7; plan in handoffs/2026-09-25-graph-g7-legacy-parity-open-items.md)
+    thread: "G1-G6 fixed at dd9a2ff (a86542b..dd9a2ff; DESIGN.md §16 'Parity with the legacy loop'). Still open (G7):
+     (1) pause nodes nothing releases: human_action (manual/needs-dan lane, Dan never sent the prep dan_action),
+     await_job (async lane), cooldown (resumable lane); (2) /unpark claims a relaunch but _graph_main never reopens a
+     task with any task_runs row; (3) /approve /reject /redo /fix /backend have no graph meaning; (4) failed-run
+     notice has no Retry/Shelve buttons; (5) NEW: the manual lane compiles with no merge node yet accept graduates,
+     so prep work never reaches main (DuetFlow 08-timers-notify is on this lane); (6) the graph prep brief lacks the
+     legacy prep rules (leave the human step to Dan; write dan_action/post_action_cmd to result.json). Note: a new
+     run of a task reuses a kept impl/<task> branch (rename it when archiving a pilot run). (7) G6 turned on
+     _self_update_maybe in the idle graph loop: during a pilot it can adopt maestro HEAD outside the manifest; decide
+     whether qualification pilots should pin (disable idle self-update) and record adoptions automatically."
   - owner: P12-pilots (record; from the D10 fix s3e)
     thread: "D10 fix edges: (1) the reviewer floor is one strength rung above the strongest succeeded writer in the
      run, so a risky edit written by a `strong` model (e.g. after an escalation, or when both balanced routes are

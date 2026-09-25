@@ -740,7 +740,7 @@ in_progress_details:
   whats_left:
     - "Real pilots (DuetFlow + instagram-to-value, paid subscription) in session s3; pre-flight blockers: DuetFlow 01-auth open (needs-dan consent) and no DuetFlow task has verifications (graph gate fails closed); ITV waits for Dan's grill-me."
     - "Re-measure retention in the pilots (_p12_open_threads owner P12-pilots), subscription verdict, then close P12."
-  relevant_context: "Next session: handoffs/2026-09-24-graph-p12-s3b-restart-pilot.md (the whole prompt; s3b found and fixed D1-D3, run 02 hung on D4, Dan chose archive-and-restart)."
+  relevant_context: "Next session: handoffs/2026-09-24-graph-p12-s3d-review-verdict-and-graduation.md (the whole prompt; s3c fixed D5 3d4bd09, restarted on 3d4bd09, run 2 of 02 was accepted despite a rejecting review (D6) and never graduated (D7); loop halted)."
   active_branch: feat/graph-engineering-foundation
 
 _p12_open_threads:
@@ -811,6 +811,28 @@ _p12_open_threads:
      repair is runner-internal). Also: a non-editing node (proof_review/judge) that reports nothing is repeatable and
      could settle `failed` for the ladder instead of `uncertain`. DuetFlow run_Qk52s47aQCwcU4Hm hit it; Dan chose
      (2026-09-24) archive-and-restart for the pilot, not a new ctl verb."
+  - disposition: closed
+    note: "s3c 3d4bd09: halt writes HALT + a text-only journal line (append_journal shadow=False, as the watchdog does);
+     pause/resume/hitl/unpark refuse with a pointer to Telegram and change nothing. Tests in tests/test_cli.py."
+    thread: "Pilot finding D5: with a control DB every `maestro ctl` state verb opened the store as controller, so while
+     `maestro run` held the lease `ctl halt` (the documented clean stop) died with SingleWriterViolation."
+  - owner: P12 (s3d fixes; found s3c on DuetFlow run_H7HzeJWRxx6kagb4)
+    thread: "Pilot finding D6: the proof review cannot reject. Its brief offers only DONE (finished) / FAILED (cannot
+     complete), so Codex finished a review listing 4 P1 defects (collect CLI stub, sub-second Plays collapse, no
+     401/429/5xx recovery, silent collection gaps), wrote DONE, the node settled succeeded, and merge + accept landed
+     the work on DuetFlow main (416e970). validation.review_disposition/review_is_conclusive (INV-04) exist but the
+     graph reviewer never produces or is checked against one. Fix plan in handoffs/2026-09-24-graph-p12-s3d-*.md."
+  - owner: P12 (s3d; fix written in s3c, uncommitted)
+    thread: "Pilot finding D7: the graph loop never graduates an accepted task (legacy calls mark_roadmap_complete after
+     merge_and_eval), so DuetFlow 02 stayed status: open and 03 could never open a run. Fix in _graph_main (graduate any
+     task with a succeeded run still in the ROADMAP, every poll); lane test_an_accepted_task_graduates_so_its_dependent_runs_next
+     still red because the lane ROADMAP fixture has no `### <id>` headings, so remove_task_section strips to EOF."
+  - owner: control-plane (record only in P12; found s3c)
+    thread: "The watchdog enqueues clear_pause / clear_blocked_on / reconcile_leases commands once a project has a control
+     DB (request_state_change), but no code consumes those command types: they are dead letters. An expired
+     paused_until is inert (the loop only stops while now < reset), so the pilot is not blocked; blocked_on clearing
+     and lease reconciliation via the watchdog are the ones to check. External ctl state verbs could reuse the same inbox
+     once a consumer exists."
   - owner: P12-pilots
     thread: "B15 retention default (retention.warn_bytes 1 GiB, prune false; d4af85f) rests on fixture runs whose
      transcripts are tiny (evidence 14 KB/run; the 2.07 MB control DB + WAL dominates). Re-measure .orchestrator

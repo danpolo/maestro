@@ -853,7 +853,8 @@ _p12_open_threads:
      (roadmap_map_pushed, graph_run_failed_notified) was skipped silently by notify_telegram while the journal said
      notified. cmd_run/cmd_watchdog now load <repo>/.env (override=True, as the reference did); those journal lines
      append telegram=unconfigured when nothing could be sent. Bot @MaestroGenericTestingBot verified live (sendMessage
-     200) in s3f. Other maestro-managed projects launched the same way had the same silent gap."
+     200) in s3f; Dan confirmed receiving run 5's start notice (s3g, 2026-09-26). Other maestro-managed projects
+     launched the same way had the same silent gap."
   - owner: P12-pilots (found s3e; FIXED s3f 2b80705)
     thread: "Pilot finding D11 (FIXED 2b80705: claude 'hit your monthly spend limit' added to quota._LIMIT_RE ->
      rate_limited with the 'resets 2pm (Tz)' reset; codex exhaustion_signal matches its own 'You’ve hit your usage

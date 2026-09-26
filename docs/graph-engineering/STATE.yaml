@@ -847,7 +847,25 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
-  - owner: "P12-pilots (found s3h run 8; FIXED s3i 3fd165c, not yet adopted into DuetFlow nor live)"
+  - owner: "P12-pilots (found s3k 03+04 parallel; FIXED s3k 00ff57d)"
+    thread: "Pilot finding D19 FIXED 00ff57d (test_an_attempt_another_runs_reconciler_finished_still_moves_its_node):
+     with 03 and 04 live in parallel, 04's implementer succeeded at 10:04Z but its node stayed 'running' for 4.5 h
+     with nothing journaled. Every runner's Reconciler scans EVERY domain lease; 03's tick found 04's writer pid
+     dead with its receipt on disk and finished the attempt (INGESTED: attempt succeeded, lease released, no node
+     move, no outcome artifact, no settle telemetry). runner.ingest_results only read claimed/running attempts, so
+     04's own runner never saw it again. Fix: ingest_results also commits an attempt already succeeded/failed whose
+     node is still claimed/running on it (recovers a stuck run on the next tick); _commit_result decides
+     claimed->running by node phase. CLOSED once 04 moves on after adoption."
+  - owner: "P12-pilots (found s3j run 9; FIXED s3j 99553cd, adopted 03361f6)"
+    thread: "Pilot finding D18 FIXED 99553cd (tests test_remove_task_section_stops_at_the_next_task_block_without_headings,
+     test_remove_task_section_never_reaches_back_past_an_earlier_task_block, test_mark_complete_stages_only_graduation_paths_that_exist;
+     lane test_a_task_runs_to_an_accepted_run_and_the_target_branch_moves now asserts the graduation commit lands):
+     run 9 of 02 accepted, then graduation deleted 03..09 from DuetFlow docs/ROADMAP.md (remove_task_section ran
+     from the task's block to the next '### ' heading or '---' rule, else EOF; DuetFlow's ROADMAP is bare
+     consecutive yaml blocks) and left it uncommitted (git add with the nonexistent docs/AUTONOMOUS_SYSTEM.md
+     stages nothing, so no graph graduation commit ever landed; the lanes' 'decision == main head' check only held
+     because of this). Repaired by hand on DuetFlow main 7f4f71e (02-only strip). CLOSED."
+  - owner: "P12-pilots (found s3h run 8; FIXED s3i 3fd165c; LIVE-CONFIRMED s3j run 9: diagnose poor_agent, final run approved)"
     thread: "Pilot finding D17 FIXED 3fd165c (lanes test_a_diagnoser_repair_file_grants_one_final_writer_run_that_lands, test_a_rejected_final_run_parks_without_a_second_diagnosis, test_a_diagnoser_without_a_usable_repair_file_parks_the_task; also found and fixed in the same lane: after a repair the invalidated gate was refused forever on its carried attempt index, and params.brief_addendum was never rendered into any brief; review_history now spans the workflow runs): a live diagnoser can never repair. runner._verdict_refusal fails a diagnoser
      whose result has no outputs.plan_repair ('diagnoser returned no proposal') and the task parks, but nothing in
      worker.task_header / agent_brief or templates/roles/diagnoser.yaml tells a CLI diagnoser the plan_repair

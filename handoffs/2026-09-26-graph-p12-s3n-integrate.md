@@ -54,8 +54,8 @@ still apply: s3j §2, §4, §5 and s3l §1, §3, §4 (s3m §0 lists exactly whic
 When s3m closed, the **d20, remerge and tghelp agents were still running** in their worktrees; they commit to
 their branches when done. Before you start: if a branch has no commit, check whether its worktree's files are still
 changing (`git status`, file mtimes) and give it time. If the worktree has gone quiet with no commit, the agent died
-(check the usage cap): finish the remaining work yourself. (fill-in by s3m where known; verify each with `git log 92a604d..s3m/<x>`)
-- `s3m/d20` — **DONE 7b77d14** (suite 4996 passed / the same 5 worktree-only failures; 31 new tests).
+(check the usage cap): finish the remaining work yourself. (filled in by s3m; verified by s3n 2026-09-26 ~23:50 local: each branch is one commit on 92a604d, all five merged, combined suite 5063 passed / 0 failed; worktrees removed, branches kept)
+- `s3m/d20` — **DONE 7b77d14** — verified by s3n: `git log 92a604d..s3m/d20` = 7b77d14 only; merged into `feat/graph-engineering-foundation` as **6c0169a** (suite 4996 passed / the same 5 worktree-only failures; 31 new tests).
   - **New modules:** `maestro/mergeresolve.py` and `maestro/writeset.py`.
   - **Journal and output:** `merge_handler` journals `merge_resolved_deterministic` / `merge_conflict_planner_fault`;
     outputs carry `resolved`, `fault` and `conflicts`.
@@ -75,7 +75,7 @@ changing (`git status`, file mtimes) and give it time. If the worktree has gone 
   - Original brief: deterministic merge resolution (`maestro/mergeresolve.py`, `prepare_staging`) + planner-fault
   failure (`merge_conflict_planner_fault`) + write-set scheduling (`launch_skipped_write_overlap`; no `scope` key =
   serialize against everything; `scope: []` = writes nothing) + planner/format docs to fill `scope`.
-- `s3m/d21` — **DONE 077f2f8** (suite 4986 passed / the same 5 worktree-only failures). Changes:
+- `s3m/d21` — **DONE 077f2f8** — verified by s3n: `git log 92a604d..s3m/d21` = 077f2f8 only; merged into `feat/graph-engineering-foundation` as **80d88fe** (suite 4986 passed / the same 5 worktree-only failures). Changes:
   - `taskgraph.transitive_reduction` + `reduce_document_deps`. They use registry deps as extra reachability, but a
     graduated task never vouches for an open one, and cycles are left untouched.
   - `docs/roadmap.reduce_roadmap_deps()` runs once at the top of `_graph_main`. It edits deps lines minimally,
@@ -92,7 +92,7 @@ changing (`git status`, file mtimes) and give it time. If the worktree has gone 
   deps. A dep another dep already implies (A needs B and C, and B needs C) is transitively redundant: maestro
   removes it automatically (the transitive reduction, at loop start and in the dependency map), so do not ask the
   operator about it."
-- `s3m/contam` — **DONE 7848b3e**: `quota.contamination` per attempt + `attempts_contaminated` /
+- `s3m/contam` — **DONE 7848b3e** — verified by s3n: `git log 92a604d..s3m/contam` = 7848b3e only; merged into `feat/graph-engineering-foundation` as **d5bfabb**: `quota.contamination` per attempt + `attempts_contaminated` /
   `attempts_contamination_unmeasurable` totals + `report.quota.contamination`; roots `CLAUDE_PROJECTS_ROOT`/
   `CODEX_SESSIONS_ROOT`, existing tests hermetic; 4 new tests. Suite 4964 passed / 5 failed. All 5 failures are in
   `test_next_graph_prompt.py` and are worktree-only (no `docs/graph-engineering/specs` in a worktree); the same
@@ -103,7 +103,7 @@ changing (`git status`, file mtimes) and give it time. If the worktree has gone 
   [scripts/]` → `redo_allow: [colab/, docs/, notebooks/]`). Suspects: `test_confinement.py`,
   `characterization/test_selfheal.py`. It is a test-isolation bug: check `git status` after every suite run and fix
   it (small gap).
-- `s3m/remerge` — **DONE b294153** (suite 4978 passed / the same 5 worktree-only failures).
+- `s3m/remerge` — **DONE b294153** — verified by s3n: `git log 92a604d..s3m/remerge` = b294153 only; merged into `feat/graph-engineering-foundation` as **ef266c1** (suite 4978 passed / the same 5 worktree-only failures).
   - **What it accepts:** only the latest run, when it is `failed`, its merge node failed and everything upstream
     succeeded.
   - **How:** `plan_repair` + `apply_repair` with new parameters `keep_failed=True` (the old run stays `failed`) and
@@ -117,7 +117,7 @@ changing (`git status`, file mtimes) and give it time. If the worktree has gone 
     queue `04-scoring-followups` from proof_review_02's **2 follow-ups**.
   - **Before running it:** finish the branch merge (main is at 145a5b5). The conflict fix must not touch spotify.py,
     playlist.py or auth.py, or merge will refuse and a new review is needed.
-- `s3m/tghelp` — **DONE 5f231cd** (suite 4972 passed / the same 5 worktree-only failures; 12 new tests).
+- `s3m/tghelp` — **DONE 5f231cd** — verified by s3n: `git log 92a604d..s3m/tghelp` = 5f231cd only; merged into `feat/graph-engineering-foundation` as **7223126** (suite 4972 passed / the same 5 worktree-only failures; 12 new tests).
   - **Corrects s3m's assumption:** the watchdog EXITS on HALT; it does not stay up. So nothing read Telegram.
   - **Now, with a bot configured:** the watchdog stays up through a HALT or soft halt.
     - It answers `/help` and `/status` with a "halted" line.

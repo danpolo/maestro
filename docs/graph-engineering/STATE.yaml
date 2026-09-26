@@ -848,7 +848,7 @@ _p12_open_threads:
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
   - owner: "P12-pilots (found s3l; OPEN)"
-    thread: "Pilot finding D20 OPEN: 04-scoring (run_hN6LPQuShbwkOIEn) ran in parallel with 03, was approved by
+    thread: "Pilot finding D20 FIXED 7b77d14 (merged s3n; mergeresolve + writeset scope scheduling + planner-fault merge failure; ctl remerge b294153; DuetFlow scopes 550cd5a): 04-scoring (run_hN6LPQuShbwkOIEn) ran in parallel with 03, was approved by
      proof_review, then its merge node failed at 15:52Z: 'merge conflict; integration aborted' in duetflow/app.py
      (03 merged first; both edited the module docstring's 'Implemented so far' sentence, the imports and the
      subcommand registration). Run failed, diagnose/park skipped, loop idle-gated on 04 for hours. Dan 2026-09-26:
@@ -856,7 +856,7 @@ _p12_open_threads:
      (planner/dependency fault). Recovery = deterministic rebase/merge + deterministic tests, NO new review, no LLM
      rewriting code. Prevention = deterministic parallel eligibility from what tasks touch. See handoff s3m."
   - owner: "P12-pilots (found s3l; OPEN)"
-    thread: "Pilot finding D21 OPEN: transitively redundant ROADMAP deps (DuetFlow 07->03, 08->06, onboarding 03->01;
+    thread: "Pilot finding D21 FIXED 077f2f8 (merged s3n; transitive reduction at graph-loop start, in proposals and the dep map): transitively redundant ROADMAP deps (DuetFlow 07->03, 08->06, onboarding 03->01;
      s3l's hand-queued 02-collector-schema-followups ->02) are drawn as extra edges on the dependency map. Origin:
      DuetFlow PLAN.md §7 'Depends on' (2026-09-09) copied verbatim by maestro-setup (521822b); maestro never
      reduces. Dan 2026-09-26: remove redundant deps automatically and deterministically; never ask him or an LLM."

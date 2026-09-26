@@ -847,29 +847,39 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
-  - owner: "P12-pilots (found s3g run 7; OPEN, fix next session)"
-    thread: "Pilot finding D14: a writer REWORK after a review rejection hard-resets the worktree to the first
+  - owner: "P12-pilots (found s3h run 8; OPEN, fix next session)"
+    thread: "Pilot finding D17: a live diagnoser can never repair. runner._verdict_refusal fails a diagnoser
+     whose result has no outputs.plan_repair ('diagnoser returned no proposal') and the task parks, but nothing in
+     worker.task_header / agent_brief or templates/roles/diagnoser.yaml tells a CLI diagnoser the plan_repair
+     contract (compiler.PlanRepairProposal: verdict poor_agent|bad_graph|..., replace_nodes, ...) or where to write
+     it, and agent_handler adopts only DONE/FAILED/result.json. Runs 7 and 8 of 02 both: diagnose receipt
+     succeeded with an excellent prose DONE, attempts row failed, failure_kind NULL, park. So F7's 'one final
+     run' (memory llm-failure-handling-policy) is unreachable live. Fix TDD with a lane: the diagnoser brief names
+     a plan_repair.json in the WORKSPACE with the schema and verdicts; agent_handler adopts it into
+     outputs.plan_repair (as _adopt_review does review.json); an unparseable one stays the refusal it is."
+  - owner: "P12-pilots (found s3g run 7; FIXED s3h 0e80da0)"
+    thread: "Pilot finding D14 FIXED 0e80da0 (lane test_a_rework_after_a_rejecting_review_continues_from_the_previous_commit; _restore_start_tree restores only when the writer's own previous attempt did not succeed, so a failing gate or Dan's reject also keeps the work): a writer REWORK after a review rejection hard-resets the worktree to the first
      attempt's start_sha (runner._restore_start_tree -> confinement.CommitBoundary.restore, P12B F6), which its
      docstring scopes to a RETRY after bad output. Each rework round therefore starts from scratch and loses the
      previous round's fixes (run 7 reflog: reset to 97f6244 before implementer_02 and _03; 06611a7 -> 6a9fadb was
      -106 lines net, tests 85 -> 77; run 5's codex writer dug d28ce0e out of git fsck). Fix: restore only on a
      retry (bad output / crash), never on a rework (kind=verification_failed from the reviewer), TDD with a lane."
-  - owner: "P12-pilots (found s3g run 7; OPEN, fix next session with D16)"
-    thread: "Pilot finding D15: the reviewer's brief carries no prior findings. runner.py ~777 attaches rework_note
+  - owner: "P12-pilots (found s3g run 7; FIXED s3h 0e80da0)"
+    thread: "Pilot finding D15 FIXED 0e80da0 (runner.review_history -> manifest prior_reviews -> brief section PRIOR REVIEW ROUNDS; lane test_a_review_converges_on_blocking_findings_and_keeps_its_follow_ups): the reviewer's brief carries no prior findings. runner.py ~777 attaches rework_note
      only to writers; the reviewer is frozen_snapshot_reader, so prior_failure_refs is [] and reviewer.yaml's
      include_prior_attempt_summary is not populated for it. Successive reviewers issued contradictory demands on the
      same line (run 7 R2 gpt-5.6-sol: remove the 120 s Retry-After cap; R4 claude-opus-5 after the codex quota
      swap: the uncapped wait is the headline defect). Fix: give the reviewer the prior rounds' findings and what
      was done about them."
-  - owner: "P12-pilots (found s3g run 7; Dan decided 2026-09-26: blocking vs follow-up)"
-    thread: "Pilot finding D16: a proof review cannot converge. handlers.py ~272 fails the node on ANY non-empty
+  - owner: "P12-pilots (found s3g run 7; Dan decided 2026-09-26; FIXED s3h 0e80da0)"
+    thread: "Pilot finding D16 FIXED 0e80da0 (handlers._split_findings: unmarked = blocking under a rejection, follow-up under an approval, unknown severity = blocking; an approved verdict with a blocking finding fails; follow-ups in the disposition and the export's review_follow_ups; same lane as D15): a proof review cannot converge. handlers.py ~272 fails the node on ANY non-empty
      findings list (no severity, no scope), and the reviewer role judges the diff against the criteria AND all of
      docs/PLAN.md, so each fresh review is a partial sample: run 7 findings 7 -> 2 -> 4, fully disjoint;
      _record_run/collect_all byte-identical between R2's and R4's subjects yet only R4 reported 3 defects there.
      DAN'S DECISION: the reviewer marks each finding blocking or follow_up; only blocking findings fail the node;
      follow-ups are recorded (not lost) for later. Together with D15. TDD, with a lane."
-  - owner: "P12-pilots (found s3g; OPEN, narrow in the D14-16 session)"
-    thread: "D13 widening: 9d91b4c grants a sandboxed writer the WHOLE shared .git (plus its own gitdir), but
+  - owner: "P12-pilots (found s3g; NARROWED s3h 0e80da0)"
+    thread: "D13 widening NARROWED 0e80da0: worker._git_dirs grants own gitdir, objects/, refs/heads/<ns> and logs/refs/heads/<ns> (ns = impl); verified live s3h: codex 0.157.0 gpt-5.6-terra committed in a real DuetFlow worktree with exactly that set. The negative control (codex touching refs/heads/<other>) was refused by the session's auto mode and not run; the lane asserts the whole .git, refs/ and refs/heads/ are never granted. Original: 9d91b4c grants a sandboxed writer the WHOLE shared .git (plus its own gitdir), but
      confinement.CommitBoundary.check_path says only the object store, the task's own namespaced ref and reflog are
      agent-writable ([INV-05]: the target branch is the controller's). Claude writers run unsandboxed so this is no
      worse than them, but codex could now move main. Narrow the grant to: own gitdir, objects/, the impl/<task>

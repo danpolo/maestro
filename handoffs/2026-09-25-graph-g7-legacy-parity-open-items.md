@@ -1,7 +1,31 @@
 # G7 — close the legacy-vs-graph parity gaps left open after dd9a2ff
 
-Status: **investigation done, no code written.** A previous agent read the code and made the
-design calls below, then stopped at its context budget. Start from here and don't survey the code again.
+Status: **done (2026-09-26), not merged or pushed** — worktree `/home/dan/projects/maestro/.claude/worktrees/agent-ac9b00c9f2233f856`,
+branch `worktree-agent-ac9b00c9f2233f856`, 9 commits on 2b80705 (be3b0c6..508a9a7). Full suite:
+4883 tests, 0 failures, 0 errors, 1 skipped. Progress table:
+
+| Item | Status | Commit |
+|---|---|---|
+| 1a manual lane merge (compiler/template 1.1.0; was wip 626ce4e) | done, tested | be3b0c6 |
+| 1 common: repoll human/wait nodes; `operator` runs inline | done, tested | 29beb3e |
+| 1a human handler (Done/Redo/Abandon, prep contract, post_action_cmd) | done, tested (tests/graph_engineering/test_g7_parity.py) | 29beb3e |
+| 1b async await_job poll | done, tested | 4593116 |
+| 1c resumable cooldown (reopen after resume_after lands with item 2) | done, tested | 3dea555 |
+| 2 operator reopen (`/unpark` marker; resumable reopen after resume_after) | done, tested | 10b4785 |
+| 3 operator verbs under graph | done, tested | c24ba9a |
+| 4 failed-run notice Retry/Shelve | done, tested | 9e74c01 |
+| DESIGN §16 update + full suite | done (4883 tests / 0 fail / 0 err / 1 skip) | 508a9a7 |
+
+Design calls made beyond the plan: (a) a gate that fails into `cooldown` gets an empty
+retry cone (one sitting per cooldown, as legacy; otherwise the quality ladder re-ran the
+writer twice at once); (b) `/backend <name>` under the graph records no pin (graph routing
+never reads it); (c) the failed-run notice is ONE message sent on the channel's bot (HTML,
+buttons), not `notify_telegram` plus a second message; test_legacy_parity's notice test
+was updated to read it there; (d) a free-text reply routed to a manual-step request that
+is not done/redo/abandon counts as Redo with that text (mirrors verify's "text = reject
+reason"); (e) a reopen marker also reopens a task whose compile was refused, and a refused
+compile spends the marker. Not covered: `/ask` still resolves only legacy entries; item (7)
+in STATE (idle self-update during pilots) is not in this plan and was not touched.
 
 ## Goal
 

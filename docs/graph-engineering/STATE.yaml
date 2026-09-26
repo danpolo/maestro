@@ -847,8 +847,17 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
-  - owner: P12-pilots (found s3e; fix first in s3f)
-    thread: "Pilot finding D11: run 4 (run_8HKdj2Aq2ZHEgb2i) parked at 08:02Z in ~3 min after both subscriptions hit
+  - owner: "P12-pilots (found s3f: Dan received no Telegram message from the test bot)"
+    thread: "Pilot finding D12 FIXED ad742b7: the watchdog starts `maestro run` with tmux new-window, which inherits
+     the tmux server's env, not the watchdog's, so launch.sh sourcing .env never reached the loop. Every pilot notice
+     (roadmap_map_pushed, graph_run_failed_notified) was skipped silently by notify_telegram while the journal said
+     notified. cmd_run/cmd_watchdog now load <repo>/.env (override=True, as the reference did); those journal lines
+     append telegram=unconfigured when nothing could be sent. Bot @MaestroGenericTestingBot verified live (sendMessage
+     200) in s3f. Other maestro-managed projects launched the same way had the same silent gap."
+  - owner: P12-pilots (found s3e; FIXED s3f 2b80705)
+    thread: "Pilot finding D11 (FIXED 2b80705: claude 'hit your monthly spend limit' added to quota._LIMIT_RE ->
+     rate_limited with the 'resets 2pm (Tz)' reset; codex exhaustion_signal matches its own 'You’ve hit your usage
+     limit' and parse_exit reads 'try again at [date] H:MM AM|PM' in local time; verbatim-string tests): run 4 (run_8HKdj2Aq2ZHEgb2i) parked at 08:02Z in ~3 min after both subscriptions hit
      their limits ~08:00Z. The usage-limit texts were classified kind=worker_crashed / failure_class=bad_output, not
      quota, so implementer, review and diagnose retries burned the budget instead of pausing the pool until reset.
      Unrecognised texts: codex 'ERROR: You've hit your usage limit. Upgrade to Pro (...) or try again at 2:02 PM.' and

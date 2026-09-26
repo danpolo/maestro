@@ -847,6 +847,23 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
+  - owner: "P12-pilots (found s3g; FIXED dd9a777 + follow-up, see end)"
+    thread: "Pilot finding D13 FIXED dd9a777: run 5 of 02 (run_hEXMbgJBtrZZZCTk) was rejected validly twice by
+     gpt-5.6-sol (collect CLI stub, gap warning keyed to the newest Play, sub-second Plays collapsed, 401 refresh;
+     then gap warning keyed to playback not Collection time, refresh closure). Rework 2 stepped the writer up to
+     codex gpt-5.6-terra, whose tests passed 76/76 but `git commit` failed on .git/worktrees/<name>/index.lock
+     (Read-only file system): a linked worktree's git metadata sits under the main repo's .git, outside codex
+     workspace-write roots. It wrote no DONE, the node settled uncertain and the run hung (D4). Writer nodes now
+     get `git rev-parse --git-common-dir` as a writable dir; verified live on codex 0.157.0 before/after. Lane
+     test_a_sandboxed_implementer_can_commit_in_its_worktree. Run 5 archived (2026-09-26-run5, archive/02-run5
+     holds implementer_03's uncommitted work as c94029c); export duetflow-run5-archived.json (7 attempts, rework 2).
+     dd9a777 was not enough: run 6 (run_BnVpn6NTdzIUNFAL) repeated it exactly (2 valid rejections, codex rework 3
+     tests green, commit refused, uncertain; archived 2026-09-26-run6, archive/02-run6 = 839268a, export
+     duetflow-run6-archived.json: 7 attempts, rework 2). Codex keeps the workdir's own resolved git dir
+     (.git/worktrees/<name>, where the index lives) read-only even under a granted .git; the s3g scratch repro
+     (fresh repo under the job dir) did not show that, so it was not faithful. Probed live in the real worktree:
+     common .git + objects writable, own gitdir EROFS; granting that exact dir too makes it writable. The
+     follow-up commit grants both (--absolute-git-dir and --git-common-dir); the lane's fixture now demands both."
   - owner: "P12-pilots (found s3f: Dan received no Telegram message from the test bot)"
     thread: "Pilot finding D12 FIXED ad742b7: the watchdog starts `maestro run` with tmux new-window, which inherits
      the tmux server's env, not the watchdog's, so launch.sh sourcing .env never reached the loop. Every pilot notice

@@ -847,6 +847,19 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
+  - owner: "P12-pilots (found s3l; OPEN)"
+    thread: "Pilot finding D20 OPEN: 04-scoring (run_hN6LPQuShbwkOIEn) ran in parallel with 03, was approved by
+     proof_review, then its merge node failed at 15:52Z: 'merge conflict; integration aborted' in duetflow/app.py
+     (03 merged first; both edited the module docstring's 'Implemented so far' sentence, the imports and the
+     subcommand registration). Run failed, diagnose/park skipped, loop idle-gated on 04 for hours. Dan 2026-09-26:
+     tasks that run in parallel must merge trivially; a non-trivial merge means they should not have been parallel
+     (planner/dependency fault). Recovery = deterministic rebase/merge + deterministic tests, NO new review, no LLM
+     rewriting code. Prevention = deterministic parallel eligibility from what tasks touch. See handoff s3m."
+  - owner: "P12-pilots (found s3l; OPEN)"
+    thread: "Pilot finding D21 OPEN: transitively redundant ROADMAP deps (DuetFlow 07->03, 08->06, onboarding 03->01;
+     s3l's hand-queued 02-collector-schema-followups ->02) are drawn as extra edges on the dependency map. Origin:
+     DuetFlow PLAN.md §7 'Depends on' (2026-09-09) copied verbatim by maestro-setup (521822b); maestro never
+     reduces. Dan 2026-09-26: remove redundant deps automatically and deterministically; never ask him or an LLM."
   - owner: "P12-pilots (found s3k 03+04 parallel; FIXED s3k 00ff57d)"
     thread: "Pilot finding D19 FIXED 00ff57d (test_an_attempt_another_runs_reconciler_finished_still_moves_its_node):
      with 03 and 04 live in parallel, 04's implementer succeeded at 10:04Z but its node stayed 'running' for 4.5 h
@@ -855,7 +868,7 @@ _p12_open_threads:
      move, no outcome artifact, no settle telemetry). runner.ingest_results only read claimed/running attempts, so
      04's own runner never saw it again. Fix: ingest_results also commits an attempt already succeeded/failed whose
      node is still claimed/running on it (recovers a stuck run on the next tick); _commit_result decides
-     claimed->running by node phase. CLOSED once 04 moves on after adoption."
+     claimed->running by node phase. LIVE-CONFIRMED 15:40Z: on relaunch at 710ce78, 04 implementer succeeded -> gate succeeded -> proof_review. CLOSED."
   - owner: "P12-pilots (found s3j run 9; FIXED s3j 99553cd, adopted 03361f6)"
     thread: "Pilot finding D18 FIXED 99553cd (tests test_remove_task_section_stops_at_the_next_task_block_without_headings,
      test_remove_task_section_never_reaches_back_past_an_earlier_task_block, test_mark_complete_stages_only_graduation_paths_that_exist;

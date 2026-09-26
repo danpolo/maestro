@@ -847,8 +847,8 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
-  - owner: "P12-pilots (found s3h run 8; OPEN, fix next session)"
-    thread: "Pilot finding D17: a live diagnoser can never repair. runner._verdict_refusal fails a diagnoser
+  - owner: "P12-pilots (found s3h run 8; FIXED s3i 3fd165c, not yet adopted into DuetFlow nor live)"
+    thread: "Pilot finding D17 FIXED 3fd165c (lanes test_a_diagnoser_repair_file_grants_one_final_writer_run_that_lands, test_a_rejected_final_run_parks_without_a_second_diagnosis, test_a_diagnoser_without_a_usable_repair_file_parks_the_task; also found and fixed in the same lane: after a repair the invalidated gate was refused forever on its carried attempt index, and params.brief_addendum was never rendered into any brief; review_history now spans the workflow runs): a live diagnoser can never repair. runner._verdict_refusal fails a diagnoser
      whose result has no outputs.plan_repair ('diagnoser returned no proposal') and the task parks, but nothing in
      worker.task_header / agent_brief or templates/roles/diagnoser.yaml tells a CLI diagnoser the plan_repair
      contract (compiler.PlanRepairProposal: verdict poor_agent|bad_graph|..., replace_nodes, ...) or where to write

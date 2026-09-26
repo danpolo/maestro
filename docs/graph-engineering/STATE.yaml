@@ -847,6 +847,34 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
+  - owner: "P12-pilots (found s3g run 7; OPEN, fix next session)"
+    thread: "Pilot finding D14: a writer REWORK after a review rejection hard-resets the worktree to the first
+     attempt's start_sha (runner._restore_start_tree -> confinement.CommitBoundary.restore, P12B F6), which its
+     docstring scopes to a RETRY after bad output. Each rework round therefore starts from scratch and loses the
+     previous round's fixes (run 7 reflog: reset to 97f6244 before implementer_02 and _03; 06611a7 -> 6a9fadb was
+     -106 lines net, tests 85 -> 77; run 5's codex writer dug d28ce0e out of git fsck). Fix: restore only on a
+     retry (bad output / crash), never on a rework (kind=verification_failed from the reviewer), TDD with a lane."
+  - owner: "P12-pilots (found s3g run 7; OPEN, fix next session with D16)"
+    thread: "Pilot finding D15: the reviewer's brief carries no prior findings. runner.py ~777 attaches rework_note
+     only to writers; the reviewer is frozen_snapshot_reader, so prior_failure_refs is [] and reviewer.yaml's
+     include_prior_attempt_summary is not populated for it. Successive reviewers issued contradictory demands on the
+     same line (run 7 R2 gpt-5.6-sol: remove the 120 s Retry-After cap; R4 claude-opus-5 after the codex quota
+     swap: the uncapped wait is the headline defect). Fix: give the reviewer the prior rounds' findings and what
+     was done about them."
+  - owner: "P12-pilots (found s3g run 7; Dan decided 2026-09-26: blocking vs follow-up)"
+    thread: "Pilot finding D16: a proof review cannot converge. handlers.py ~272 fails the node on ANY non-empty
+     findings list (no severity, no scope), and the reviewer role judges the diff against the criteria AND all of
+     docs/PLAN.md, so each fresh review is a partial sample: run 7 findings 7 -> 2 -> 4, fully disjoint;
+     _record_run/collect_all byte-identical between R2's and R4's subjects yet only R4 reported 3 defects there.
+     DAN'S DECISION: the reviewer marks each finding blocking or follow_up; only blocking findings fail the node;
+     follow-ups are recorded (not lost) for later. Together with D15. TDD, with a lane."
+  - owner: "P12-pilots (found s3g; OPEN, narrow in the D14-16 session)"
+    thread: "D13 widening: 9d91b4c grants a sandboxed writer the WHOLE shared .git (plus its own gitdir), but
+     confinement.CommitBoundary.check_path says only the object store, the task's own namespaced ref and reflog are
+     agent-writable ([INV-05]: the target branch is the controller's). Claude writers run unsandboxed so this is no
+     worse than them, but codex could now move main. Narrow the grant to: own gitdir, objects/, the impl/<task>
+     ref dir and its logs dir; verify live with a real codex commit in a real DuetFlow worktree (the s3g scratch
+     repro was not faithful)."
   - owner: "P12-pilots (found s3g; FIXED dd9a777 + follow-up, see end)"
     thread: "Pilot finding D13 FIXED dd9a777: run 5 of 02 (run_hEXMbgJBtrZZZCTk) was rejected validly twice by
      gpt-5.6-sol (collect CLI stub, gap warning keyed to the newest Play, sub-second Plays collapsed, 401 refresh;
@@ -872,8 +900,8 @@ _p12_open_threads:
      append telegram=unconfigured when nothing could be sent. Bot @MaestroGenericTestingBot verified live (sendMessage
      200) in s3f; Dan confirmed receiving run 5's start notice (s3g, 2026-09-26). Other maestro-managed projects
      launched the same way had the same silent gap."
-  - owner: P12-pilots (found s3e; FIXED s3f 2b80705)
-    thread: "Pilot finding D11 (FIXED 2b80705: claude 'hit your monthly spend limit' added to quota._LIMIT_RE ->
+  - owner: P12-pilots (found s3e; FIXED s3f 2b80705; CONFIRMED live s3g run 7)
+    thread: "Pilot finding D11 (FIXED 2b80705; s3g run 7: codex quota at 01:56Z -> pool_paused until 05:26Z, no retry spent, review moved to claude-opus-5: claude 'hit your monthly spend limit' added to quota._LIMIT_RE ->
      rate_limited with the 'resets 2pm (Tz)' reset; codex exhaustion_signal matches its own 'You’ve hit your usage
      limit' and parse_exit reads 'try again at [date] H:MM AM|PM' in local time; verbatim-string tests): run 4 (run_8HKdj2Aq2ZHEgb2i) parked at 08:02Z in ~3 min after both subscriptions hit
      their limits ~08:00Z. The usage-limit texts were classified kind=worker_crashed / failure_class=bad_output, not

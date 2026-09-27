@@ -852,6 +852,19 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
+  - owner: "P12-pilots (found s3p 06 run 1; OPEN, small gap)"
+    thread: "Pilot finding D25: a task's acceptance criteria are derived from EVERY verification's `check` text
+     (taskgraph._derive_acceptance_criteria), kind: dan included, so the implementer is told 'A real Duet exists in
+     Spotify' (06's V-DAN). 06 implementer_03 (codex gpt-6-luna) wrote FAILED: it cannot create a real Duet without
+     leaving the worktree. Fix idea: mark kind: dan criteria in the brief as 'Dan verifies this by hand after the gate;
+     do not attempt it' - check first whether criterion text is matched anywhere (discharge counting,
+     test_validation_evidence) before changing the text; annotating in worker.agent_brief needs the kinds in the manifest."
+  - owner: "P12-pilots (found s3p 06 run 1; FIXED s3p 1d19dce, not yet adopted)"
+    thread: "Pilot finding D24 FIXED 1d19dce (lane test_a_gate_failure_is_reworked_from_the_failed_checks_output):
+     a gate rejection re-ran the implementer with a brief word for word the first. runner.rework_note covered only
+     reviewer and Dan rejections. DuetFlow 06 run 1: V4 (`pytest -k creates_duet_once`) selected 0 tests twice, and
+     implementer_02 could not know. Now the rework note lists each failed check (id, ROADMAP check text, command) and
+     its output via failure_context.render_evidence (EVIDENCE_TOKEN_CAP)."
   - owner: "P12-pilots (found s3o 03-followups; RECORDED, not built in P12)"
     thread: "Pilot finding D23: a follow-up reviewer has no bound on edge-case scope. 03-source-playlist-reader-followups
      (run_1pLN6DKpeFdWejHZ) had 5 review rounds, each asking for more cases in duetflow/config.py's text-level YAML

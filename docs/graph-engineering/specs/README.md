@@ -201,3 +201,28 @@ All implementation rules incorporate amendments through **Revision 2 (2026-09-08
 - **P12**: raw per-attempt telemetry retained; a gate-concept → maestro-structure mapping in the qualification report.
 
 Each phase spec's §4 "FORWARD COMPATIBILITY: CONTEXT GATE" holds the binding details. Load the gate plan itself only when a §4 constraint is unclear.
+
+## 9. NEXT AFTER P12: QUEUED FEATURE PHASE (DAN MUST ELABORATE FIRST)
+
+Queued by Dan on 2026-09-27. **The agent that closes P12 must tell Dan that this phase is next and ask him
+to elaborate on each item before any planning starts.** Nothing here has a spec yet; do not write one from
+these notes alone. Independent of the Context Gate (§8, AGENTS.md): do not fold the two together.
+
+Recommended order, as one phase:
+
+1. **agy as a real harness.** Starting point: the P07B driver (`maestro/backends/antigravity.py`) exists and is
+   tested. It is graded below claude/codex. No shipped role asks for `light` demand, so it gets no real work.
+   Its `--sandbox` does not confine file writes. The agy catalog rows still name older third-party models
+   (`claude-opus-4-6-thinking`, `claude-sonnet-4-6`, `gpt-oss-120b-medium`).
+2. **Choose models by usage left.** Starting point: per-pool usage (`usage_pool_id`, `Usage.pools`) exists, an
+   exhausted pool pauses its routes at admission, and `switch.on_quota_exhausted` falls back along
+   `fallback_chain`. What is missing is ranking routes by remaining 5h/weekly headroom. Use P12's per-step
+   `quota` telemetry (pilot goal: subscription efficiency) as the input data. This comes after item 1
+   because balancing across three subscriptions is where it pays off.
+
+Why after P12: both change routing, so doing them mid-pilot would contaminate the P12 verdict. Item 2 also
+needs the usage data P12 collects.
+
+Not in this queue: the model-id refresh (claude-opus-5-5, gpt-6-sol, gpt-6-luna) went in during P12
+(maestro 6dc102e) as a P12 manifest amendment.
+

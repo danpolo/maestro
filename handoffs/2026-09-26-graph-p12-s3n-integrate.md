@@ -55,6 +55,7 @@ When s3m closed, the **d20, remerge and tghelp agents were still running** in th
 their branches when done. Before you start: if a branch has no commit, check whether its worktree's files are still
 changing (`git status`, file mtimes) and give it time. If the worktree has gone quiet with no commit, the agent died
 (check the usage cap): finish the remaining work yourself. (filled in by s3m; verified by s3n 2026-09-26 ~23:50 local: each branch is one commit on 92a604d, all five merged, combined suite 5063 passed / 0 failed; worktrees removed, branches kept)
+(re-checked 2026-09-27 00:30 local, s3o: each branch tip still equals the recorded commit, one commit on 92a604d; each merge commit's second parent is that tip — d20 7b77d14→6c0169a, d21 077f2f8→80d88fe, contam 7848b3e→d5bfabb, remerge b294153→ef266c1, tghelp 5f231cd→7223126; no s3m worktree left)
 - `s3m/d20` — **DONE 7b77d14** — verified by s3n: `git log 92a604d..s3m/d20` = 7b77d14 only; merged into `feat/graph-engineering-foundation` as **6c0169a** (suite 4996 passed / the same 5 worktree-only failures; 31 new tests).
   - **New modules:** `maestro/mergeresolve.py` and `maestro/writeset.py`.
   - **Journal and output:** `merge_handler` journals `merge_resolved_deterministic` / `merge_conflict_planner_fault`;

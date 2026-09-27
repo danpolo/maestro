@@ -744,6 +744,10 @@ in_progress_details:
   active_branch: feat/graph-engineering-foundation
 
 _p12_open_threads:
+  - owner: P12
+    thread: "Dan 2026-09-27: after P12, a queued feature phase: (1) agy as a real harness, then (2) choose models
+     by usage left. When closing P12, tell Dan this phase is next and ask him to elaborate on each item before
+     planning. Details and starting points: specs/README.md section 9. Close as disposition needs-dan once told."
   - disposition: closed
     note: "387e902 (+ 55dcd15, 55f6d5e for the bugs the happy lane then found). Non-git sandboxes still get no tree from the runner; test_failure_ladder lanes supply one via --worktree as a documented test seam."
     thread: "The graph loop never creates the task worktree: WorkflowRunner.worktree_for reads node.params['worktree'], which the

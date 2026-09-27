@@ -41,7 +41,7 @@ Execute full-system end-to-end qualification across script, subscription, free, 
 ---
 
 **On closing P12:** tell Dan that the queued feature phase in `specs/README.md` §9 (agy as a real harness,
-then model choice by usage left) is next, and ask him to elaborate on each item before planning it.
+then model choice by usage left + the project.yaml redesign, then follow-ups at the end) is next, and ask him to elaborate on each item before planning it.
 
 ## 3. ACCEPTANCE CRITERIA & VERIFICATION
 - **Acceptance Condition**:

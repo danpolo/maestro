@@ -745,8 +745,9 @@ in_progress_details:
 
 _p12_open_threads:
   - owner: P12
-    thread: "Dan 2026-09-27: after P12, a queued feature phase: (1) agy as a real harness, then (2) choose models
-     by usage left. When closing P12, tell Dan this phase is next and ask him to elaborate on each item before
+    thread: "Dan 2026-09-27: after P12, a queued feature phase: (1) agy as a real harness, (2) choose models
+     by usage left, incl. the project.yaml redesign (global roles/models, per-role strength, global telegram), (3) review
+     follow-ups at an end-of-project polish stage. When closing P12, tell Dan this phase is next and ask him to elaborate on each item before
      planning. Details and starting points: specs/README.md section 9. Close as disposition needs-dan once told."
   - disposition: closed
     note: "387e902 (+ 55dcd15, 55f6d5e for the bugs the happy lane then found). Non-git sandboxes still get no tree from the runner; test_failure_ladder lanes supply one via --worktree as a documented test seam."
@@ -851,6 +852,21 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
+  - owner: "P12-pilots (found s3o 03-followups; RECORDED, not built in P12)"
+    thread: "Pilot finding D23: a follow-up reviewer has no bound on edge-case scope. 03-source-playlist-reader-followups
+     (run_1pLN6DKpeFdWejHZ) had 5 review rounds, each asking for more cases in duetflow/config.py's text-level YAML
+     editing (quoted keys -> flow mappings/aliases -> anchors with block scalars -> the '...' document-end marker),
+     though the task bar is 'do or decline each follow-up; no new scope'. Dan 2026-09-27: hold the task until the
+     end-of-project polish stage; when it runs, DuetFlow owns config.yaml, supports only the layout use-source
+     writes, refuses anything else ('edit config.yaml by hand'), and re-loads the result to verify only the one
+     value changed (manifest criterion-clarification amendment then). Nothing is built in P12."
+  - owner: "P12-pilots (found s3o 05 revision 2; FIXED s3o a9156ec, adopted 14dbdb4)"
+    thread: "Pilot finding D22 FIXED a9156ec: every agy run in the graph loop was classified worker_crashed, successes
+     included. The worker calls complete() (--output-format json, ONE document) but AntigravityBackend.parse_exit read
+     only the stream-json 'result' event. Fix: _completion_document fallback (2 tests); replaying 05's real log gives
+     ok. Found when 05-selector revision 2's implementer fell back to agy gemini-3.8-flash-high after the Claude 5h cap,
+     succeeded (509ec9b, 221 tests), was recorded crashed and parked (repair budget spent). Known limit: the worker
+     passes only the last 64 KiB of impl.log."
   - owner: "P12-pilots (found s3l; OPEN)"
     thread: "Pilot finding D20 FIXED 7b77d14 (merged s3n; mergeresolve + writeset scope scheduling + planner-fault merge failure; ctl remerge b294153; DuetFlow scopes 550cd5a): 04-scoring (run_hN6LPQuShbwkOIEn) ran in parallel with 03, was approved by
      proof_review, then its merge node failed at 15:52Z: 'merge conflict; integration aborted' in duetflow/app.py

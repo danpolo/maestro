@@ -220,7 +220,16 @@ Recommended order, as one phase:
    `quota` telemetry (pilot goal: subscription efficiency) as the input data. This comes after item 1
    because balancing across three subscriptions is where it pays off.
 
-Why after P12: both change routing, so doing them mid-pilot would contaminate the P12 verdict. Item 2 also
+   **Includes the `project.yaml` redesign** (Dan 2026-09-27): roles and models become global to all maestro
+   projects, with a project overriding only when it must, so a new model is never a per-project hand edit. Each
+   role states a strength rather than "backend + a model map mixing backends". Telegram (the bot and `chat_id`)
+   becomes global; the `chat_id: <captured by init>` placeholder goes. Dan has more items: ask him.
+3. **Review follow-ups move to an end-of-project polish stage.** This replaces "one `<id>-followups` task right
+   after each accept". By default a non-blocker follow-up waits until the main tasks are done. The reviewer may
+   mark one "before dependents" only when a later task builds on that exact code. The polish stage opens with a
+   triage step that merges duplicates and declines moot follow-ups.
+
+Why after P12: all three change routing or scheduling, so doing them mid-pilot would contaminate the P12 verdict. Item 2 also
 needs the usage data P12 collects.
 
 Not in this queue: the model-id refresh (claude-opus-5-5, gpt-6-sol, gpt-6-luna) went in during P12

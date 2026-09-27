@@ -852,8 +852,28 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
-  - owner: "P12-pilots (found s3p 06 run 1; OPEN, small gap)"
-    thread: "Pilot finding D25: a task's acceptance criteria are derived from EVERY verification's `check` text
+  - owner: "P12-pilots (found s3q 06 run 3; OPEN, rerun of 06 waits for D26)"
+    thread: "Pilot finding D27: 06 run 3 (run_H6uFAoLksntRppN4 -> run_jx6yhfUs1tNrPB4c, archived run 12) parked
+     at proof_review on a second undefined case: a Spotify write whose response is lost (PUT applied, then 5xx). The
+     notes say only 'retry the whole call, then alert and leave the Duet alone'. The reviewer (gpt-6-sol) kept
+     demanding more recovery depth (orphan playlist on a lost create, restore after a lost PUT, then restore must keep
+     added_by and null-id items); the rework added recovery logic that introduced new blockers. The overlap rule
+     (V5) held: no overlap finding after round 1. Same root cause as D26 (should have been a question to Dan),
+     plus the D23 shape outside a follow-up task: no bound on a reviewer's edge-case depth. Plan: keep DuetFlow
+     halted and rerun 06 once D26 is integrated, so the ask path is tested live on this very case; revisit a
+     reviewer depth bound (D23) if the rerun still escalates."
+  - owner: "P12-pilots (found s3q 06 run 2; OPEN, Dan-requested feature, handoff s3r)"
+    thread: "Pilot finding D26: an undefined spec case makes a run spiral instead of asking Dan. 06 run 2
+     (run_mXPoi2Ts62MEghLB -> run_MtSt1zmOdgA0N7xZ) spent 4 review rounds, a diagnose and a final run on a case
+     ROADMAP/ADRs never defined (a cold-start track in both A's Source Playlist and B's candidates). The reviewer
+     and diagnoser invented a rule (maximal disjoint split); the rework broke the selector; it parked, and the session
+     asked Dan by hand (answer: shared counts for B; DuetFlow aa6b439, V5). Dan 2026-09-28: implementer, reviewer and
+     diagnoser must detect such gaps and ask him on Telegram immediately (options + recommended + free text, buttons);
+     the answer goes into the task's ROADMAP `decisions:`, every later brief, and an ADR (append, or a new ADR when
+     none fits); an unanswered task waits with reminders, other tasks continue. Build: handoffs/2026-09-28-graph-p12-s3r-dan-spec-questions.md (spec); s3r settled the design, no code yet -> handoffs/2026-09-28-graph-p12-s3s-dan-questions-build.md (worktree maestro-wt/dan-questions, branch s3r/dan-questions). s3s built the core (cd41369, a5cef7d: schema, handler emission, runner ask/hold/poll, decisions ROADMAP+ADR commit, Telegram question channel; 27 unit tests); lanes, reminders/watchdog, full suite and integration remain -> handoffs/2026-09-28-graph-p12-s3t-dan-questions-lanes.md."
+  - owner: "P12-pilots (found s3p 06 run 1; FIXED s3q a4ea0a9)"
+    thread: "Pilot finding D25 FIXED (taskgraph.DAN_CRITERION_NOTE appended to derived kind: dan criteria; lane
+     test_a_dan_check_becomes_a_criterion_the_agent_is_told_not_to_attempt; criterion text is matched nowhere). Was: a task's acceptance criteria are derived from EVERY verification's `check` text
      (taskgraph._derive_acceptance_criteria), kind: dan included, so the implementer is told 'A real Duet exists in
      Spotify' (06's V-DAN). 06 implementer_03 (codex gpt-6-luna) wrote FAILED: it cannot create a real Duet without
      leaving the worktree. Fix idea: mark kind: dan criteria in the brief as 'Dan verifies this by hand after the gate;

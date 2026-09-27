@@ -326,3 +326,10 @@ hand-fed in between.
   soon-to-change behaviour.
 - How to apply: in a handoff, order behaviour fixes before docs. Reserve needs-dan for real design/scope choices
   (e.g. a D01-D08 change), never as a default fallback for "not small".
+
+## 2026-09-28 — a pilot park on an undefined spec case is a maestro defect too (D26)
+- What happened: DuetFlow 06 spiralled 4 review rounds on a case no criterion or ADR defined; I asked Dan by hand
+  after the park. Dan: the agents should have asked him on Telegram at once, with options, a recommendation and
+  free text.
+- How to apply: when a park traces to a missing requirement, fix the project gap AND record/build the missing
+  "ask Dan" path in maestro; never treat a manual ask from the session as the resolution.

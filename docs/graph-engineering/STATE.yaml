@@ -852,7 +852,24 @@ _p12_open_threads:
      run longer than 20 min is stall-killed (3 kills -> HALT). Run 1 had 2 stall_restarts (2026-09-24 12:11, 12:32)
      right before its D4 hang, so D4 may be a D9 consequence. Fix: a running task_run in the control DB counts like
      in_flight."
-  - owner: "P12-pilots (found s3q 06 run 3; OPEN, rerun of 06 waits for D26)"
+  - owner: "P12-pilots (found s3u 06 run 4; OPEN: fix -> handoffs/2026-09-28-graph-p12-s3v-task-notes-in-briefs.md, then rerun 06)"
+    thread: "Pilot finding D28: 06 run 4 (run_ORxN6bPzdwJhdXDy -> run_murTOs4eiqQ0qvQa, archived run 13, branch
+     archive/06-writer-first-light-run4 at c919411) parked at proof_review round 4 on a finding marked missed_earlier:
+     owner consent (auth.scopes_for) never requests playlist-modify-public, so the real first Refresh gets 403 on the
+     collaborative create. The ROADMAP notes already stated the requirement (added after run 2). Root cause (from the
+     run-13 manifests): a task's ROADMAP `notes:` never reach any agent. The context manifest carries criteria (from
+     verifications), mandatory instructions and retrieval, but no notes (no manifest artifact contains any 06 notes
+     text); agents see notes only if they open docs/ROADMAP.md themselves, as review 4 did. Retrieval reads only the
+     scope's files, so auth.py was never in context either. The reviewer raised it only in the final round, after
+     the one plan repair was spent on the r1-f4 429 leftover, so the task parked. Likely also behind D27 (run 3's
+     reviewer never saw the 'retry the whole call' note in its brief). NOT a scope block: a task's `scope:` is
+     only the D20 overlap prediction; it is not in the implementer brief and not enforced, and a live run's write set
+     is already scope + changed files (writeset.run_write_set), so out-of-scope writes are tolerated and tracked (but scope does drive retrieval)
+     (Dan 2026-09-28 chose 'auto-widen' for out-of-scope fixes; that is effectively current behaviour). DuetFlow
+     62a335a still adds auth.py + tests/test_auth.py to 06's scope, pins the scope rule and the no-repeat create
+     rule in the notes, and makes the owner re-consent V-DAN's first step. Dan 2026-09-28: fix maestro before
+     rerunning 06. Round trend 4 -> 1 -> 1 -> 1, each round 2-3 finding an incomplete fix of a round-1 finding."
+  - owner: "P12-pilots (found s3q 06 run 3; RESOLVED in 06 run 4 without a spiral, s3u)"
     thread: "Pilot finding D27: 06 run 3 (run_H6uFAoLksntRppN4 -> run_jx6yhfUs1tNrPB4c, archived run 12) parked
      at proof_review on a second undefined case: a Spotify write whose response is lost (PUT applied, then 5xx). The
      notes say only 'retry the whole call, then alert and leave the Duet alone'. The reviewer (gpt-6-sol) kept
@@ -862,8 +879,8 @@ _p12_open_threads:
      plus the D23 shape outside a follow-up task: no bound on a reviewer's edge-case depth. Plan: keep DuetFlow
      halted and rerun 06 once D26 is integrated, so the ask path is tested live on this very case; revisit a
      reviewer depth bound (D23) if the rerun still escalates."
-  - owner: "P12-pilots (found s3q 06 run 2; OPEN, Dan-requested feature, handoff s3r)"
-    thread: "Pilot finding D26: an undefined spec case makes a run spiral instead of asking Dan. 06 run 2
+  - owner: "P12-pilots (found s3q 06 run 2; FIXED s3t 294922d, adopted 2026-09-27T23:07Z, manifest 8be7937; live pending)"
+    thread: "Pilot finding D26 FIXED 294922d (s3t: 9 lanes test_a_reviewer_question_asks_dan_and_the_rework_carries_his_decision, test_an_implementer_question_reruns_the_implementer_with_the_decision, test_a_diagnoser_spec_gap_reruns_the_failed_node_with_the_repair_budget_untouched, test_a_free_text_other_answer_is_recorded_as_the_decision, test_a_question_wait_survives_an_orchestrator_restart, test_an_answered_question_is_in_every_later_brief_and_never_re_asked, test_a_decision_appends_to_the_most_relevant_adr, test_a_decision_with_no_fitting_adr_writes_a_new_one, test_a_project_without_adrs_records_the_decision_and_skips_the_adr; plus 24h question reminders, watchdog treats awaiting_dan_questions as waiting, /status and /waiting list them; suite 5068 -> 5106 passed + 1 xfailed). Adopted into DuetFlow (doctor OK + 2 known WARNs); HALT removed, 06 run 4 is the first live test on the D27 lost-write case. Live Telegram check done 2026-09-28 02:28-02:29 IDT on DuetFlow's bot (dummy task D26-LIVE): msg 71 tap 1 ⭐ recorded 'The recommended option' (answer file + danreq_answered 23:28:08Z, same second); msg 72 free-text reply recorded 23:29:08Z; ✅ edits confirmed by Dan. 06 run 4 (s3u, 2026-09-28 02:07-02:54 IDT): no question asked across 4 review rounds, 1 diagnose and implementer attempts 1-4, and none was due: every finding was covered by V5/ADR-0003/notes or ordinary convention (a non-idempotent POST is not re-sent), so the ask rule held on target; the D27 lost-write case settled as a convention without a spiral. The ADR-call tick hold is still unmeasured (no answer happened). Live pilot ask still unobserved. Known limit: _record_dan_answer runs the ADR agent call synchronously in the controller tick (<= 2 x 300 s); move it off-thread only if Dan wants. Was: an undefined spec case makes a run spiral instead of asking Dan. 06 run 2
      (run_mXPoi2Ts62MEghLB -> run_MtSt1zmOdgA0N7xZ) spent 4 review rounds, a diagnose and a final run on a case
      ROADMAP/ADRs never defined (a cold-start track in both A's Source Playlist and B's candidates). The reviewer
      and diagnoser invented a rule (maximal disjoint split); the rework broke the selector; it parked, and the session

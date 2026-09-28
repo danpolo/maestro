@@ -333,3 +333,10 @@ hand-fed in between.
   free text.
 - How to apply: when a park traces to a missing requirement, fix the project gap AND record/build the missing
   "ask Dan" path in maestro; never treat a manual ask from the session as the resolution.
+
+## 2026-09-28 — A handoff at the context line must say whether this session closes (s3v)
+- Correction (Dan): at the 180K hook I wrote the handoff but neither ran close-session nor said why I stayed open.
+- Rule: right after a handoff, decide. If I still own something running (Monitor, background shell, a watch that
+  can run in parallel with the new session), say explicitly "I'm not closing this session yet because I still need
+  to keep running <X>". Otherwise run the close-session skill in the same turn and close everything.
+- Why: Dan starts the next session from the handoff; he needs to know whether this one is still live or done.

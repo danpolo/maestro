@@ -340,3 +340,22 @@ hand-fed in between.
   can run in parallel with the new session), say explicitly "I'm not closing this session yet because I still need
   to keep running <X>". Otherwise run the close-session skill in the same turn and close everything.
 - Why: Dan starts the next session from the handoff; he needs to know whether this one is still live or done.
+
+## 2026-09-28 — Pilot defects require a root fix, including durable recovery
+- Correction (Dan): when a pilot exposes a Maestro problem, trace it to its root and fix
+  that root. A short retry for one observed symptom is not enough.
+- Case: DuetFlow 07's Codex 5h window reset during proof-review attempt 6, but the CLI
+  repeated an undated reset time. A parser-only two-minute grace would have avoided
+  this one rollover while leaving the controller's trust in stale CLI time and its
+  persistent pause mechanism intact. The controller now compares the failed call with
+  fresh settle telemetry before recording a known reset. The remaining durable-pause
+  reconciliation and live recovery are tracked in D31.
+- Rule: prove the mismatch at the boundary that makes the decision, test the real
+  controller path, and check how already-written state recovers before calling the
+  pilot finding closed.
+
+## 2026-09-28 — Monitor every full-suite run
+- Dan: from now on, use the `monitor-long-running-tasks` skill whenever running the
+  full test suite. Launch it in a named `agents` TMUX window, verify its first required
+  action started, and let one detached terminal monitor report the result. Avoid
+  repeated model-level progress polling.

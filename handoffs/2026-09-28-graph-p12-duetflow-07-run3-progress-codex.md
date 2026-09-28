@@ -127,3 +127,38 @@ sample freshness, review verdicts/findings, gate checks, V-DAN outcome, accepted
 parked result, export path and SHA, and D30 Claude evidence. Use `systematic-debugging`,
 `test-driven-development`, `verification-before-completion` for code; use
 `monitor-long-running-tasks` for the live pilot; use `close-session` when finishing.
+
+## Continuation at 22:40 IDT, 2026-09-28
+
+- Maestro commit `8d8ebb2` makes graph `/progress`, `/workflow`, and `/explain` share a
+  short run summary. It shows the live node/cycle, last recorded backend/model/effort,
+  dated 5h/7d usage sample or unavailable, admission wait, and active pool reset times
+  in Israel time. `/workflow` adds compact steps; `/explain` adds checks, latest issue,
+  and the recorded decision. The structured control projection and HTML remain available.
+- Tests were written red first. Focused status, parity, and dispatch tests passed; the
+  entire `.venv/bin/python -m pytest -q` suite exited 0 after the final changes, with
+  one existing xfail shown in the progress line. `git diff --check` passed. A read-only
+  preview against the live DuetFlow run showed `Waiting: proof_review — route pool
+  paused · cycle 6`, last `codex/gpt-6-sol · medium · failed`, and a **start sample**
+  at 21:38 IDT of 5h 100%, 7d 52%. It listed Claude available 2026-09-29 16:00 IDT
+  and Codex available 2026-09-29 21:38 IDT. This was a local preview of committed
+  Maestro code, not a reply from the still-pinned live Telegram bot.
+- At 22:40 IDT the controller still reported run `run_jJMHnAdF8XpBC15y` as `running`,
+  proof_review `ready` at attempt index 6; the orchestrator and one-shot monitor windows
+  remained present. No new proof review or acceptance occurred. D30 remains OPEN, and
+  D4's no-sentinel bug remains open.
+- DuetFlow still pins `768f781`. **Do not adopt mid-task.** After a safe terminal/archived
+  task boundary, adopt the current Maestro commit (which includes `7783b7d`'s D29
+  recommender fix and `8d8ebb2`'s status output), append a `code_under_test` amendment
+  to `artifacts/graph-engineering/p12-pilots/manifest.json`, run doctor, and verify
+  `/progress`, `/workflow 07-reconciliation`, and `/explain 07-reconciliation` through
+  the bot. The local `/progress` preview monkeypatched `commands.read_state` to load
+  DuetFlow's `state.json` read-only; calling `read_state()` from a second standalone
+  process tries to claim the live controller lease and is not a valid live-bot check.
+- Review 2 had three blockers (retry Pin attribution, expired unattributed Pin eviction,
+  empty-plan balance repair). Review 3 had three blockers (retry attribution when the
+  later GET lacks added_by, turnover budget for expired unattributed Pin eviction, and
+  cold-start misclassification after an emptied existing Duet). Run 3's Codex attempt
+  addressed the repair brief and passed the gate, but has no successful proof review.
+- The two preexisting untracked files listed above were left untouched. The code commit
+  includes only the four status/command/test files; no DuetFlow file was changed here.

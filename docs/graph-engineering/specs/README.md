@@ -235,3 +235,16 @@ needs the usage data P12 collects.
 Not in this queue: the model-id refresh (claude-opus-5-5, gpt-6-sol, gpt-6-luna) went in during P12
 (maestro 6dc102e) as a P12 manifest amendment.
 
+## 10. POST-PILOT REVIEW INPUT: GRAPH ENGINEERING FIELD NOTES
+
+Before claiming production reviewer isolation at P12 close-out or planning later graph
+work, read [`reports/05-field-notes-artifact-assessment.md`](../reports/05-field-notes-artifact-assessment.md).
+It assesses all eight cards of Dan's saved artifact against code snapshot `768f781` and
+records four distinct findings: F1, reviewer CLI write permission versus its read-only
+role; F2, missing finish lines refused only at acceptance; F3, progress measurement for
+long ordinary CLI runs if pilot evidence warrants it; F4, an optional compiled-workflow
+view. Recheck each against current code. F1 is the priority before production adoption.
+
+This is review input, not a change to the running P12 pilot or to §9's queued feature
+phase. Do not make F2–F4 pilot scope by implication, do not conflate them with the
+independent Context Gate, and keep §9's Dan-elaboration requirement for that phase.

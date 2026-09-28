@@ -8,6 +8,12 @@ For **autonomous AI agents** implementing the plan, the human-oriented architect
 - **[`MAESTRO_GRAPH_ENGINEERING_AGENT_SPEC.md`](MAESTRO_GRAPH_ENGINEERING_AGENT_SPEC.md)** — Consolidated agent-faced specification (schemas, state machines, invariants, acceptance criteria, P00–P12).
 - **[`specs/`](specs/README.md)** — Modular agent-faced specification suite with a **Context Routing Matrix** designed for just-in-time context injection without token bloat.
 
+**Post-P12 review input:** [`reports/05-field-notes-artifact-assessment.md`](reports/05-field-notes-artifact-assessment.md)
+compares the complete eight-card [`field notes artifact`](reports/05-field-notes-artifact-source.md)
+with the implementation at `768f781`. Its F1 reviewer permission finding must be rechecked
+before production adoption; F2–F4 have separate triggers. This assessment does not amend
+the active pilot or the authoritative architecture.
+
 Two files sit beside it and are *not* plan content:
 
 - `../../GRAPH_ENGINEERING_RESEARCH_BLIND_SPOTS.md` — the open-evidence register (B01–B18). When a blind spot
@@ -23,6 +29,8 @@ superseded by the plan wherever the two differ.
 - `reports/02-grok-report.md` — Grok's public-share report.
 - `reports/03-maestro-graph-engineering-research.docx` — the supplied DOCX report, preserved in its original format.
 - `reports/04-chatgpt-graph-engineering-report.md` — ChatGPT's plain-text fourth report extracted from the dedicated report link.
+- `reports/05-field-notes-artifact-assessment.md` — Code-grounded, card-by-card assessment of the later graph engineering field notes; post-pilot findings F1–F4 and their triggers.
+- `reports/05-field-notes-artifact-source.md` — Verbatim copy of Dan's saved source artifact, retained beside the assessment in the `meta` process-doc set.
 - `four-report-synthesis.md` — ChatGPT's synthesis weighing all four reports against Maestro's actual constraints, concluding Maestro should become graph-aware without becoming a graph-framework application.
 - `project-workflow-graph.md` — ChatGPT's follow-up on graph-based agent/script workflows and a project-specific workflow graph generated during `init`.
 - `REVIEW_RESEARCH_VS_PLAN.md` — **superseded.** The working record of how the external research pass and the local audit were reconciled; its adopted findings are folded into the plan.

@@ -107,3 +107,9 @@ Report the exact run ID, attempt statuses, review verdicts and finding count, ga
 checks, V-DAN decision, acceptance/park outcome, SHA, and D30 Claude evidence. For
 new code fixes use `systematic-debugging`, `test-driven-development`, and
 `verification-before-completion`; for the live run use `monitor-long-running-tasks`.
+
+## Continuation
+
+Run 2 produced plan-repair successor run 3. Continue from
+`handoffs/2026-09-28-graph-p12-duetflow-07-run3-progress-codex.md`; it also records
+Dan's `/progress` request and the D29 recommender fix at `7783b7d`.

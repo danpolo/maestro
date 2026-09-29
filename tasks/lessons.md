@@ -359,3 +359,10 @@ hand-fed in between.
   full test suite. Launch it in a named `agents` TMUX window, verify its first required
   action started, and let one detached terminal monitor report the result. Avoid
   repeated model-level progress polling.
+
+## 2026-09-29 — Recheck the live permission profile after Dan changes it
+- Dan changed Codex to full access during D31 recovery and asked why approval prompts continued.
+- The earlier restricted profile had caused real read-only filesystem failures, but the
+  runtime later reported `danger-full-access` with approval policy `never`. From that
+  point, use the current profile and proceed without escalation requests. Do not carry
+  an earlier sandbox assumption into a later environment update.

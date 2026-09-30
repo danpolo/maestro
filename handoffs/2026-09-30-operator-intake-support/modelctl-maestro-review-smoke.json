@@ -1,0 +1,28 @@
+[
+  {
+    "probe": "Codex add public CLI",
+    "result": "PASS",
+    "real": "table, session hook, Maestro resolver/cache",
+    "fake": "discovery, daemon and inference",
+    "project_routing_configuration_updated": false
+  },
+  {
+    "probe": "Claude add public CLI",
+    "result": "PASS",
+    "real": "table, governor exact id/family/window, Maestro resolver/cache",
+    "fake": "discovery and inference"
+  },
+  {
+    "probe": "state-save failure after valid add",
+    "result": "GAP REPRODUCED",
+    "exception_escaped": true,
+    "configuration_left_changed": true,
+    "rollback_missing": true
+  },
+  {
+    "probe": "first scan with an existing lifecycle row",
+    "result": "GAP REPRODUCED",
+    "access_label": "VERIFIED",
+    "actual_access_checks": 0
+  }
+]

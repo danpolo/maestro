@@ -10,7 +10,7 @@
 # A phase must close (disposition: closed + note) or re-own (owner: <later phase>) every thread it was
 # given before it marks itself complete. A bare string thread is a format error (tests/test_next_graph_prompt.py).
 schema_version: 1
-last_updated: "2026-09-29T08:16:23Z"
+last_updated: "2026-09-30T10:05:46Z"
 current_phase: "P12"  # P12B (model-failure handling, D-FAIL-1/2) completed 2026-09-18
 status: "in_progress"  # P12 session 1 (2026-09-18, ac92f2c): thread #4 closed, graph-loop worktree gap found; continue from handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
@@ -744,6 +744,15 @@ in_progress_details:
   active_branch: feat/graph-engineering-foundation
 
 _p12_open_threads:
+  - owner: operator-intake-workflow (fresh session, Dan 2026-09-30)
+    thread: "Dan reports unavailable Duet song versions despite playable Spotify alternatives. Establish a repeatable mechanism for operator-found bugs, desired changes, and features to enter Maestro's normal task workflow; use this case to ground the mechanism rather than silently patching songs."
+    note: "2026-09-30: Dan chose Telegram report -> scoped proposal -> approval -> normal task; explicitly scope is Maestro improvement, no DuetFlow repairs. Core maestro/intake.py and Telegram capture routes added, 16 core tests passed; processing hooks/full suite/review/adoption/delivery remain. DuetFlow stays HALTed, no live bug task queued. See handoffs/2026-09-30-telegram-intake-core-modelctl-reviewed.md and docs/OPERATOR_INTAKE.md."
+  - disposition: closed
+    thread: "Pilot finding D32: 07 V-DAN used explain to check attribution, but explain only scores role-b plays."
+    note: "Corrected DuetFlow docs/ROADMAP.md in 1d135ff (2026-09-30) with a config.DB_PATH-aware SQLite mode=ro Pin query. Live track 2PnlsTsOTLE5jnBnNe2K0A: origin=pin, attributed_to=role a, pinned_until=2026-10-30T07:38:45+00:00; missing/invalid track exits 1. No DuetFlow implementation defect demonstrated."
+  - owner: P12
+    thread: "Pilot finding D33: graph /ask support FIXED ead3819, reviewed, integrated and materialized; ADOPTED after accepted pilot; genuine Telegram smoke remains pending."
+    note: "Exact request/task/run/snapshot and immutable context validation; database mode=ro; fresh support call with actual Dan answers/decision references; verdict untouched. Full candidate self-test: 5239 passed, 1 xfailed, exit 0. Dan approved request 117; same-pin guarded controller finished run_qG3zSNhcUbdHKyDm (2 quality failures), preserved review follow-ups, graduated main 4da33d2, and stopped with HALT. Adopted ead3819 at that idle boundary; pinned doctor exit 0, global pointer unchanged. No active runs/workers/live leases; one stale doctor lease row is harmless and its PID was verified dead. Doctor warnings: context rows claude-sonnet-5/gpt-6-sol missing, absent systemd unit, meta origin. Project model overrides preserved for modelctl owner. See handoffs/2026-09-30-graph-ask-installed-next-live-smoke.md."
   - owner: P12
     thread: "Dan 2026-09-27: after P12, a queued feature phase: (1) agy as a real harness, (2) choose models
      by usage left, incl. the project.yaml redesign (global roles/models, per-role strength, global telegram), (3) review
@@ -796,7 +805,7 @@ _p12_open_threads:
      test_a_sandboxed_agent_can_report_into_its_workspace."
     thread: "Pilot finding D3: DuetFlow 02's proof review ran on Codex (workspace-write rooted at the task worktree),
      finished a sound review, and could not write DONE into .orchestrator/attempts/<id>/; the node settled uncertain."
-  - owner: model-catalog-config (Dan, 2026-09-29; implement local command now)
+  - owner: modelctl-integration-review (Dan, 2026-09-30; compare built external tool)
     thread: "Graph routing's model choice is hardcoded in maestro/backends/catalog.py SHIPPED_CATALOG_DEFAULTS
      (available_models, strength light/balanced/strong, relative_cost, pools, context limits per model). A backend is
      used only if its maestro/thirdparty.json row has a verified_version. The router takes the cheapest model that
@@ -817,7 +826,7 @@ _p12_open_threads:
      superseded by this request. Dan chose Maestro's shared default on 2026-09-29:
      inherited defaults change, explicit project overrides remain explicit and
      should be reported. Evidence and next work:
-     handoffs/2026-09-29-local-model-switch-pending-codex.md."
+     handoffs/2026-09-29-local-model-switch-pending-codex.md. UPDATE 2026-09-30: Dan reports model-adding tool built at /home/dan/projects/modelctl. Fresh session must compare it against this Maestro scope and recommend remaining integration; it need not be part of Maestro and can be reused. Comparison completed 2026-09-30: docs/reviews/2026-09-30-modelctl-maestro-coverage.md. 130 modelctl tests passed, fresh metadata discovery and disposable public add flows checked. Shared model replacement across inheriting projects, override inventory and active-run delays are missing. Recommend a Maestro-owned selection/routing/propagation layer consuming external modelctl discovery/registration/tables, not a third manager. Preserve explicit overrides and uncommitted owner edits. Integration implementation remains open; intake continuation: handoffs/2026-09-30-telegram-intake-core-modelctl-reviewed.md."
   - owner: failure-handling phase (record only in P12)
     thread: "Pilot finding D4 RECURRED 06 run 7 (2026-09-28 ~15:00 IDT): the plan-repair successor run_Sdw8Am3ejgYNtrwq's final implementer run hit the Claude CLI auto-mode classifier outage (every Bash call 'gave no verdict'); this time it wrote a failure report, so the node settled failed (not uncertain), then diagnose was refused repair_budget_exhausted (1 of 1) and the run parked -- the outage burned the one final run. Uncommitted edits saved to .orchestrator/archive/2026-09-28-run16/uncommitted-final-run.patch. PROPOSAL (s3y, for the failure-handling phase; Dan asked 'could a classifier denial come to me instead of auto-denying'): detect the classifier-outage signature in the agent's output, hold the node without spending budget and retry after a delay; escalate once to Dan on Telegram (retry now / keep waiting / archive) only if the outage outlasts a bound (~30 min). Per-tool-call approval by Telegram is possible in principle (headless permission-prompt delegation) but would flood Dan during an outage, so not recommended. Was: Pilot finding D4: an agent node settled `uncertain` (no sentinel, no result) never settles, its run stays
      `running` forever, and no operator command can cancel or retry a graph node (ctl verbs are legacy-only; plan
@@ -1759,6 +1768,6 @@ phase_records:
       blockers: []
       active_branch: "feat/graph-engineering-foundation"
 
-# 2026-09-30 pilot continuation: D32 OPEN wrong 07 V-DAN attribution command;
-# D33 OPEN graph /ask cannot reach awaiting_dan_verification. Fix staged, not installed.
-# Next: handoffs/2026-09-30-graph-vdan-ask-fix-pending.md (includes Dan live test evidence).
+# 2026-09-30: D32 guidance corrected 1d135ff; D33 fixed/reviewed ead3819.
+# Candidate self-test passed; Dan approved V-DAN; pilot accepted and ead3819 adopted.
+# Next: handoffs/2026-09-30-graph-ask-installed-next-live-smoke.md (genuine Telegram smoke).

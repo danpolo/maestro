@@ -1,0 +1,24 @@
+[OK  ] docs: parsed OK — 1 runnable, 1 prep task(s)
+[OK  ] adapter:test: status=ok
+[OK  ] adapter:eval: status=ok
+[OK  ] adapter:smoke: status=ok
+[OK  ] adapter:deploy: status=ok
+[OK  ] adapter:healthcheck: status=ok
+[OK  ] adapter:latency: status=ok
+[OK  ] preamble_deny_list: 5 entries rendered
+[WARN] model_limits: no context-limit entry for: claude-sonnet-5, gpt-6-sol
+[OK  ] model_ids: 0 confirmed invalid among 4 checked (a clean probe rules out a known-bad id, it does not confirm a working one)
+[OK  ] backends: resolved: claude, codex
+[OK  ] mermaid: mmdc on PATH: /home/dan/.local/bin/mmdc
+[OK  ] telegram: getMe OK
+[WARN] systemd_unit: not installed at /etc/systemd/system/duetflow-watchdog.service (see `maestro init`'s final message)
+[OK  ] gate: gate.chain == ['test'] — project is running unevaluated; eval/smoke are not wired into the gate yet (D8)
+[OK  ] adopted_code: running the adopted checkout: /home/dan/.maestro/versions/ead3819ce9110debec25f12dc1fee66174b1367b
+[OK  ] retention: .orchestrator holds 75203702 bytes (retention.warn_bytes=1073741824; nothing is pruned)
+[OK  ] journal_version: maestro_version=ead3819ce9110debec25f12dc1fee66174b1367b; journal: 20 recent line(s) sampled, 0 unparseable
+[OK  ] thirdparty: 10 subject(s): 3 reobserved, 7 verified — agy: 1.2.14 installed (row verified 1.2.3); --help still shows all 5 recorded controls; claude: 2.1.285 (Claude Code) installed (row verified 2.1.270 (Claude Code)); --help still shows all 4 recorded controls; codex: codex-cli 0.159.2 installed (row verified codex-cli 0.154.0); --help still shows all 4 recorded controls
+[WARN] meta_branch: meta worktree already attached at /home/dan/projects/duetflow-meta; WARNING: push failed: fatal: 'origin' does not appear to be a git repository
+fatal: Could not read from remote repository.
+
+Please make sure you have the correct access rights
+and the repository exists.

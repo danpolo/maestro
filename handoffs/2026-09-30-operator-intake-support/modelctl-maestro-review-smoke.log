@@ -1,0 +1,69 @@
+
+Context lifecycle limits for GPT-6.2 Sol (replaces GPT-6.1 Sol, GPT-6 Sol):
+  | GPT-6.2 Sol | 180K-200K | 240K-270K | 350K |   window 420K   (replaces GPT-6.1 Sol, GPT-6 Sol)
+  ordering: fresh 270K < ceiling 350K < compaction ~378K < window 420K
+
+== modelctl add codex ==
+  Model:                                   GPT-6.2 Sol  (gpt-6.2-sol)
+  Prepare / fresh / ceiling:               180K-200K / 240K-270K / 350K
+  Default window (ceiling x1.2):           420K
+  --window:                                not supplied
+  Model maximum / final window:            872K / 420K
+  Est. native compaction (~90%):           ~378K
+  Catalog / hook / Maestro (staged):       verified before any write
+  Backups:                                 /tmp/modelctl-maestro-review-hv__4060/codex/home/.local/state/modelctl/backups/20260930-133443-gpt-6.2-sol
+  Limits file:                             updated and verified
+  Catalog:                                 regenerated, metadata preserved; listed with context_window=420000
+  Maestro:                                 resolve() matches for GPT-6.2 Sol; cache /tmp/modelctl-maestro-review-hv__4060/codex/repo/.orchestrator/model_limits.json refreshed
+  Daemon restart:                          restarted; daemon 9.9.9
+  Real inference:                          VERIFIED — model replied 'OK'
+  Rollback:                                not needed
+
+Done. Restart open sessions to pick up the new model.
+
+
+Context lifecycle limits for Claude Sonnet 6 (replaces Claude Sonnet 5.5):
+  | Claude Sonnet 6 | 160K-180K | 220K-240K | 320K |   (replaces Claude Sonnet 5.5)
+  ordering: fresh 240K < ceiling 320K < compaction 372K < window 385K
+
+== modelctl add claude ==
+  Model:                                   Claude Sonnet 6  (claude-sonnet-6)
+  Prepare / fresh / ceiling:               160K-180K / 220K-240K / 320K
+  Auto-compact window:                     385K (compaction at 372K)
+  Governor (staged):                       exact id, aliases, window, old/newer ids verified
+  Backups:                                 /tmp/modelctl-maestro-review-hv__4060/claude/home/.local/state/modelctl/backups/20260930-133443-claude-sonnet-6
+  Limits file + alias state:               written; governor resolves exact id, family alias, window
+  Maestro:                                 resolve() matches for Claude Sonnet 6; cache /tmp/modelctl-maestro-review-hv__4060/claude/repo/.orchestrator/model_limits.json refreshed
+  Real inference:                          VERIFIED — model replied 'OK'
+  Rollback:                                not needed
+
+Done. Restart open sessions to pick up the new model.
+
+[
+  {
+    "probe": "Codex add public CLI",
+    "result": "PASS",
+    "real": "table, session hook, Maestro resolver/cache",
+    "fake": "discovery, daemon and inference",
+    "project_routing_configuration_updated": false
+  },
+  {
+    "probe": "Claude add public CLI",
+    "result": "PASS",
+    "real": "table, governor exact id/family/window, Maestro resolver/cache",
+    "fake": "discovery and inference"
+  },
+  {
+    "probe": "state-save failure after valid add",
+    "result": "GAP REPRODUCED",
+    "exception_escaped": true,
+    "configuration_left_changed": true,
+    "rollback_missing": true
+  },
+  {
+    "probe": "first scan with an existing lifecycle row",
+    "result": "GAP REPRODUCED",
+    "access_label": "VERIFIED",
+    "actual_access_checks": 0
+  }
+]

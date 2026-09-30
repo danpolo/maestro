@@ -10,7 +10,7 @@
 # A phase must close (disposition: closed + note) or re-own (owner: <later phase>) every thread it was
 # given before it marks itself complete. A bare string thread is a format error (tests/test_next_graph_prompt.py).
 schema_version: 1
-last_updated: "2026-09-18T18:00:00Z"
+last_updated: "2026-09-29T08:16:23Z"
 current_phase: "P12"  # P12B (model-failure handling, D-FAIL-1/2) completed 2026-09-18
 status: "in_progress"  # P12 session 1 (2026-09-18, ac92f2c): thread #4 closed, graph-loop worktree gap found; continue from handoffs/2026-09-18-graph-p12-s2-worktree-and-e2e.md. # 'not_started' | 'in_progress' | 'completed' | 'blocked'
 
@@ -796,7 +796,7 @@ _p12_open_threads:
      test_a_sandboxed_agent_can_report_into_its_workspace."
     thread: "Pilot finding D3: DuetFlow 02's proof review ran on Codex (workspace-write rooted at the task worktree),
      finished a sound review, and could not write DONE into .orchestrator/attempts/<id>/; the node settled uncertain."
-  - owner: model-catalog-config (new work AFTER the P12 pilots; Dan, 2026-09-24. Not in P12)
+  - owner: model-catalog-config (Dan, 2026-09-29; implement local command now)
     thread: "Graph routing's model choice is hardcoded in maestro/backends/catalog.py SHIPPED_CATALOG_DEFAULTS
      (available_models, strength light/balanced/strong, relative_cost, pools, context limits per model). A backend is
      used only if its maestro/thirdparty.json row has a verified_version. The router takes the cheapest model that
@@ -809,7 +809,15 @@ _p12_open_threads:
      relationship) into a config file Dan can edit, next to the per-agent model_context_limits.md files (memory:
      per-agent-model-context-limits). Doctor must flag ids a CLI no longer accepts, and a retired or unknown id
      must never crash routing (fail closed to the next eligible model). Decide in that session whether `roles:`
-     becomes a graph-routing preference or is retired. TDD, with a lane."
+     becomes a graph-routing preference or is retired. TDD, with a lane. Dan now requests
+     an argument-free interactive LOCAL model-switch command first, with fresh model
+     discovery across supported harnesses, a selected current-model replacement,
+     context-limit lookup or unknown-default row insertion, and complete configuration
+     updates/reporting; Telegram buttons come later. The prior AFTER-P12 schedule is
+     superseded by this request. Dan chose Maestro's shared default on 2026-09-29:
+     inherited defaults change, explicit project overrides remain explicit and
+     should be reported. Evidence and next work:
+     handoffs/2026-09-29-local-model-switch-pending-codex.md."
   - owner: failure-handling phase (record only in P12)
     thread: "Pilot finding D4 RECURRED 06 run 7 (2026-09-28 ~15:00 IDT): the plan-repair successor run_Sdw8Am3ejgYNtrwq's final implementer run hit the Claude CLI auto-mode classifier outage (every Bash call 'gave no verdict'); this time it wrote a failure report, so the node settled failed (not uncertain), then diagnose was refused repair_budget_exhausted (1 of 1) and the run parked -- the outage burned the one final run. Uncommitted edits saved to .orchestrator/archive/2026-09-28-run16/uncommitted-final-run.patch. PROPOSAL (s3y, for the failure-handling phase; Dan asked 'could a classifier denial come to me instead of auto-denying'): detect the classifier-outage signature in the agent's output, hold the node without spending budget and retry after a delay; escalate once to Dan on Telegram (retry now / keep waiting / archive) only if the outage outlasts a bound (~30 min). Per-tool-call approval by Telegram is possible in principle (headless permission-prompt delegation) but would flood Dan during an outage, so not recommended. Was: Pilot finding D4: an agent node settled `uncertain` (no sentinel, no result) never settles, its run stays
      `running` forever, and no operator command can cancel or retry a graph node (ctl verbs are legacy-only; plan
@@ -856,27 +864,48 @@ _p12_open_threads:
     thread: "Pilot finding D29 FIXED c40a89d (s3x design + s3y finish), ADOPTED 2026-09-28 13:52 IDT (manifest 862b466; doctor OK + 2 known WARNs); RUN 8 CONFIRMS CARRY-OVER: 06 run 8 (fresh run, same wf_06-writer-first-light) wrote the identical line; all 3 gates and the merge passed it on Dan's run-7 approval (key b6be9f3c423fab18) without asking; 06 accepted 16:19 IDT. suite 5111 -> 5127 passed + 1 xfailed. Build: the gate (verification_handler, once its checks pass) runs merge.deny_list_hits on the candidate; an unruled hit gets one recommendation call (diagnoser model, 300 s, one retry, else 'No recommendation') and Dan a Telegram request (hit, recommendation + reason, Approve / Disapprove; a text reply disapproves and becomes his note); the gate holds on it like a D26 question (no budget). Approve -> journal deny_list_hit_approved by=dan, event DenyListHitRuled, merge skips only approved keys. Disapprove -> blocking finding in the rework brief. Key = sha256(file, pattern, the WHOLE added line, whitespace collapsed) -- s3y changed it from the matched text, which would have let one approved DELETE FROM approve any other in the file. s3y also fixed the gate never receiving the config (the gate is a worker; runner passes --deny-list-config). Lanes tests/graph_engineering/test_deny_list_ask.py (5 lanes + 11 units); merge-guard and remerge lanes drop the channel's poll_deny so the merge backstop is still proven. LIVE EVIDENCE 06 run 7 (run_42nZz0PJXbtnyt0V, opened 13:56:37 IDT): gate 1 failed on check V4 (ordinary rework); gate 2 caught duetflow/db.py `conn.execute(\"DELETE FROM duet_state\")` BEFORE any review, recommendation Allow ('duet_state is the app's own local SQLite mirror ... not production data; prod_stores empty; replaced in one transaction only after Spotify accepted the PUT'), asked 14:03:16 IDT (Telegram msg 84); Dan tapped Approve 14:45:26 IDT (42 min); gate passed 14:46:21 and every later gate passed the unchanged line without asking again. Known limits: the recommender runs inside the gate worker (up to 2 x 300 s, only on unruled hits); workflow_id is per TASK (wf_<task>), so a ruling carries to a plan-repair successor AND to a fresh run of the same task (s3x's note 'a fresh run asks again' was wrong; kept, since Dan approved that exact line for that task; a changed line still asks); the approver is recorded as by=dan (the tap on Dan's bot), no Telegram user id; the pilot export's human_interventions does not count deny taps (run 16 export shows 0). Was: Pilot finding D29: 06 run 6 (run_mqSXWdrvV78A6xDk) passed 3 review rounds and Dan's real V-DAN (approved 12:55 IDT; the real Duet exists, config duet.playlist_id set), then merge refused: merge.deny_list_violation matched the hard pattern DELETE\\s+FROM on `conn.execute(\"DELETE FROM duet_state\")` in duetflow/playlist.py (the app replacing its own local SQLite state table in one transaction; prod_stores is empty). Run settled failed at node merge; archived as run 15 (export duetflow-run15-archived.json, branch archive/06-writer-first-light-run6 at d2ed885, .orchestrator/archive/2026-09-28-run15), HALT kept. Two gaps: (1) the deny-list runs only at merge, after every review round and Dan's real-world test; it must also run in the gate so a hit is caught before review/V-DAN. (2) the graph has no override path for a legitimate hit (the legacy guard's contract is 'escalate to Dan'). DAN'S DECISION 2026-09-28: on a deny-list hit an agent examines the hit in context and sends Dan a Telegram message with a recommendation; Dan approves or disapproves with a button (approve -> merge proceeds; disapprove -> the hit goes back to the implementer as a blocking finding)."
   - owner: P12
     thread: >-
-      Pilot finding D31 OPEN pending adoption and automatic live recovery proof.
+      Pilot finding D31 OPEN pending automatic live recovery proof.
       ac72b9a corrected the attempt-settle trust boundary. da26cd6 added
       controller-owned durable pause reconciliation, preserving append-only recovery
       evidence and clearing the legacy mirror plus in-memory pause only on newer fresh
-      account telemetry; a follow-up patch covers a crash between the recovery marker
-      and mirror clear. Red/green controller integration tests prove a waiting node
+      account telemetry; 5c94c9f covers a crash between the recovery marker and
+      mirror clear. The final full suite exited 0 with one existing xfail.
+      Red/green controller integration tests prove a waiting node
       routes again without a quality failure while a genuinely exhausted weekly pool
       stays paused. DuetFlow's already-written stale Codex pause was repaired under a
       lease-free HALT after fresh 5h 83%, 7d 65% telemetry; real proof-review attempt
       7 ran on Codex and returned three blocking findings. Run 3 failed and run 18 was
-      archived. Adopt the final Maestro SHA at this task boundary, then prove automatic
-      recovery live before closing D31. Evidence and next actions:
-      handoffs/2026-09-29-graph-p12-d31-run18-archive-codex.md.
+      archived. Maestro 5c94c9f was adopted at the archived task boundary for 07 run 4;
+      pinned doctor exited 0 with the two known systemd_unit/meta_branch warnings.
+      No automatic recovery has yet been observed on this pin. Evidence and next actions:
+      handoffs/2026-09-29-graph-p12-07-run4-deny-pending-codex.md.
   - owner: P12-pilots
     thread: >-
       DuetFlow 07 run 18 archived 2026-09-29 after run 3 proof-review attempt 7
       returned three blocking reconciliation defects and diagnose refused a second
       plan repair. V-DAN, merge and accept were skipped. Both linked runs, 20 attempts,
       were exported to artifacts/graph-engineering/p12-pilots/duetflow-run18-archived.json;
-      archive/07-reconciliation-run2-3 preserves the task code at 92ac8a3. HALT remains.
-      Continue from handoffs/2026-09-29-graph-p12-d31-run18-archive-codex.md.
+      archive/07-reconciliation-run2-3 preserves the task code at 92ac8a3. The
+      archived HALT was removed only when run 4 launched.
+      Run 4 opened 2026-09-29 03:26 IDT as run_qG3zSNhcUbdHKyDm on adopted
+      Maestro 5c94c9f. The implementer committed 4bbc6ce on impl/07-reconciliation
+      from archived code 92ac8a3. Gate V1, V2, V-SUITE passed (291 passed, 1 skipped);
+      gate attempt 1 held for Dan's ruling on a new exact DELETE FROM manual_pins line,
+      request dl-07-reconciliation-ce139d0d, Telegram message 115. Dan approved at
+      2026-09-29 03:52 IDT; DenyListHitRuled recorded key 0901c96258ead0c5 and
+      gate 2 passed. Proof review 1 requested two blocking retry fixes; implementer 2
+      committed 24093cb, gate 4 passed, and review 2 requested one more blocking
+      eviction-cooldown retry fix. Implementer 3 committed 2f3bf5a; gate 5 passed
+      V1/V2/V-SUITE (297 passed, 1 skipped), and proof review 3 approved with one
+      follow-up on missing duet_history for a confirmed write superseded before
+      bookkeeping recovers. V-DAN is pending request
+      verify-07-reconciliation-2f3bf5abeb3b, Telegram message 117, snapshot
+      2f3bf5a; no merge or acceptance yet. Maestro 2cac0e7 changes active Sonnet 5
+      defaults to Sonnet 5.5 (and updates switch expectations); its materialized
+      candidate passed the full self-test (5226 passed, 1 skipped, 1 xfailed),
+      but is not adopted mid-task; DuetFlow's
+      project.yaml also remains unchanged until a safe task boundary. Continue from
+      handoffs/2026-09-29-graph-p12-07-run4-vdan-pending-sonnet55-codex.md.
   - owner: "P12-pilots (Dan 2026-09-28, s3y; build -> handoffs/2026-09-28-graph-p12-d30-permission-lists.md)"
     thread: "Pilot finding D30 OPEN pending a quota-available live Claude run: e0401fb + dc6453a built the global 32-family allow list, 41-rule initial never-allow list, dontAsk mode, PERMISSION_REQUEST and Telegram Allow/Decline with a no-budget node hold; integrated and adopted into DuetFlow at 16:27 IDT on 2026-09-28. Full suite then: 5211 passed, 1 xfailed; a real Claude CLI probe denied an unlisted curl without the classifier and a Sonnet agent wrote a usable PERMISSION_REQUEST. Live 07 run 1 resumed but its next Claude agent hit subscription quota before working; no live permission ask occurred. Its log exposed that Claude Code 2.1.283 ignores Write(path) permission rules; 768f781 replaced them with effective Edit(path) rules, rejects Write proposals, and fixes the implementer contract that contradicted the required WORKSPACE DONE file. The Codex fallback had committed 49450b8 but omitted DONE because of that contradiction; node uncertain, run archived as run 17 with branch archive/07-reconciliation-run1, and HALT kept. 768f781 full suite: 5214 passed, 1 xfailed; adopted while halted at 17:21 IDT; doctor OK plus known systemd_unit and meta_branch WARNs. Current never-allow list is 37 effective rules (the four ignored Write aliases were removed); the list still covers secret file edits through Edit(path). 07 run 2 opened 17:26 IDT on 768f781 using the archived 49450b8 branch; the Codex implementer wrote DONE and succeeded, proving the WORKSPACE contract fix live. The gate found a new exact DELETE FROM manual_pins line; Dan approved it at 18:55 IDT, and the gate passed on rerun. Proof review found six blocking reconciliation defects (review.json in proof_review_01), and run 2 later produced a plan-repair successor. Latest 07 status: run 3 failed after Codex proof-review attempt 7 returned three blocking findings; both runs are in the run-18 archive. Read handoffs/2026-09-29-graph-p12-d31-run18-archive-codex.md before another 07 run; inspect the next quota-available Claude agent for dontAsk and classifier hits, then close D30 and mark only the D4 retry-on-classifier-outage proposal superseded if proven. D4 no-sentinel-to-uncertain fix remains open. Follow-ups: Codex and Antigravity lists, legacy tmux launch path, and the allowed-interpreter secret-read limit. Dan decided 2026-09-28 against dangerously-skip-permissions and for a global allow list with a fixed never-allow list; an agent proposes the broadest covering family for Dan to Allow or Decline."
   - owner: "P12-pilots (found s3u 06 run 4; FIXED s3v 85d1cb7; ADOPTED s3w; verified live runs 5/6)"
@@ -1729,3 +1758,7 @@ phase_records:
            the interview and nothing re-renders it. The file is outside both repos and untracked."
       blockers: []
       active_branch: "feat/graph-engineering-foundation"
+
+# 2026-09-30 pilot continuation: D32 OPEN wrong 07 V-DAN attribution command;
+# D33 OPEN graph /ask cannot reach awaiting_dan_verification. Fix staged, not installed.
+# Next: handoffs/2026-09-30-graph-vdan-ask-fix-pending.md (includes Dan live test evidence).

@@ -48,18 +48,17 @@ V-DAN, acceptance or another evidenced archive. D30 closes only after a quota-av
 - Maestro `da26cd6` adds controller-owned recovery of future durable pauses based on
   newer fresh account telemetry. The integration test was red then green, proves route
   admission after restart with zero quality failure, and preserves a genuine weekly
-  exhaustion. The first full suite exited 0 with one existing xfail. A second red/green
-  test closed the crash window between writing a recovery marker and clearing the legacy
-  state mirror; its code is pending final suite/commit at handoff creation.
+  exhaustion. Follow-up commit `5c94c9f` closes the crash window between writing a
+  recovery marker and clearing the legacy state mirror, and includes the run-18 export.
+  Both full suites exited 0 with one existing xfail; final `git diff --check` was clean.
 
 ## Next actions, in order
 
-1. Verify `/tmp/maestro-d31-final-suite.exit` is `0`, inspect the full log, run
-   `git diff --check`, and commit the crash-window patch plus run-18 export, STATE and
-   lesson/handoff updates. Keep the two preexisting untracked Maestro files
+1. Keep the two preexisting untracked Maestro files
    `artifacts/graph-engineering/p12-pilots/duetflow.json` and
-   `docs/GRAPH_ENGINEERING_ARTIFACT.md` untouched.
-2. At this archived task boundary, adopt the current Maestro SHA into DuetFlow using
+   `docs/GRAPH_ENGINEERING_ARTIFACT.md` untouched. STATE, handoffs and lessons are
+   intentionally gitignored local project records; the new entries are on disk.
+2. At this archived task boundary, adopt Maestro `5c94c9f` into DuetFlow using
    `selfupdate.materialize_worktree` and `selfupdate.adopt`; add a `code_under_test`
    amendment in `artifacts/graph-engineering/p12-pilots/manifest.json`; run pinned
    `maestro doctor`. This also adopts `7783b7d` (D29 recommender) and `8d8ebb2`
@@ -84,8 +83,8 @@ V-DAN, acceptance or another evidenced archive. D30 closes only after a quota-av
   `docs/dependency_map.md`; leave it until its origin is verified.
 - `scope_widened_for_rework` journaled the same two files every 30 seconds while the
   review was quota-paused. Diagnose later as its own small Maestro finding if it recurs.
-- The final suite runs in `agents:codex-maestro-d31-final-tests` with a one-shot
-  `agents:codex-maestro-d31-final-watch` notice. Confirm both exit before handoff.
+- The final suite wrote `/tmp/maestro-d31-final-suite.exit` = `0` and its one-shot
+  monitor exited; no test or pilot watcher window remains.
 - The runtime permission profile changed mid-session to `danger-full-access` with
   approval policy `never`; do not repeat earlier escalation requests.
 

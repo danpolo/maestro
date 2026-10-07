@@ -112,3 +112,92 @@ Next agent: **handoffs/2026-09-30-telegram-intake-core-modelctl-reviewed.md**.
 Finish the approved Telegram intake feature, verify the complete normal workflow,
 then arrange safe rollout/delivery evidence without resuming DuetFlow work. Present
 any material model-integration design decision together before implementing it.
+
+## Intake integration completion (continuation)
+
+- Wired the processor into graph, legacy and startup-pause control polling; receiving
+  a report in the halted watchdog still performs capture only.
+- Added `maestro intake tick [--publish] [--telegram]` for explicit preparation and
+  optional safe publication without launching the controller or a worker.
+- Added normal task progress reconciliation, durable notification retry, action replay
+  protection, corruption isolation, collision refusal and partial-publication recovery.
+- Public integration tests carry an approved disposable report through the existing
+  implementation/check/review/acceptance/graduation path and exercise legacy/paused lanes.
+- Independent review found three important recovery defects, fixed with failing then
+  passing regressions; final verdict ready to merge, with optional-field hardening fixed.
+- Source full suite: 5281 passed, 1 xfailed, exit 0, 406.33 s. Additional final regressions
+  were added during that run; the exact committed candidate must pass its own full gate
+  before rollout. Logs: /tmp/maestro-intake-full.log and .exit.
+- Rollout stays separate from DuetFlow continuation: materialize/test the candidate,
+  prepare and use a pin-only idle installer and intake-only listener without resuming
+  product work. Give Dan the actual bot command after readiness. Keep HALT throughout;
+  ask once only if new material external effects exceed the finishing request.
+- No modelctl implementation, shared default change, Context Gate or DuetFlow repair.
+
+## Close-out: reviewed intake; final exact gate and live proof next
+
+Core commit 9b4585683eb21d6dda0a12f4206254a8826828cf; final legacy-progress correction
+f46ffd403785bcd9040e892961731c2009fc6220. Independent review ready for remaining gates;
+52 focused tests passed, 4.93 s, exit 0. Base exact candidate: 5290 passed, 1 xfailed,
+390.99 s, exit 0. Final f46ffd4 full gate still required. Initial base missing-document
+failure preserved; 27 unchanged ignored specs/STATE inputs supplied using prior-release
+procedure, then 13 document checks and full gate passed. No feature defect left open.
+
+Intake-only receiver rehearsal trapped controller/model/publication/worker paths;
+zero tasks/events/leases, HALT retained. Boundary/syntax checks passed. No actual pilot
+installation/listener/paid call/report/product action. Pilot remains ead3819, HALTed,
+accepted 07, zero active work/intake files. Modelctl recommendation/eight files unchanged.
+All created background jobs exited. Session closes at required awareness milestone
+(developer measured 180911 context tokens; native context tool unavailable).
+
+Next launchable task: **handoffs/2026-09-30-telegram-intake-reviewed-final-gate-next.md**.
+Stage/test final version, pin-only install, genuine receipt/proposal/rejection proof
+without approving/dispatching smoke work. No Telegram action before bot readiness.
+
+## Final candidate installed (2026-09-30 continuation)
+
+- Exact f46ffd4 gate: 5291 passed, 1 xfailed, 389.79 s, exit 0; clean candidate and
+  all 27 document input hashes verified.
+- Pin-only installation succeeded; pinned doctor exit 0, HALT retained, global pointer
+  unchanged. Eight preserved model-owner/evidence files and all product records/files
+  unchanged. State differences proven to be version/timestamp/projection sequence only.
+- Capture-only listener ready; Dan has been given the actual bot and smoke report.
+  Receipt, explicit one-tick proposal, operator rejection, listener shutdown and final
+  preservation verification remain. No DuetFlow repair/resume or model override change.
+
+## Live compatibility correction in progress
+
+Actual smoke report I-211702189 captured, receipt delivered. Stale old-code watchdog
+is stopped; genuine proposal tick failed safely on comment-only ROADMAP example.
+Maestro-only fix f13b2c7 ignores comment-only examples without changing DuetFlow files.
+Red/green behavior regressions and focused checks passed; exact gate/review underway.
+After pin-only reinstallation, ask Dan for the real retry command, prepare/deliver
+one proposal, then have him reject it. Preserve failed evidence and model ownership.
+
+Compatibility follow-up: f13b2c7 full exact gate passed (5297 passed, 1 xfailed,
+390.58 s); independent review clear (435 focused tests plus 14 probes). Pin-only
+adoption/doctor/preservation verified. Corrected temporary listener ready; real
+retry command given to Dan. Await retry, one proposal tick, rejection and shutdown.
+
+Live smoke complete: actual retry update 211702190, revision-1 proposal delivered in
+four parts, actual rejection update 211702191 and Dan's bot replies recorded. No approval,
+publication or task/run/attempt. Raw text/proposal retained; preservation checks pass.
+Graceful listener shutdown requested; verify terminal/window/process exit. All product
+repair/continuation, model integration/UI and genuine waiting /ask remain outside this
+release, with earlier history/D30/D31/D33 evidence obligations preserved.
+
+Final cleanup verified: graceful stopped terminal, no release processes/windows,
+installed f13b2c7 pin/state and clean candidate, final preservation/diff checks pass.
+Approved intake release is complete. No ongoing receiver or product continuation;
+modelctl integration remains a recommendation, not an implemented feature.
+
+## Session closed; next work
+
+Close-session sweep and final preservation/process checks pass. Intake release is complete.
+New launchable handoff: **handoffs/2026-09-30-modelctl-integration-next.md**. Next work is
+Maestro's shared model-selection/routing integration, consuming modelctl ownership.
+Material architecture decisions remain unapproved; settle them once before implementation.
+No DuetFlow continuation or receiver restart is implied. Native context counter unavailable.
+The STATE intake entry and older open labels need proof-based reconciliation; actual
+intake release status supersedes the stale core-only note. Other open threads and exact
+branch/preservation/operational evidence are carried in the new handoff.

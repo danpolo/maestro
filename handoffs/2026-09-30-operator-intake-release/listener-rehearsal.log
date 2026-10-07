@@ -1,0 +1,3 @@
+Ready: @MaestroGenericTestingBot; capture only; HALT retained; 10 minute limit
+Listener finished; HALT retained; no controller or worker started
+Listener rehearsal passed: report receipt/read/list/rejection, foreign-chat refusal, HALT retained; no model/controller/publication/dispatch reached; zero tasks/events/leases.

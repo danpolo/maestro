@@ -1,0 +1,41 @@
+{
+  "status": "architecture_approved_execution_handoff",
+  "verified_at_utc": "2026-09-30T13:35:33.237459+00:00",
+  "installed_source_probes": {
+    "projects": 2,
+    "exit_codes": [
+      0,
+      0
+    ]
+  },
+  "inventory_and_source_hashes_unchanged": true,
+  "browser": {
+    "desktop": [
+      1280,
+      800
+    ],
+    "mobile": [
+      390,
+      844
+    ],
+    "horizontal_overflow": false,
+    "overview_fully_visible": true,
+    "figures": 2,
+    "external_assets": 0,
+    "page_errors": 0,
+    "light_and_dark_visually_inspected": true,
+    "log": "browser-verification.log"
+  },
+  "delivery": {
+    "command": "send-to-me --caption TEXT /tmp/maestro-modelctl-integration.html",
+    "exit_code": 0,
+    "telegram_response_ok_checked_by_sender": true,
+    "html_sha256": "764226081c43233858b4f17236934967ee9709439d00a838dd383eff8ad3b70f"
+  },
+  "product_implementation_started": false,
+  "live_routing_changed": false,
+  "durable_plan": "docs/plans/2026-09-30-modelctl-integration.md",
+  "trigger_requirement": "modelctl new-model detection starts Maestro workflow",
+  "trigger_question": "proposal for approval versus automatic replacement after registration; pending",
+  "implementation_worktree": "/home/dan/projects/maestro/.scratch/worktrees/modelctl-integration"
+}

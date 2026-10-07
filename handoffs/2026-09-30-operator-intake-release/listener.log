@@ -1,0 +1,23 @@
+Ready: @MaestroGenericTestingBot; capture only; HALT retained; 10 minute limit
+Traceback (most recent call last):
+  File "/home/dan/projects/maestro/handoffs/2026-09-30-operator-intake-release/listen-halted.py", line 67, in <module>
+    main()
+  File "/home/dan/projects/maestro/handoffs/2026-09-30-operator-intake-release/listen-halted.py", line 49, in main
+    for update in commands._fetch_updates(offset, limit=100):
+                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/dan/.maestro/versions/f46ffd403785bcd9040e892961731c2009fc6220/maestro/hitl/commands.py", line 127, in _fetch_updates
+    r = subprocess.run(
+        ^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 550, in run
+    stdout, stderr = process.communicate(input, timeout=timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 1207, in communicate
+    stdout, stderr = self._communicate(input, endtime, timeout)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/subprocess.py", line 2059, in _communicate
+    ready = selector.select(timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/lib/python3.11/selectors.py", line 415, in select
+    fd_event_list = self._selector.poll(timeout)
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt

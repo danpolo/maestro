@@ -1,0 +1,10 @@
+{
+  "first_reply": "The loop is halted — queued; It runs when the loop restarts",
+  "retry_reply": "I-211702189: captured. Approval queues only at an idle controller boundary; HALT and pending task approvals are preserved.",
+  "reject_reply": "I-211702189: rejected. Approval queues only at an idle controller boundary; HALT and pending task approvals are preserved.",
+  "source": "Dan supplied the actual bot replies in this conversation",
+  "proposal_delivery": "All four parts confirmed by Telegram Bot API",
+  "report_id": "I-211702189",
+  "retry_update": 211702190,
+  "reject_update": 211702191
+}

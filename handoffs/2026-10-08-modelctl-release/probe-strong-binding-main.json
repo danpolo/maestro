@@ -1,0 +1,96 @@
+{
+  "source": "/home/dan/projects/maestro",
+  "codex_available": [
+    "gpt-6-astra",
+    "gpt-6.1-sol",
+    "gpt-6-luna"
+  ],
+  "preferences": {
+    "implementer": [
+      [
+        "claude",
+        "claude-sonnet-5-5"
+      ],
+      [
+        "codex",
+        "gpt-6-luna"
+      ]
+    ],
+    "reviewer": [
+      [
+        "claude",
+        "claude-opus-5-5"
+      ],
+      [
+        "codex",
+        "gpt-6.1-sol"
+      ]
+    ],
+    "proof_review": [
+      [
+        "claude",
+        "claude-opus-5-5"
+      ],
+      [
+        "codex",
+        "gpt-6.1-sol"
+      ]
+    ],
+    "diagnoser": [
+      [
+        "claude",
+        "claude-opus-5-5"
+      ],
+      [
+        "codex",
+        "gpt-6.1-sol"
+      ]
+    ]
+  },
+  "bindings": {
+    "implementer/low": {
+      "bound": true,
+      "backend": "claude",
+      "model": "claude-sonnet-5-5",
+      "reason": "objective=paid_efficiency; demand=balanced/medium (low risk and minimal churn permit a small model; role floor min_reasoning_strength=balanced; role floor paid_default=medium); model strength=balanced; effort_support=native; role preference selected"
+    },
+    "implementer/high": {
+      "bound": true,
+      "backend": "codex",
+      "model": "gpt-6.1-sol",
+      "reason": "objective=paid_efficiency; demand=strong/high (risk=high/class=ordinary demands strong reasoning); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-sonnet-5-5 unavailable or ineligible"
+    },
+    "reviewer/low": {
+      "bound": true,
+      "backend": "claude",
+      "model": "claude-opus-5-5",
+      "reason": "objective=paid_efficiency; demand=strong/medium (low risk and minimal churn permit a small model; role floor min_reasoning_strength=strong; role floor paid_default=medium); model strength=strong; effort_support=native; role preference selected"
+    },
+    "reviewer/high": {
+      "bound": true,
+      "backend": "claude",
+      "model": "claude-opus-5-5",
+      "reason": "objective=paid_efficiency; demand=strong/high (risk=high/class=ordinary demands strong reasoning); model strength=strong; effort_support=native; role preference selected"
+    },
+    "proof_review/low": {
+      "bound": false,
+      "detail": "RouteUnavailable(node_id='proof_review', disposition='block', reason='no_agent_definition', detail=\"node proof_review names role 'proof_review', which the policy does not define \u2014 a node whose role is undescribed is unroutable\", retry_after_sec=None, rejected_routes=(), reset_known=None)"
+    },
+    "proof_review/high": {
+      "bound": false,
+      "detail": "RouteUnavailable(node_id='proof_review', disposition='block', reason='no_agent_definition', detail=\"node proof_review names role 'proof_review', which the policy does not define \u2014 a node whose role is undescribed is unroutable\", retry_after_sec=None, rejected_routes=(), reset_known=None)"
+    },
+    "diagnoser/low": {
+      "bound": true,
+      "backend": "claude",
+      "model": "claude-opus-5-5",
+      "reason": "objective=paid_efficiency; demand=strong/high (low risk and minimal churn permit a small model; role floor min_reasoning_strength=strong; role floor paid_default=high); model strength=strong; effort_support=native; role preference selected"
+    },
+    "diagnoser/high": {
+      "bound": true,
+      "backend": "claude",
+      "model": "claude-opus-5-5",
+      "reason": "objective=paid_efficiency; demand=strong/high (risk=high/class=ordinary demands strong reasoning); model strength=strong; effort_support=native; role preference selected"
+    }
+  }
+}

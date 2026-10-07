@@ -1,0 +1,10 @@
+{
+  "baseline_sequence": 249,
+  "current_sequence": 251,
+  "changed_fields": [
+    "control_sequence",
+    "maestro_version",
+    "updated_at"
+  ],
+  "reason": "selfupdate.adopt writes version via state.write_state, which updates timestamp and projection sequence"
+}

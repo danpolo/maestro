@@ -1,0 +1,97 @@
+{
+  "id": "I-211702189",
+  "kind": "feature",
+  "text": "Intake smoke test: propose a regression check that rejecting an operator report starts no work. Preserve DuetFlow behavior. This is only a smoke test; I will reject the proposal. Do not approve or implement anything.",
+  "created_at": "2026-09-30T12:34:04Z",
+  "status": "rejected",
+  "revision": 1,
+  "amendments": [],
+  "action_updates": [
+    211702190,
+    211702191
+  ],
+  "proposal": {
+    "task": {
+      "title": "Regression check: rejecting an operator report starts no work",
+      "short_desc": "Smoke-test intake proposal for report I-211702189. Add a regression test that captures an operator report, rejects it, and confirms no task is queued, launched or prepared, and that the roadmap, running specs and DuetFlow behaviour stay unchanged. Test-only; the operator has said they will reject this proposal.",
+      "scope": [
+        "tests/test_intake_rejection.py"
+      ],
+      "constraints": [
+        "The operator described this as a smoke test and said they will reject it. Do not approve, queue or implement anything on the strength of this proposal.",
+        "Test-only change. Do not modify any duetflow/ runtime module, and do not touch any risky_set file (duetflow/spotify.py, duetflow/playlist.py, duetflow/auth.py).",
+        "Keep DuetFlow's behaviour unchanged: no change to Collection, Refresh, reconciliation, or the Duet write path, and no Spotify API call or live playlist read or write from the test.",
+        "Keep running specs and pending state as they are. Do not edit docs/ROADMAP.md. Leave the open 07-reconciliation-followups task, the held 03-source-playlist-reader-followups task, the held 09-observe-tune task and 08-timers-notify exactly as they are, including their hold flags, deps, scope and verifications.",
+        "Do not touch the uncommitted operator change to docs/dependency_map.md.",
+        "Do not repair the roadmap problem the intake recorded ('block 0/line 32: [empty_block] fenced yaml block is empty', which appears to be the commented-out example block). It is out of scope unless the operator explicitly adds it.",
+        "The test must use temporary fixtures (a temp roadmap and temp report store) and must never write to the real docs/ROADMAP.md, the real intake store or the real database.",
+        "No credentials, tokens or config.yaml content in any file (invariant I9).",
+        "No privileged commands and no systemd or timer changes."
+      ],
+      "deps": [],
+      "risk": "low",
+      "acceptance_criteria": [
+        "Reproduction: a test captures an operator report (status 'captured'), rejects it through the same rejection path the operator uses, and asserts that the report ends in a rejected state.",
+        "After the rejection, the test asserts that no task was added to the roadmap, nothing was auto-launched or auto-prepared, no worktree was created and no verification ran.",
+        "Regression: rejecting a report that already has amendments or action_updates also starts no work, and rejecting an already-rejected report is idempotent: no work starts and no error is raised.",
+        "The test asserts that the byte content of the temp roadmap and the set of open task IDs are the same before and after rejection.",
+        "The existing whole suite still passes with no regression.",
+        "git diff shows no change to docs/ROADMAP.md, duetflow/ or deploy/ from this task."
+      ],
+      "verifications": [
+        {
+          "id": "V1",
+          "kind": "auto",
+          "check": "Reproduction: rejecting a captured report starts no work. Test name contains `reject_starts_no_work`, in tests/test_intake_rejection.py.",
+          "cmd": "/home/dan/projects/duetflow/.venv/bin/python -m pytest -p no:cacheprovider tests/test_intake_rejection.py -k reject_starts_no_work"
+        },
+        {
+          "id": "V2",
+          "kind": "auto",
+          "check": "Regression: rejecting an amended report or an already-rejected report is idempotent and starts no work. Test name contains `reject_idempotent`, in tests/test_intake_rejection.py.",
+          "cmd": "/home/dan/projects/duetflow/.venv/bin/python -m pytest -p no:cacheprovider tests/test_intake_rejection.py -k reject_idempotent"
+        },
+        {
+          "id": "V3",
+          "kind": "auto",
+          "check": "No roadmap, runtime or deploy files were changed by this task.",
+          "cmd": "git -C /home/dan/projects/duetflow diff --quiet -- docs/ROADMAP.md duetflow/ deploy/ && echo UNCHANGED"
+        },
+        {
+          "id": "V-SUITE",
+          "kind": "auto",
+          "check": "The whole existing suite still passes (no regression).",
+          "cmd": "/home/dan/projects/duetflow/.venv/bin/python -m pytest -p no:cacheprovider"
+        },
+        {
+          "id": "V-DAN",
+          "kind": "dan",
+          "check": "Live: rejecting this proposal (I-211702189) starts no work.",
+          "steps": [
+            {
+              "do": "Reject this proposal through the normal operator rejection path."
+            },
+            {
+              "do": "Confirm that no new task appears in docs/ROADMAP.md or docs/UPCOMING.md and that no worktree or run was started for I-211702189."
+            },
+            {
+              "do": "Confirm that 07-reconciliation-followups, 03-source-playlist-reader-followups, 08-timers-notify and 09-observe-tune have the same status and hold flags as before."
+            }
+          ]
+        }
+      ],
+      "id": "I-211702189",
+      "status": "open",
+      "mode": "autonomous",
+      "hold": false,
+      "self_modifying": false,
+      "task_class": "feature",
+      "notes": "Operator report I-211702189 (feature), source: .orchestrator/intake/I-211702189.json.\nOriginal report: Intake smoke test: propose a regression check that rejecting an operator report starts no work. Preserve DuetFlow behavior. This is only a smoke test; I will reject the proposal. Do not approve or implement anything.\nAmendments: []"
+    },
+    "questions": [
+      "The intake and rejection path is maestro's orchestration code, not DuetFlow code, and nothing in this repo shows where it lives. Should the regression test go in the duetflow repo (tests/test_intake_rejection.py, run by the declared duetflow suite) or in the maestro repo? If it goes in maestro, the scope, the self_modifying setting and the whole-suite command all change.",
+      "The intake recorded a roadmap problem: 'block 0/line 32: [empty_block] fenced yaml block is empty', which appears to be the commented-out example block in docs/ROADMAP.md. Should that stay out of scope, as proposed here, or become a separate task? The rule the parser applies to all-comment blocks was not checked."
+    ]
+  },
+  "rejection": "Smoke complete"
+}

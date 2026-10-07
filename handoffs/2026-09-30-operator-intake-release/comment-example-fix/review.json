@@ -1,0 +1,11 @@
+{
+  "sha": "f13b2c7eb8498edf39c1e72e439131e0635b024a",
+  "ready_to_merge": true,
+  "critical": [],
+  "important": [],
+  "minor": [],
+  "focused_passed": 435,
+  "additional_boundary_probes_passed": 14,
+  "reviewer": "review_comment_example_fix",
+  "full_gate_adoption_live_proof": "parent-owned"
+}

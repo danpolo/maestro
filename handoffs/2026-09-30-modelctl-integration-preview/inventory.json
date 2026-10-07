@@ -1,0 +1,357 @@
+{
+  "inspected_at_utc": "2026-09-30T13:21:41.679886+00:00",
+  "scope": "Immediate children of /home/dan/projects only; no claim of host-wide coverage",
+  "global_pointer": "/home/dan/.maestro/versions/2f555c28bd7bf0142979ee130c63e5b422a4c690",
+  "projects": [
+    {
+      "project": "/home/dan/projects/AbuAliArchive",
+      "hashes": {
+        "project.yaml": "31a1ab0f8ed1b01bd5ba6a6c420a2de82782aaed00b9860521708c462ef65050",
+        ".orchestrator/state.json": "9e5d46fed5f201909cde8597215e6e3e7da5e1fb6a0c3a04271ce3a0fe9bace5",
+        ".orchestrator/current": null,
+        ".orchestrator/HALT": null,
+        "workflows/project.yaml": null
+      },
+      "inspection_errors": [],
+      "operational_config": {},
+      "runner": "legacy",
+      "halt": false,
+      "project_pin": null,
+      "effective_source": "/home/dan/.maestro/versions/2f555c28bd7bf0142979ee130c63e5b422a4c690",
+      "state": {
+        "maestro_version": "2f555c28bd7bf0142979ee130c63e5b422a4c690",
+        "phase": {
+          "id": "P10",
+          "title": "Add jina-colbert-v2 late-interaction as a 3rd RRF leg",
+          "status": "in_progress"
+        }
+      },
+      "legacy_in_flight_count": 0,
+      "managed_project_candidate": true,
+      "control_status_counts": {},
+      "graph_model_constraints": [],
+      "effective_probe_exit": 0,
+      "effective_bindings": {
+        "source": "/home/dan/.maestro/versions/2f555c28bd7bf0142979ee130c63e5b422a4c690/maestro/roles.py",
+        "roles": {
+          "implementer": {
+            "backend": "claude",
+            "chain": [
+              "claude",
+              "codex"
+            ],
+            "models": {
+              "claude": "claude-sonnet-5",
+              "codex": null
+            }
+          },
+          "judge": {
+            "backend": "claude",
+            "chain": [
+              "claude",
+              "codex"
+            ],
+            "models": {
+              "claude": "claude-sonnet-5",
+              "codex": null
+            }
+          },
+          "diagnoser": {
+            "backend": "claude",
+            "chain": [
+              "claude",
+              "codex"
+            ],
+            "models": {
+              "claude": "claude-opus-5",
+              "codex": null
+            }
+          }
+        },
+        "graph_catalog": {},
+        "graph_catalog_supported": false
+      }
+    },
+    {
+      "project": "/home/dan/projects/duetflow",
+      "hashes": {
+        "project.yaml": "9c79833c20313c78d899ef3cb614376c709c717150611c20f40108e905917968",
+        ".orchestrator/state.json": "5e93fccbe93a68ec84c575b2128d1a6f6e0dc6a48d5017a0dbfaff028118a158",
+        ".orchestrator/current": "03aa162d2cdd3f52fb834a23d5ef1e73025c2a10427c36cc76267b2a177dfb81",
+        ".orchestrator/HALT": "5c8a00c761ba6eeeecadfacea2ad4a026e4ec113c40ebe34609c0db2c1ce1c7b",
+        "workflows/project.yaml": null
+      },
+      "inspection_errors": [],
+      "operational_config": {
+        "roles": {
+          "implementer": {
+            "backend": "claude",
+            "models": {
+              "claude": "claude-sonnet-5",
+              "codex": "gpt-6-luna"
+            }
+          },
+          "judge": {
+            "backend": "claude",
+            "models": {
+              "claude": "claude-opus-5-5",
+              "codex": "gpt-6-sol"
+            }
+          },
+          "diagnoser": {
+            "backend": "claude",
+            "models": {
+              "claude": "claude-opus-5-5",
+              "codex": "gpt-6-sol"
+            }
+          }
+        },
+        "fallback_chain": [
+          "claude",
+          "codex"
+        ]
+      },
+      "runner": "graph",
+      "halt": true,
+      "project_pin": "/home/dan/.maestro/versions/f13b2c7eb8498edf39c1e72e439131e0635b024a",
+      "effective_source": "/home/dan/.maestro/versions/f13b2c7eb8498edf39c1e72e439131e0635b024a",
+      "state": {
+        "maestro_version": "f13b2c7eb8498edf39c1e72e439131e0635b024a",
+        "phase": {
+          "id": null,
+          "title": null,
+          "status": "idle"
+        }
+      },
+      "legacy_in_flight_count": 0,
+      "managed_project_candidate": true,
+      "control_status_counts": {
+        "task_runs": {
+          "succeeded": 1
+        },
+        "attempts": {
+          "failed": 4,
+          "succeeded": 10
+        }
+      },
+      "graph_model_constraints": [],
+      "effective_probe_exit": 0,
+      "effective_bindings": {
+        "source": "/home/dan/.maestro/versions/f13b2c7eb8498edf39c1e72e439131e0635b024a/maestro/roles.py",
+        "roles": {
+          "implementer": {
+            "backend": "claude",
+            "chain": [
+              "claude",
+              "codex"
+            ],
+            "models": {
+              "claude": "claude-sonnet-5",
+              "codex": "gpt-6-luna"
+            }
+          },
+          "judge": {
+            "backend": "claude",
+            "chain": [
+              "claude",
+              "codex"
+            ],
+            "models": {
+              "claude": "claude-opus-5-5",
+              "codex": "gpt-6-sol"
+            }
+          },
+          "diagnoser": {
+            "backend": "claude",
+            "chain": [
+              "claude",
+              "codex"
+            ],
+            "models": {
+              "claude": "claude-opus-5-5",
+              "codex": "gpt-6-sol"
+            }
+          }
+        },
+        "graph_catalog": {
+          "agy": {
+            "models": [
+              "gemini-3.8-flash-high",
+              "gemini-3.8-flash-medium",
+              "gemini-3.8-flash-low",
+              "gemini-3.7-flash-high",
+              "gemini-3.7-flash-medium",
+              "gemini-3.7-flash-low",
+              "gemini-3.6-flash-high",
+              "gemini-3.6-flash-medium",
+              "gemini-3.6-flash-low",
+              "gemini-3.1-pro-high",
+              "gemini-3.1-pro-low",
+              "claude-sonnet-4-6",
+              "claude-opus-4-6-thinking",
+              "gpt-oss-120b-medium"
+            ],
+            "profiles": {
+              "gemini-3.8-flash-high": {
+                "strength": "balanced",
+                "relative_cost": 1.0
+              },
+              "gemini-3.8-flash-medium": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "gemini-3.8-flash-low": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "gemini-3.7-flash-high": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "gemini-3.7-flash-medium": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "gemini-3.7-flash-low": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "gemini-3.6-flash-high": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "gemini-3.6-flash-medium": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "gemini-3.6-flash-low": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "gemini-3.1-pro-high": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "gemini-3.1-pro-low": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "claude-sonnet-4-6": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "claude-opus-4-6-thinking": {
+                "strength": "light",
+                "relative_cost": 1.0
+              },
+              "gpt-oss-120b-medium": {
+                "strength": "light",
+                "relative_cost": 1.0
+              }
+            }
+          },
+          "claude": {
+            "models": [
+              "claude-opus-5-5",
+              "claude-sonnet-5-5",
+              "claude-haiku-4-5-20251001"
+            ],
+            "profiles": {
+              "claude-opus-5-5": {
+                "strength": "strong",
+                "relative_cost": 1.25
+              },
+              "claude-sonnet-5-5": {
+                "strength": "balanced",
+                "relative_cost": 0.5
+              },
+              "claude-haiku-4-5-20251001": {
+                "strength": "light",
+                "relative_cost": 0.25
+              }
+            }
+          },
+          "codex": {
+            "models": [
+              "gpt-6-astra",
+              "gpt-6-sol",
+              "gpt-6-luna",
+              "gpt-5.6-luna"
+            ],
+            "profiles": {
+              "gpt-6-astra": {
+                "strength": "strong",
+                "relative_cost": 2.5
+              },
+              "gpt-6-sol": {
+                "strength": "strong",
+                "relative_cost": 1.0
+              },
+              "gpt-6-luna": {
+                "strength": "balanced",
+                "relative_cost": 0.5
+              },
+              "gpt-5.6-luna": {
+                "strength": "light",
+                "relative_cost": 0.05
+              }
+            }
+          }
+        },
+        "graph_catalog_supported": true
+      }
+    },
+    {
+      "project": "/home/dan/projects/maestro",
+      "hashes": {
+        "project.yaml": "31a1ab0f8ed1b01bd5ba6a6c420a2de82782aaed00b9860521708c462ef65050",
+        ".orchestrator/state.json": null,
+        ".orchestrator/current": null,
+        ".orchestrator/HALT": null,
+        "workflows/project.yaml": null
+      },
+      "inspection_errors": [],
+      "operational_config": {},
+      "runner": "legacy",
+      "halt": false,
+      "project_pin": null,
+      "effective_source": "/home/dan/.maestro/versions/2f555c28bd7bf0142979ee130c63e5b422a4c690",
+      "state": {},
+      "managed_project_candidate": false,
+      "control_status_counts": {},
+      "graph_model_constraints": []
+    }
+  ],
+  "maestro_owner_hashes": {
+    "maestro/backends/catalog.py": "bba3ded923c9f9e74103adba555b0f5dcdac2e3abe916e240ebaac68543d2b94",
+    "maestro/limits.py": "0f3b724248e70faaf830b4b7cd01832a695107c70b2e6d5f3ee5917d744c1960",
+    "maestro/templates/project.yaml.tmpl": "20aeddec571741c1884d307d011b9af90b7e260c19ce4b81442be47bdea1f7f5",
+    "tests/backends/test_catalog.py": "52a9e9e129990dbaf3d272da7b87b455adf0963a4b753dc59947880b8d082e62",
+    "tests/test_limits.py": "206bd23d623d36db483300e8230b722b394c0a6b92ea34f7c70558153fe761a7"
+  },
+  "modelctl_source_hashes": {
+    "modelctl/__init__.py": "c90839adb190a7e1a037294033507d4ff5f3ad62846318dcc2e652810ce912d7",
+    "modelctl/__main__.py": "a4e41a692f8e180c6d7fe5c728f37677314d426260fbe6cf6298eccbe1e3a699",
+    "modelctl/cli.py": "3563f1ceb74927ea0d206dba1207e199605cd83f44e75549902786b943ae2a1d",
+    "modelctl/core/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modelctl/core/addflow.py": "85d0b245336397937616269488b2f2f8d37af5fa54a7a911aa18103c77555ff0",
+    "modelctl/core/errors.py": "c82831ecd4fe4fce984b626e71a80264779a2b4103c9dead42af8b99bac49ce5",
+    "modelctl/core/inference.py": "0641da4d35bca75d5a8e74c36ddedae32691dac38c861685a1644267d3a2d9ef",
+    "modelctl/core/maestro.py": "7d1fce3b6e6926185a7053cd7359c8635bcbae9d9d006848a2d9ab973ec02d6d",
+    "modelctl/core/names.py": "33b8e2b738ed1b2e25d7e36d7a6f90b61dae2c7b17ad9273f1232c647efb360d",
+    "modelctl/core/notify.py": "d5b8d67a292a1aa11ea549986757878be42817646a867b1a0094248ea33534f5",
+    "modelctl/core/scan.py": "56f5e513dc94bc131b3cfb4fc208826675ca33fb93d4b0daa7f7baf223141b46",
+    "modelctl/core/state.py": "ceb076237609c48edb221e18e2434c7235fd42dca72066315d5477566dd1ab1e",
+    "modelctl/core/table.py": "e94bba314d0d64619781d8fe3b1d334ddc45e79b8d9cffde1243635b0c2e79ea",
+    "modelctl/core/tokens.py": "d5ffcad35e52cbbc3427ffd28809ca2ca1450fe4b8faf8a5108c940970d7683c",
+    "modelctl/core/txn.py": "537343192904f0b40d03b110bfd430231ffc64dfcac846b4093ce024fc140c95",
+    "modelctl/paths.py": "6ee6e441209d975b67c48a3ea311dd567d50555801b4c4b78d2f3b24e5bbcece",
+    "modelctl/providers/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "modelctl/providers/claude.py": "d6038c009ddff9c9cc32b364b8be232f8d0b4b5a051daa3ea6fcb986d54ceb70",
+    "modelctl/providers/codex.py": "404843d0520491d80f7bf47c24db4bc86fde9b7612357e74f2f4a1336968baad"
+  },
+  "provider_table_hashes": {
+    "/home/dan/.codex/model_context_limits.md": "93fa6fdbca4280b846a200138d23f723bba13a6b9f45f6e4bfa3cb51f6932aa5",
+    "/home/dan/.claude/model_context_limits.md": "fb9e34b3499f3a00831817fbca5c3594385deb40ac6f43c757e9999e3b6763cf"
+  }
+}

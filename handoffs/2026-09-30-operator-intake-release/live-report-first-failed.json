@@ -1,0 +1,10 @@
+{
+  "id": "I-211702189",
+  "kind": "feature",
+  "text": "Intake smoke test: propose a regression check that rejecting an operator report starts no work. Preserve DuetFlow behavior. This is only a smoke test; I will reject the proposal. Do not approve or implement anything.",
+  "created_at": "2026-09-30T12:34:04Z",
+  "status": "needs_retry",
+  "revision": 0,
+  "amendments": [],
+  "error": "1 roadmap problem(s):\n  - block 0/line 32: [empty_block] fenced yaml block is empty"
+}

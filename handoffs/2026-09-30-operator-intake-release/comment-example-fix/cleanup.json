@@ -1,0 +1,10 @@
+{
+  "listener_terminal": {
+    "status": "stopped",
+    "halt_retained": true,
+    "worker_started": false
+  },
+  "no_release_processes_remaining": true,
+  "stale_watchdog_exited": true,
+  "installed_state_version": "f13b2c7eb8498edf39c1e72e439131e0635b024a"
+}

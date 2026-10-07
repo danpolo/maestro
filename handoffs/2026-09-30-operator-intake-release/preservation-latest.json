@@ -1,0 +1,17 @@
+{
+  "pin": "f13b2c7eb8498edf39c1e72e439131e0635b024a",
+  "halt_retained": true,
+  "global_pointer_unchanged": true,
+  "model_owner_files_unchanged": true,
+  "product_files_records_and_state_unchanged_except_install_metadata": true,
+  "reports": [
+    {
+      "id": "I-211702189",
+      "status": "rejected",
+      "revision": 1,
+      "text": "Intake smoke test: propose a regression check that rejecting an operator report starts no work. Preserve DuetFlow behavior. This is only a smoke test; I will reject the proposal. Do not approve or implement anything.",
+      "notification_pending": false,
+      "has_proposal": true
+    }
+  ]
+}

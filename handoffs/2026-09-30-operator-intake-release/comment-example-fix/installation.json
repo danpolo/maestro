@@ -1,0 +1,8 @@
+{
+  "sha": "f13b2c7eb8498edf39c1e72e439131e0635b024a",
+  "project": "/home/dan/projects/duetflow",
+  "pin": "/home/dan/.maestro/versions/f13b2c7eb8498edf39c1e72e439131e0635b024a",
+  "doctor_exit": 0,
+  "self_test": "5297 passed, 1 xfailed in 390.58s (0:06:30)",
+  "halt_retained": true
+}

@@ -1,0 +1,23 @@
+{
+  "preserved_files": 8,
+  "head": "f46ffd403785bcd9040e892961731c2009fc6220",
+  "project_pin": "/home/dan/.maestro/versions/ead3819ce9110debec25f12dc1fee66174b1367b",
+  "global_pin": "/home/dan/.maestro/versions/2f555c28bd7bf0142979ee130c63e5b422a4c690",
+  "halt": true,
+  "duetflow_status": "M docs/dependency_map.md",
+  "counts": {
+    "tasks": 1,
+    "task_runs": 1,
+    "attempts": 14,
+    "writer_leases": 1
+  },
+  "active_runs": 0,
+  "active_attempts": 0,
+  "task07": [
+    [
+      "07-reconciliation",
+      "accepted"
+    ]
+  ],
+  "intake_files": 0
+}

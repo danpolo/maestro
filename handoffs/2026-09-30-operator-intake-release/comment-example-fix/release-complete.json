@@ -1,0 +1,20 @@
+{
+  "status": "complete",
+  "runtime_sha": "f13b2c7eb8498edf39c1e72e439131e0635b024a",
+  "gate": "5297 passed, 1 xfailed in 390.58s (0:06:30)",
+  "doctor_exit": 0,
+  "report_id": "I-211702189",
+  "captured_update": 211702189,
+  "retry_update": 211702190,
+  "reject_update": 211702191,
+  "proposal_revision": 1,
+  "proposal_delivery_chunks": 4,
+  "final_report_status": "rejected",
+  "halt_retained": true,
+  "no_product_work_started": true,
+  "global_pointer_and_model_owner_files_unchanged": true,
+  "listener_stopped": true,
+  "continuous_receiver_running": false,
+  "actual_operator_replies_recorded": true,
+  "completed_at": "2026-09-30T12:57:23.774477+00:00"
+}

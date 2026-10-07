@@ -1,0 +1,7 @@
+{
+  "pid": 1367429,
+  "old_pythonpath": "/home/dan/.maestro/versions/9a0ea5af9ebe1a2352c02477d7141b364839d581",
+  "action": "SIGTERM exact stale halted watchdog",
+  "halt_retained": true,
+  "queued_update": 211702189
+}

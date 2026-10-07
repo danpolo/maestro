@@ -1,0 +1,243 @@
+diff --git a/maestro/backends/catalog.py b/maestro/backends/catalog.py
+index 5821c6e..4e10d24 100644
+--- a/maestro/backends/catalog.py
++++ b/maestro/backends/catalog.py
+@@ -718,21 +718,21 @@ CODEX_CATALOG_DEFAULTS: dict[str, dict[str, Any]] = {
+         "billing_category": "subscription",
+         "usage_pool_id": "codex-subscription",
+         "concurrency_limit": 2,
+-        "available_models": ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-5.6-luna"],
++        "available_models": ["gpt-6-astra", "gpt-6.1-sol", "gpt-6-luna", "gpt-5.6-terra"],
+         "context_limits": ContextLimits(400_000, 32_000, 230_000),
+         "model_profiles": {
+             "gpt-6-astra": ModelProfile("gpt-6-astra", "strong", 2.5),
+-            "gpt-6-sol": ModelProfile(
+-                "gpt-6-sol", "strong", 1.0,
++            "gpt-6.1-sol": ModelProfile(
++                "gpt-6.1-sol", "strong", 1.0,
+                 context_limits=ContextLimits(420_000, 32_000, 240_000),
+             ),
+             "gpt-6-luna": ModelProfile(
+                 "gpt-6-luna", "balanced", 0.5,
+                 context_limits=ContextLimits(340_000, 32_000, 180_000),
+             ),
+-            "gpt-5.6-luna": ModelProfile(
+-                "gpt-5.6-luna", "light", 0.05,
+-                context_limits=ContextLimits(400_000, 32_000, 100_000),
++            "gpt-5.6-terra": ModelProfile(
++                "gpt-5.6-terra", "light", 0.05,
++                context_limits=ContextLimits(272_000, 32_000, 140_000),
+             ),
+         },
+     },
+diff --git a/maestro/limits.py b/maestro/limits.py
+index 9fd740e..1e23351 100644
+--- a/maestro/limits.py
++++ b/maestro/limits.py
+@@ -66,41 +66,6 @@ class LimitsResult:
+         return _lookup(self.models, model)
+ 
+ 
+-# ── the tables as the single source of truth (C7 part 1) ──
+-#
+-# `roles.DEFAULT_MODELS` and `_SHIPPED_DEFAULTS` used to each carry their own copy of
+-# which models the implementer/judge/diagnoser default to — two more places than the
+-# tables themselves, so renaming one meant four edits (the table row, both of
+-# `roles.py`'s two entries that shared it, and this dict's key) across three places.
+-# These three constants are now the *one* place that decision is written down, spelled
+-# exactly as the tables spell them (their own convention, DESIGN.md §8) — `roles.py`
+-# derives its project.yaml-shaped slug from them via `model_slug`, below, rather than
+-# hardcoding a second copy, and `_SHIPPED_DEFAULTS` keys directly off them.
+-DEFAULT_IMPLEMENTER_MODEL_NAME = "Claude Sonnet 5.5"
+-DEFAULT_JUDGE_MODEL_NAME = "Claude Sonnet 5.5"
+-DEFAULT_DIAGNOSER_MODEL_NAME = "Claude Opus 5.5"
+-
+-# Best-effort fallback for a machine that has neither table file — the tables are the
+-# single source of truth *when either is readable*; this is only what is left over when
+-# neither is. Its only job is making sure `roles.DEFAULT_MODELS`'s own defaults still
+-# resolve to *something* even then, so it is keyed on exactly the three constants above
+-# rather than mirroring every row either real table happens to carry today (GPT-5.6
+-# Terra/Sol, Haiku 4.5, ...) — that broader ambition is what made this dict a second
+-# place to edit every time an operator's table changed, the exact defect this item
+-# exists to close. The numbers themselves are deliberately the tables' own documented
+-# fallback for a genuinely unknown model (see the last line of both real files: "100K
+-# warn / 120K evaluate / 150K normal max") rather than a claim to still know any one
+-# model's real ceiling without being able to read either table.
+-_SHIPPED_DEFAULTS: dict = {
+-    name: ModelLimits(name, 90_000, 100_000, 100_000, 120_000, 150_000)
+-    for name in {
+-        DEFAULT_IMPLEMENTER_MODEL_NAME,
+-        DEFAULT_JUDGE_MODEL_NAME,
+-        DEFAULT_DIAGNOSER_MODEL_NAME,
+-    }
+-}
+-
+-
+ # ── table parsing ──
+ 
+ _BOLD_CELL_RE = re.compile(r"^\*\*(.+)\*\*$")
+@@ -192,6 +157,71 @@ def parse_limits_table(text: str) -> dict:
+ AGENT_TABLE_DIRS = {"claude": ".claude", "codex": ".codex", "antigravity": ".gemini"}
+ TABLE_FILENAME = "model_context_limits.md"
+ 
++# ── the tables as the single source of truth (C7 part 1) ──
++#
++# `roles.DEFAULT_MODELS` and `_SHIPPED_DEFAULTS` used to each carry their own copy of
++# which models the implementer/judge/diagnoser default to — two more places than the
++# tables themselves, so renaming one meant four edits (the table row, both of
++# `roles.py`'s two entries that shared it, and this dict's key) across three places.
++# These three constants are now the *one* place that decision is written down, spelled
++# exactly as the tables spell them (their own convention, DESIGN.md §8) — `roles.py`
++# derives its project.yaml-shaped slug from them via `model_slug`, below, rather than
++# hardcoding a second copy, and `_SHIPPED_DEFAULTS` keys directly off them.
++# The default names are read from the Claude table at import (highest version per family,
++# so a newer generation becomes the default with no edit here); the strings below are only
++# the fallback for a machine without a readable table.
++_FALLBACK_SONNET_NAME = "Claude Sonnet 5.5"
++_FALLBACK_OPUS_NAME = "Claude Opus 5.5"
++_FAMILY_ROW_RE = re.compile(r"^Claude\s+(?P<family>[A-Za-z]+)\s+(?P<version>\d+(?:\.\d+)*)$")
++
++
++def latest_family_row(family: str, table_text: str, fallback: str) -> str:
++    """The highest-version `Claude <Family> <version>` row of a Claude table, spelled as the
++    table spells it; `fallback` when the table has no such row. Numeric version compare
++    (`5.10` > `5.5`), so a newer generation is always the default — no name is hardcoded
++    per generation."""
++    best = None
++    for name in _parse_rows(table_text)[0]:
++        m = _FAMILY_ROW_RE.match(name)
++        if m and m["family"].casefold() == family.casefold():
++            version = tuple(int(n) for n in m["version"].split("."))
++            if best is None or version > best[0]:
++                best = (version, name)
++    return best[1] if best else fallback
++
++
++def _latest_claude_row(family: str, fallback: str) -> str:
++    try:
++        text = (Path.home() / AGENT_TABLE_DIRS["claude"] / TABLE_FILENAME).read_text(encoding="utf-8")
++    except OSError:
++        return fallback
++    return latest_family_row(family, text, fallback)
++
++
++DEFAULT_IMPLEMENTER_MODEL_NAME = _latest_claude_row("sonnet", _FALLBACK_SONNET_NAME)
++DEFAULT_JUDGE_MODEL_NAME = _latest_claude_row("sonnet", _FALLBACK_SONNET_NAME)
++DEFAULT_DIAGNOSER_MODEL_NAME = _latest_claude_row("opus", _FALLBACK_OPUS_NAME)
++
++# Best-effort fallback for a machine that has neither table file — the tables are the
++# single source of truth *when either is readable*; this is only what is left over when
++# neither is. Its only job is making sure `roles.DEFAULT_MODELS`'s own defaults still
++# resolve to *something* even then, so it is keyed on exactly the three constants above
++# rather than mirroring every row either real table happens to carry today (GPT-5.6
++# Terra/Sol, Haiku 4.5, ...) — that broader ambition is what made this dict a second
++# place to edit every time an operator's table changed, the exact defect this item
++# exists to close. The numbers themselves are deliberately the tables' own documented
++# fallback for a genuinely unknown model (see the last line of both real files: "100K
++# warn / 120K evaluate / 150K normal max") rather than a claim to still know any one
++# model's real ceiling without being able to read either table.
++_SHIPPED_DEFAULTS: dict = {
++    name: ModelLimits(name, 90_000, 100_000, 100_000, 120_000, 150_000)
++    for name in {
++        DEFAULT_IMPLEMENTER_MODEL_NAME,
++        DEFAULT_JUDGE_MODEL_NAME,
++        DEFAULT_DIAGNOSER_MODEL_NAME,
++    }
++}
++
+ #: The harness prefix every row in that agent's table carries. Antigravity serves
+ #: third-party models (Claude, GPT-OSS) under its own limits, so an unprefixed
+ #: `Claude Opus 4.6` row there would answer a claude CLI lookup of the same model.
+diff --git a/maestro/templates/project.yaml.tmpl b/maestro/templates/project.yaml.tmpl
+index 6a55843..df381e7 100644
+--- a/maestro/templates/project.yaml.tmpl
++++ b/maestro/templates/project.yaml.tmpl
+@@ -22,11 +22,11 @@ project:
+ # `codex` has nowhere to resolve, is ignored with a warning logged, and the row below
+ # applies instead. A `model:` that is not one of those three keywords is taken as a
+ # literal model id and passed straight through — pin one directly (e.g. `model:
+-# gpt-6-sol`) and it is then implicitly specific to whichever backend the task runs on.
++# gpt-6.1-sol`) and it is then implicitly specific to whichever backend the task runs on.
+ roles:
+   implementer:  {backend: claude, models: {claude: claude-sonnet-5-5, codex: gpt-6-luna}}
+-  judge:        {backend: claude, models: {claude: claude-opus-5-5, codex: gpt-6-sol}}
+-  diagnoser:    {backend: claude, models: {claude: claude-opus-5-5, codex: gpt-6-sol}}
++  judge:        {backend: claude, models: {claude: claude-opus-5-5, codex: gpt-6.1-sol}}
++  diagnoser:    {backend: claude, models: {claude: claude-opus-5-5, codex: gpt-6.1-sol}}
+ 
+ fallback_chain: [claude, codex]
+ 
+diff --git a/tests/backends/test_catalog.py b/tests/backends/test_catalog.py
+index 161d30c..b56a6ca 100644
+--- a/tests/backends/test_catalog.py
++++ b/tests/backends/test_catalog.py
+@@ -550,9 +550,9 @@ def test_a_newly_listed_agy_model_without_a_profile_fails_the_profile_check():
+     }),
+     ("codex", "codex", "codex-subscription", {
+         "gpt-6-astra": ("strong", 2.5, 230_000),
+-        "gpt-6-sol": ("strong", 1.0, 240_000),
++        "gpt-6.1-sol": ("strong", 1.0, 240_000),
+         "gpt-6-luna": ("balanced", 0.5, 180_000),
+-        "gpt-5.6-luna": ("light", 0.05, 100_000),
++        "gpt-5.6-terra": ("light", 0.05, 140_000),
+     }),
+ ])
+ def test_the_shipped_claude_and_codex_rows_catalogue_the_chosen_defaults(
+diff --git a/tests/test_limits.py b/tests/test_limits.py
+index aee89b9..4442e91 100644
+--- a/tests/test_limits.py
++++ b/tests/test_limits.py
+@@ -204,6 +204,53 @@ def test_shipped_defaults_fill_in_when_nothing_parses_anywhere(tmp_path):
+ # ── C7 part 1: _SHIPPED_DEFAULTS shrinks to "roles.py's own defaults still resolve to
+ # something", not a mirror of every real table row ──
+ 
++_DERIVATION_TABLE = """
++| Model | Prepare handoff | Normally start fresh | Exception ceiling |
++|---:|---:|---:|---:|
++| Claude Haiku 4.5 | 90-100K | 120-140K | 180K |
++| Claude Sonnet 5.5 | 160-180K | 220-240K | 320K |
++| Claude Sonnet 6 | 160-180K | 220-240K | 320K |
++| Claude Sonnet 5.10 | 160-180K | 220-240K | 320K |
++| Claude Opus 5.5 | 180-200K | 240-270K | 350K |
++| Model unknown | 100K | 120K | 150K |
++"""
++
++
++def test_latest_family_row_picks_the_highest_version_numerically():
++    assert limits.latest_family_row("sonnet", _DERIVATION_TABLE, "fallback") == "Claude Sonnet 6"
++    assert limits.latest_family_row("opus", _DERIVATION_TABLE, "fallback") == "Claude Opus 5.5"
++    # 5.10 outranks 5.5 (numeric, not lexicographic)
++    text = _DERIVATION_TABLE.replace("| Claude Sonnet 6 |", "| Claude Sonnet 4 |")
++    assert limits.latest_family_row("sonnet", text, "fallback") == "Claude Sonnet 5.10"
++
++
++def test_latest_family_row_falls_back_when_the_family_has_no_row():
++    assert limits.latest_family_row("opus", "no table here", "Claude Opus 5.5") == "Claude Opus 5.5"
++    assert limits.latest_family_row("fable", _DERIVATION_TABLE, "x") == "x"
++
++
++def test_default_model_names_track_the_claude_table_and_fall_back_without_it(tmp_path, monkeypatch):
++    import importlib
++
++    home = tmp_path / "home"
++    (home / ".claude").mkdir(parents=True)
++    (home / ".claude" / "model_context_limits.md").write_text(_DERIVATION_TABLE, encoding="utf-8")
++    monkeypatch.setenv("HOME", str(home))
++    try:
++        importlib.reload(limits)
++        assert limits.DEFAULT_IMPLEMENTER_MODEL_NAME == "Claude Sonnet 6"
++        assert limits.DEFAULT_JUDGE_MODEL_NAME == "Claude Sonnet 6"
++        assert limits.DEFAULT_DIAGNOSER_MODEL_NAME == "Claude Opus 5.5"
++
++        monkeypatch.setenv("HOME", str(tmp_path / "empty-home"))  # no table at all
++        importlib.reload(limits)
++        assert limits.DEFAULT_IMPLEMENTER_MODEL_NAME == "Claude Sonnet 5.5"
++        assert limits.DEFAULT_DIAGNOSER_MODEL_NAME == "Claude Opus 5.5"
++    finally:
++        monkeypatch.undo()
++        importlib.reload(limits)
++
++
+ def test_shipped_defaults_covers_exactly_the_role_default_models_not_a_full_table_mirror():
+     """`_SHIPPED_DEFAULTS`'s only documented job is "a machine with neither table file"
+     (its own comment) — the minimal set that satisfies that job is the handful of models

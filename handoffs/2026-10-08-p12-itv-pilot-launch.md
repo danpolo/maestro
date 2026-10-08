@@ -92,7 +92,7 @@ Commit: itv `b3c5535`.
 - `meta_branch`: itv **has no git remote**, so push fails and merges stay local. The meta worktree is at `/home/dan/projects/instagram-to-value-meta`.
 - `model_policy`: "installed version lacks the shared policy reader". That should clear once itv is pinned to a recent version.
 
-Telegram is **not configured** for itv: there is no `.env` and no inbound message.
+Telegram: at first not configured. Later configured to use the ITV bot (see Launch recipe step 3).
 
 **Live services.** `itv-bot` and `itv-worker` were **not running at any point** (no tmux sessions, no `bot.py`/`worker.py` processes). Report "untouched, still not running".
 
@@ -100,10 +100,10 @@ Telegram is **not configured** for itv: there is no `.env` and no inbound messag
 
 1. Confirm that the F1/pgrep commits exist and that the full maestro suite passes (`.venv/bin/python -m pytest -q`, monitored in an `agents` tmux window).
 2. **Create a version checkout for the new HEAD** the way `maestro/selfupdate.py` does (`git worktree add ~/.maestro/versions/<sha> <sha>`; read `selfupdate.py` ~line 135 for the exact helper). Then write `/home/dan/projects/instagram-to-value/.orchestrator/current` containing that path, just as DuetFlow's `.orchestrator/current` points at `~/.maestro/versions/0c7eb92…`. **Do not touch `~/.maestro/current`**: the machine pin is out of scope. Re-run `doctor` and confirm that the `adopted_code` and `model_policy` warnings are gone.
-3. **Telegram decision.** itv has no maestro bot.
-   - Don't reuse DuetFlow's token: two pollers on one token would conflict.
-   - The pilot tasks are autonomous, so the run can go ahead without Telegram. Say so in the report.
-   - If a needs-dan or HITL path fires, ask Dan whether to give itv its own maestro bot. That needs @BotFather, so it is his to do.
+3. **Telegram is configured. Dan decided at 20:58 IDT that maestro uses the ITV bot.**
+   - itv `.env` (mode 600, gitignored) holds `TELEGRAM_BOT_TOKEN`, plus `TELEGRAM_ALERT_CHAT_ID` copied from `TELEGRAM_ALLOWED_CHAT_ID` in `~/.config/instagram-to-value/secrets.env`.
+   - The dependency map was rendered and sent through `notify_telegram_with_map`. It is message 313 and is pinned (`.orchestrator/pinned_map.json`), and `docs/dependency_map.md` is committed as itv `61f823e`.
+   - **Conflict risk:** the maestro controller and any ITV bot process would both poll the same token. The old `itv-bot` must stay stopped, and once ITV phase `03` builds its own Telegram intake, the shared bot has to be revisited. Record this as a `_p12_open_threads` / post-P12 item, and as a note in itv phase 03.
 4. Launch the watchdog in a tmux session `itv-watchdog`, mirroring DuetFlow's pane command. **Prepare it as a script Dan runs with `!`**, because relaunching from the agent shell was classifier-denied last time:
    `set -a; [ -f /home/dan/projects/instagram-to-value/.env ] && source …; set +a; MAESTRO_REPO=/home/dan/projects/instagram-to-value /home/dan/projects/instagram-to-value/.venv/bin/maestro watchdog`
    Keep it isolated from the `itv-bot`/`itv-worker` session names (P12 §2).
@@ -131,6 +131,6 @@ For each task:
 ## State at handoff
 
 - **Maestro:** branch `feat/graph-engineering-foundation`. The F1/pgrep fork commits there. The `maestro/modelctl_bridge.py` modification and the untracked `artifacts/graph-engineering/p12-pilots/duetflow.json`, `docs/GRAPH_ENGINEERING_ARTIFACT.md` and `docs/reviews/*` files are **not this line's**. Leave them. Never run `git add -A`.
-- **itv:** branch `main` at `0a18dce`. `.orchestrator/` and `.venv/` are gitignored. The controller is not running yet. The roadmap's only runnable task is `01-runtime-evidence`.
+- **itv:** branch `main` at `61f823e`. `.orchestrator/` and `.venv/` are gitignored. The controller is not running yet. The roadmap's only runnable task is `01-runtime-evidence`.
 - **DuetFlow:** idle, as in the prior handoff. Its watchdog is in tmux `duetflow-watchdog`. Leave it alone.
 - **Scratch:** the grill raw and clean exports are in the session scratchpad. They are disposable, and the canonical copies are in itv.

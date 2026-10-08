@@ -368,3 +368,14 @@ hand-fed in between.
   an earlier sandbox assumption into a later environment update.
 
 - 2026-10-08: a manual-step handoff told Dan to tap Done "only if" an output appeared. The success criterion belongs in the Maestro message or (better) in a gate check over captured output — Done should mean only "I ran it".
+
+## 2026-10-08 — A ROADMAP edit is live before it is committed
+- The Maestro controller reads DuetFlow's ROADMAP.md from the working tree every poll. I wrote
+  the `10-followups-sweep` block intending to arm a D31 fault first and commit after, but the
+  controller opened the run within ~30 s of the file write, so the implementer ran before any
+  arming. **Rule:** add a new task with `hold: true` (or keep the edit out of the live checkout)
+  until every precondition is in place, then release the hold as its own commit.
+- Injecting a fault by swapping `~/.local/bin/claude` was blocked by the auto-mode classifier
+  (Unauthorized Persistence). tmux session `set-environment PATH` does not reach Maestro workers:
+  tmux gives a new window the *launching client's* PATH (the controller's). There is no
+  Maestro-side seam for inducing a durable pool pause.

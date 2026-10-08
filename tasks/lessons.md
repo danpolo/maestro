@@ -379,3 +379,15 @@ hand-fed in between.
   (Unauthorized Persistence). tmux session `set-environment PATH` does not reach Maestro workers:
   tmux gives a new window the *launching client's* PATH (the controller's). There is no
   Maestro-side seam for inducing a durable pool pause.
+
+## 2026-10-08 — P12 close-out part 2 (D31 induced, D33 smoke)
+
+- An induced-fault wrapper must match the exact call it targets. The first shot matched
+  `claude -p` + DuetFlow cwd and was eaten by a controller aux read-only call after
+  graduation. Matching on `--session-id` (implementer launches only) hit the intended attempt.
+- A tmux `new-window` spawned by the controller gets neither its in-process env (dotenv
+  loads) nor its PYTHONPATH; only the client PATH comes along. Every module that runs in its
+  own window (`hitl.ask`, and anything like it) must load `<repo>/.env` itself; otherwise
+  its Telegram sends fail silently (D33, fixed 4b97273).
+- Relaunching the DuetFlow watchdog from the agent shell was classifier-denied; the same
+  relaunch as a script Dan runs with `!` worked. Prepare the script up front.

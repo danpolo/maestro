@@ -1,0 +1,5 @@
+2026-10-08T08:56:50Z
+fired_at=2026-10-08T08:57:08Z
+pwd=/home/dan/projects/duetflow/.orchestrator/worktrees/10-followups-sweep-followups
+ppid=1993512
+argv_head=-p --allowedTools Read Glob Grep Bash\(grep\ \*\) Bash\(head\ \*\) Bash\(sed\ \*\) Bash\(tail\ \*\) Bash\(cat\ \*\) Bash\(ls\ \*\) Bash\(find\ \*\) 

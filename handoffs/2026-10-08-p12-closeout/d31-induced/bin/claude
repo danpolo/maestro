@@ -2,10 +2,12 @@
 # D31 INDUCED FAULT — labelled, Dan approved 2026-10-08 ~08:15 IDT (P12 close-out).
 # One-shot: the first `claude -p` launched from a DuetFlow directory while ARMED exists
 # prints a real-format Claude usage-limit line and exits 1 WITHOUT calling the API.
+# 2026-10-08 11:57 IDT: narrowed to --session-id (implementer launches); shot 1 hit a
+# controller aux call (FIRED-1-aux-call).
 # Everything else (and every later call) execs the real claude unchanged.
 D=/home/dan/projects/maestro/handoffs/2026-10-08-p12-closeout/d31-induced
 REAL=/home/dan/.local/bin/claude
-if [ "$1" = "-p" ]; then
+if [ "$1" = "-p" ] && [[ " $* " == *" --session-id "* ]]; then
   case "$PWD" in
     /home/dan/projects/duetflow|/home/dan/projects/duetflow/*)
       if mv "$D/ARMED" "$D/FIRED" 2>/dev/null; then

@@ -1,0 +1,5 @@
+2026-10-08T08:55:00Z
+fired_at=2026-10-08T08:56:31Z
+pwd=/home/dan/projects/duetflow
+ppid=1943955
+argv_head=-p --allowedTools Read Glob Grep Bash\(grep\ \*\) Bash\(head\ \*\) Bash\(sed\ \*\) Bash\(tail\ \*\) Bash\(cat\ \*\) Bash\(ls\ \*\) Bash\(find\ \*\) 

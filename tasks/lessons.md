@@ -391,3 +391,17 @@ hand-fed in between.
   its Telegram sends fail silently (D33, fixed 4b97273).
 - Relaunching the DuetFlow watchdog from the agent shell was classifier-denied; the same
   relaunch as a script Dan runs with `!` worked. Prepare the script up front.
+- Never wait on the DuetFlow controller with `pgrep -f "maestro.cli run..."` in a shell loop or
+  Monitor script: the watchdog's liveness pgrep matches that loop's own cmdline and stops
+  relaunching. Wait on the journal (`orchestrator_relaunched`) or a PID file instead.
+
+## 2026-10-08 — provider facts and effective ceiling (modelctl + Maestro)
+
+- A change on the Maestro side of the modelctl seam needs modelctl's integration suite too
+  (`MODELCTL_TEST_MAESTRO_SOURCE=~/projects/maestro python3 -m pytest` in modelctl); without
+  that env var those 35 tests skip. Relaxing `provider_verified` broke one and was only
+  caught a step later.
+- Consuming one MODEL_SET stores every row's class facts, so "already adopted" must also
+  check the target's own profile; a batch of two SETs otherwise drops the second.
+- A replayed SET stops at its switch record (`applied`/`unchanged`); a live re-apply needs
+  the record set aside (backed up) plus the event un-acked under both locks.

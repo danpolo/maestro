@@ -1,5 +1,9 @@
 # Native window and max output come from the provider automatically; then deploy `/models`
 
+> **Done 2026-10-08.** Built, live and verified (Maestro 4f90dbe..79cefdb, modelctl 50c540b..7b4d0e6).
+> Codex resolved by Dan: window = ceiling x1.2 capped by `max_context_window`. Effective ceiling
+> follow-up fixed (Haiku 190K, Astra 300K). See docs/MODEL_TRANSITIONS.md.
+
 ## Goal
 
 Dan asked "why do I even need the native window setting?" and then said **yes** to this plan

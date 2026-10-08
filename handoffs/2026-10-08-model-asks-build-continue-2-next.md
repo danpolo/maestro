@@ -1,5 +1,7 @@
 # Continue the Telegram model-ask build (state machine done; lanes, bridge, docs, gates, integrate left)
 
+> **2026-10-08 ~04:20 IDT:** steps 1–8 done and integrated (Maestro 45bcbc9, modelctl 225780f). Continue the rollout from `handoffs/2026-10-08-model-asks-rollout-next.md`.
+
 ## Goal
 
 Finish `handoffs/2026-10-08-modelctl-telegram-approval-build-next.md` (the **build handoff**; it

@@ -405,3 +405,19 @@ hand-fed in between.
   check the target's own profile; a batch of two SETs otherwise drops the second.
 - A replayed SET stops at its switch record (`applied`/`unchanged`); a live re-apply needs
   the record set aside (backed up) plus the event un-acked under both locks.
+
+## 2026-10-08 — automatic model reconcile
+
+- "Every routed model" is wider than "every model Maestro derived": a fresh install routes
+  shipped models (GPT-6 Astra) that no SET ever derived, and re-deriving them raised the
+  profile error on every consume. Only modelctl's integration suite caught it (9 failures);
+  Maestro's fakes all started from consumed SETs. Scope a background pass to the state it
+  produced (`inherited_profiles`), and run the modelctl suite for any change to consume.
+
+## 2026-10-08 — `maestro init` runs the machine-pinned version, not the checkout you invoked
+- Onboarding itv, `~/projects/maestro/.venv/bin/maestro init` re-exec'd into `~/.maestro/current`
+  (an old pin) and wrote a stale scaffold: the `TODO` test stub, no `workflows/`, no `engineering:`.
+  Nothing said so. **Rule:** for a new project, run `MAESTRO_BOOTSTRAPPED=1 .venv/bin/python -m
+  maestro.cli init <repo>` from the intended checkout, then check `adapters/test` has a
+  `TEST_COMMAND` and `workflows/project.yaml` exists, and pin the project via `.orchestrator/current`.
+- `deny_list_extra` holds diff-text regexes; path-shaped safeguards go in `confinement.deny`.

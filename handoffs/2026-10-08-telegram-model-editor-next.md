@@ -89,10 +89,7 @@ Apply  ->  modelctl add <backend> --model <id> <lifecycle flags> [profile flags 
 - cd45cb5 — fix: close asks about superseded class members; set rows without a profile ask on
   Telegram. Includes the review fixes: version-aware supersession, route aliases, and successors
   skip the roles step.
-- The reference-table change (below) is committed if the gate passed. Check `git log`. If it isn't
-  committed, its diff is in `maestro/model_asks.py` (`_reference`, `_pre`, `_table`) and in
-  `tests/test_model_asks.py` (`test_a_value_prompt_shows_only_that_cell_on_every_provider`). The
-  gate log is `.scratch/gates/maestro-table.log`.
+- 74b133c — committed (see `git log`): per-metric reference table, gate 5593 passed + 1 xfailed.
 
 **Already done: per-metric context (Dan's request 1).** A value prompt shows only the metric
 being asked, on every other Claude and Codex model:

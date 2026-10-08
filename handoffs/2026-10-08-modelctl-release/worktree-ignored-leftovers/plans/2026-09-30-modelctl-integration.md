@@ -1,29 +1,6 @@
 # Maestro shared models: integration proposal
 
-Status 2026-10-08: **D-A–D-E committed, released and adopted for DuetFlow only.**
-- Maestro, on `feat/graph-engineering-foundation` (not pushed): 072d399 (class-level shared
-  policy, bridge, idle-boundary adoption), c4fc6b7 (per-task freeze + runtime routing),
-  c0f484b (MODEL_TRANSITIONS docs), 0c7eb92 (gpt-6-luna supersedes gpt-5.6-luna as the Codex
-  light route, per Dan; gpt-5.6-luna is pin-only).
-- Release `~/.maestro/versions/0c7eb92be656b3ca7d2d0c7d783bac9998c38fce`: self-test 5538
-  passed / 1 xfailed. Adopted for DuetFlow at its idle HALTed boundary (manifest amendment
-  322dc7e), pinned doctor exit 0. The global pointer is unchanged (2f555c28).
-- modelctl master: f39bbc8 (staged baseline), 61c9de0 (D-A–D-E owner changes), ccc0b2f
-  (retention inventory refuses a foreign Maestro source; scan notice test made hermetic).
-  Owner suite 198 passed against the integrated and the released source.
-- Not done: live `modelctl scan`/`consume` and the scan timer (they go with the Telegram
-  approval flow), other projects, the global pointer, push/merge.
-- Evidence: `handoffs/2026-10-08-modelctl-release/`. The worktree below no longer exists;
-  its evidence E is in the main checkout's `.superpowers/sdd/2026-09-30-modelctl-integration/`.
-
-Earlier status (2026-10-07):
-Status: **D-A–D-E candidate qualified; Dan approved the owner patch, now applied and verified.**
-Latest session13 serial gate: Maestro5537 passed/1 xfailed and owner197 passed,
-both exit0;451 frozen inputs and preservation unchanged. Concrete19-file guarded
-package and application record: `docs/plans/2026-10-07-modelctl-owner-applied.md`.
-Applied-owner verification:197 passed, staged index unchanged, diff check clean.
-Maestro integration/rollout and native Astra capacity remain separately scoped.
-The following session history records earlier milestones. Session 7's
+Status: **D-A–D-E below are accepted and pending replanning/implementation.** Session 7's
 earlier registered-replacement candidate passed independent review and its corrected
 gate (5433 passed, 1 xfailed, exit 0); that evidence qualifies the earlier design only,
 not the newly accepted automatic class-transition behavior. The current next-session
@@ -371,16 +348,3 @@ limits are covered. Registration requirement mapping/documentation, remaining la
 interleavings/shape qualification, independent review, owner application package and
 full acceptance gate remain pending. Candidate remains unreviewed and unapplied.
 Next: `handoffs/2026-10-07-modelctl-session11-next.md`.
-
-Session 12 qualification/review milestone: registration ownership mapping/documentation,
-legacy reservation/launch/record consistency, task-model shape and historical literal
-resolution are covered. Fresh independent review found three Important issues; pruning
-and supported-role handling were fixed, and targeted confirmation's project eligibility
-edge was fixed with129 focused passes. Configured-installation bootstrap remains OPEN
-with a real owner integration requirement RED. First full serial gate5514 passed/1 xfailed
-and owner191 passed; later frozen serial verification5518 passed/1 xfailed and owner191
-passed/1 intended bootstrap failure, with400 inputs/preservation unchanged. The last
-small eligibility fix postdates that full run. Candidate is incomplete and unapplied;
-no application approval or qualified application script. Continue inline from
-`handoffs/2026-10-07-modelctl-session12-next.md`; next task is bootstrap/migration,
-then remaining qualification, targeted review, guarded package and fresh full gate.

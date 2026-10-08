@@ -1,0 +1,25 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/dan/projects/modelctl
+plugins: xdist-3.8.0
+collected 198 items
+
+tests/test_class_identity.py .                                           [  0%]
+tests/test_class_registration.py ........                                [  4%]
+tests/test_claude.py ...................                                 [ 14%]
+tests/test_codex.py ........................                             [ 26%]
+tests/test_inference.py ..................                               [ 35%]
+tests/test_maestro.py .....                                              [ 37%]
+tests/test_maestro_class_integration.py .............                    [ 44%]
+tests/test_maestro_outbox.py .....                                       [ 46%]
+tests/test_names.py ............                                         [ 53%]
+tests/test_new_class_input.py .........                                  [ 57%]
+tests/test_real_maestro_retention.py ....................                [ 67%]
+tests/test_registration_boundary.py ....                                 [ 69%]
+tests/test_retention_guard.py ...                                        [ 71%]
+tests/test_scan.py ..............                                        [ 78%]
+tests/test_scan_registration_boundary.py .....                           [ 80%]
+tests/test_table_txn.py .........                                        [ 85%]
+tests/test_tokens.py .............................                       [100%]
+
+============================= 198 passed in 39.37s =============================

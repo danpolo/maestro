@@ -366,3 +366,5 @@ hand-fed in between.
   runtime later reported `danger-full-access` with approval policy `never`. From that
   point, use the current profile and proceed without escalation requests. Do not carry
   an earlier sandbox assumption into a later environment update.
+
+- 2026-10-08: a manual-step handoff told Dan to tap Done "only if" an output appeared. The success criterion belongs in the Maestro message or (better) in a gate check over captured output — Done should mean only "I ran it".

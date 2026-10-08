@@ -1,5 +1,8 @@
 # Build the simple Telegram approval flow for new models (modelctl + Maestro)
 
+> **2026-10-08 update:** the design is settled; Dan answered every question. Continue from
+> `handoffs/2026-10-08-modelctl-telegram-approval-build-next.md`, which replaces this file's Approach section.
+
 ## Goal
 
 Dan must never again approve a model transition by reading a code patch. The 2026-10-07

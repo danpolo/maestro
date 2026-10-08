@@ -1,0 +1,58 @@
+{
+  "agy/Gemini 3.8 Flash": {
+    "model": "agy/Gemini 3.8 Flash",
+    "prepare_handoff_low": 115000,
+    "prepare_handoff_high": 120000,
+    "normally_fresh_low": 125000,
+    "normally_fresh_high": 130000,
+    "exception_ceiling": 135000
+  },
+  "agy/Gemini 3.7 Flash": {
+    "model": "agy/Gemini 3.7 Flash",
+    "prepare_handoff_low": 115000,
+    "prepare_handoff_high": 120000,
+    "normally_fresh_low": 125000,
+    "normally_fresh_high": 130000,
+    "exception_ceiling": 135000
+  },
+  "agy/Gemini 3.6 Flash": {
+    "model": "agy/Gemini 3.6 Flash",
+    "prepare_handoff_low": 115000,
+    "prepare_handoff_high": 120000,
+    "normally_fresh_low": 125000,
+    "normally_fresh_high": 130000,
+    "exception_ceiling": 135000
+  },
+  "agy/Gemini 3.1 Pro": {
+    "model": "agy/Gemini 3.1 Pro",
+    "prepare_handoff_low": 103000,
+    "prepare_handoff_high": 108000,
+    "normally_fresh_low": 113000,
+    "normally_fresh_high": 118000,
+    "exception_ceiling": 123000
+  },
+  "agy/Claude Sonnet 4.6 (Thinking)": {
+    "model": "agy/Claude Sonnet 4.6 (Thinking)",
+    "prepare_handoff_low": 115000,
+    "prepare_handoff_high": 120000,
+    "normally_fresh_low": 125000,
+    "normally_fresh_high": 130000,
+    "exception_ceiling": 135000
+  },
+  "agy/Claude Opus 4.6 (Thinking)": {
+    "model": "agy/Claude Opus 4.6 (Thinking)",
+    "prepare_handoff_low": 115000,
+    "prepare_handoff_high": 120000,
+    "normally_fresh_low": 125000,
+    "normally_fresh_high": 130000,
+    "exception_ceiling": 135000
+  },
+  "agy/GPT-OSS 120B (Medium)": {
+    "model": "agy/GPT-OSS 120B (Medium)",
+    "prepare_handoff_low": 55000,
+    "prepare_handoff_high": 60000,
+    "normally_fresh_low": 65000,
+    "normally_fresh_high": 70000,
+    "exception_ceiling": 75000
+  }
+}

@@ -1,5 +1,8 @@
 # Release the modelctl D-A–D-E work, adopt it for DuetFlow, resume the pilot
 
+> **2026-10-08 (later):** steps 1–3 are committed (Maestro 0c7eb92, modelctl 61c9de0). Continue from
+> `handoffs/2026-10-08-modelctl-release-continue-next.md`: 2 owner-suite failures block the release.
+
 ## Goal
 
 Dan approved three steps on 2026-10-08. Do them in order:

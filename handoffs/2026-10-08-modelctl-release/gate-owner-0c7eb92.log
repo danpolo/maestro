@@ -1,0 +1,68 @@
+============================= test session starts ==============================
+platform linux -- Python 3.11.2, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/dan/projects/modelctl
+plugins: xdist-3.8.0
+collected 197 items
+
+tests/test_class_identity.py .                                           [  0%]
+tests/test_class_registration.py ..F....                                 [  4%]
+tests/test_claude.py ...................                                 [ 13%]
+tests/test_codex.py ........................                             [ 25%]
+tests/test_inference.py ..................                               [ 35%]
+tests/test_maestro.py .....                                              [ 37%]
+tests/test_maestro_class_integration.py .............                    [ 44%]
+tests/test_maestro_outbox.py .....                                       [ 46%]
+tests/test_names.py ............                                         [ 52%]
+tests/test_new_class_input.py .........                                  [ 57%]
+tests/test_real_maestro_retention.py ........F...........                [ 67%]
+tests/test_registration_boundary.py ....                                 [ 69%]
+tests/test_retention_guard.py ...                                        [ 71%]
+tests/test_scan.py ..............                                        [ 78%]
+tests/test_scan_registration_boundary.py .....                           [ 80%]
+tests/test_table_txn.py .........                                        [ 85%]
+tests/test_tokens.py .............................                       [100%]
+
+=================================== FAILURES ===================================
+_________ test_scan_auto_registers_existing_family_and_keeps_old_rows __________
+
+env = Env(home=PosixPath('/tmp/pytest-of-dan/pytest-1474/test_scan_auto_registers_exist0/home'), maestro_repo=PosixPath('/tm...1474/test_scan_auto_registers_exist0/home/.local/state/modelctl'), maestro_src=PosixPath('/home/dan/projects/maestro'))
+
+    def test_scan_auto_registers_existing_family_and_keeps_old_rows(env):
+        from modelctl.core.scan import scan
+        from modelctl.core.state import State
+        from modelctl.core.outbox import pending
+        prov, cli = provider(env)
+        sent = []
+        result = scan([prov], State(env.state_file), sent.append)
+        rows = table.read_lifecycles(env.codex_limits.read_text())
+        assert 'gpt-6-2-sol' in rows
+        assert 'gpt-6-1-sol' in rows and 'gpt-6-sol' in rows
+        assert table.read_windows(env.codex_limits.read_text())['gpt-6-2-sol'][1] == 420_000
+        events = [e for e in pending(env) if e['kind'] == 'MODEL_SET' and e['model_id'] == 'gpt-6.2-sol']
+        assert len(events) == 1 and events[0]['predecessor_id'] == 'gpt-6.1-sol'
+        assert events[0]['enforced_window'] == 420_000 and events[0]['family'] == 'sol'
+        scan([prov], State(env.state_file), sent.append)
+        assert len([e for e in pending(env) if e['kind'] == 'MODEL_SET' and e['model_id'] == 'gpt-6.2-sol']) == 1
+        assert cli.smoke_calls.count('gpt-6.2-sol') == 1
+>       assert any('review' in m.lower() for m in sent)
+E       assert False
+E        +  where False = any(<generator object test_scan_auto_registers_existing_family_and_keeps_old_rows.<locals>.<genexpr> at 0x7f1fb41f5380>)
+
+tests/test_class_registration.py:44: AssertionError
+----------------------------- Captured stdout call -----------------------------
+  | GPT-6.2 Sol | 180K-200K | 240K-270K | 350K |   window 420K
+  ordering: fresh 270K < ceiling 350K < compaction ~378K < window 420K
+________________ test_unknown_inventory_source_refuses_deletion ________________
+
+registered = (<modelctl.providers.codex.CodexProvider object at 0x7f1fb43b4910>, <maestro.model_policy.PolicyStore object at 0x7f1f...s.md', 'codex': '/tmp/pytest-of-dan/pytest-1474/test_unknown_inventory_source_0/home/.codex/model_context_limits.md'}})
+env = Env(home=PosixPath('/tmp/pytest-of-dan/pytest-1474/test_unknown_inventory_source_0/home'), maestro_repo=PosixPath('/tm...odelctl'), maestro_src=PosixPath('/tmp/pytest-of-dan/pytest-1474/test_unknown_inventory_source_0/home/missing-source'))
+
+    def test_unknown_inventory_source_refuses_deletion(registered, env):
+        prov, _, _, _ = registered
+        env.maestro_src = env.home / 'missing-source'
+        before = env.codex_limits.read_bytes()
+>       with pytest.raises(UserError, match='retained'):
+E       Failed: DID NOT RAISE UserError
+
+tests/test_real_maestro_retention.py:98: Failed
+======================== 2 failed, 195 passed in 36.73s ========================

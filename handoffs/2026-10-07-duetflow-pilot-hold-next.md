@@ -1,5 +1,8 @@
 # Resume the DuetFlow P12 pilot after the gpt-6.1-sol routing release
 
+> **2026-10-08 (later):** steps 1–3 are committed (Maestro 0c7eb92, modelctl 61c9de0). Continue from
+> `handoffs/2026-10-08-modelctl-release-continue-next.md`: 2 owner-suite failures block the release.
+
 > **2026-10-08:** Dan approved commit + release + DuetFlow-only adoption. Start from
 > `handoffs/2026-10-08-modelctl-release-then-pilot-next.md`; it uses this file for the pilot-resume steps.
 

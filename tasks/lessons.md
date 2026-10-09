@@ -432,3 +432,11 @@ hand-fed in between.
   Check per-project naming before running a second project's watchdog beside another.
 - A PreToolUse hook blocks any Bash line containing the word `sudo`, commit messages included:
   commit with `git commit -F <file>`.
+
+### 2026-10-09 (P12 close)
+- Edit code with the Edit tool, not with `python`/`sed` scripts run through Bash. Dan asked why
+  (no verdict, just curious); the answer was habit. The auto-mode classifier also blocked a
+  Bash-script edit of `maestro/permissions.py` as self-modification, while Edit went through
+  once Dan approved. Edit fails loudly on a non-unique match and leaves a reviewable diff.
+  **Rule:** source and test files go through Edit/Write. Bash is for running things, and for a
+  bulk or structured rewrite only when Edit cannot express it (then parse/validate the result).

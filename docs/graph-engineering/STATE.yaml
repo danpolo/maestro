@@ -751,8 +751,9 @@ _p12_open_threads:
   - disposition: closed
     thread: "G1 (itv onboarding 2026-10-08): `maestro init` silently re-exec'd into the machine pin ~/.maestro/current (2f555c28, old) and scaffolded a stale project (no TEST_COMMAND adapter, no workflows/project.yaml, no engineering/retention blocks)."
     note: "CLOSED ff44b73: the re-exec passes MAESTRO_INVOKED_FROM; init prints the scaffolding checkout and warns when the pin redirected it. 4 tests in tests/test_bootstrap.py."
-  - owner: "P12 (found itv launch 2026-10-08; fix if small)"
+  - disposition: closed
     thread: "G4: `maestro init`'s no-op loop check leaves paused_by_user=true (and proposal_test_notified=true) in the live .orchestrator/state.json, so a freshly onboarded project's first controller idles paused with no prompt to resume. itv needed a manual `maestro ctl resume` before launch."
+    note: "CLOSED (Dan 2026-10-09): _restore_control_flags resets every loop-check flag to its pre-check value; test in test_init_workflows.py."
   - disposition: closed
     note: "CLOSED 62eed26 (phase-spec tests skip when the gitignored specs are absent); clean worktree suite green."
     thread: "Clean-checkout suite: tests/test_next_graph_prompt.py (5 tests) read docs/graph-engineering/specs, which .gitignore excludes, so they fail in every version worktree (pinned 9867768 run: 5633 passed, 5 failed, 1 skipped, 1 xfailed). Any self-update self-test would be held red by them."
@@ -769,9 +770,9 @@ _p12_open_threads:
     thread: "G8 (itv 01, 2026-10-08): task `scope:` is only a parallelism predictor (writeset, D20); no gate check rejects a commit that writes outside it. 01 (scope [AGENT-DATA-REPORT.md]) committed .maestro_interactive/ and only the deny-list noticed, which put a maestro bug to Dan as a question. Fix idea: a deterministic gate check sends out-of-scope paths back to the implementer as a finding (no Dan ask), with an escape for files the task legitimately needs."
   - owner: "P12 verdict (record)"
     thread: "G9 (itv 01, 2026-10-08): D30 proposed family 'Bash(* --version)' for 'claude --version' (a leading wildcard covers any command ending in --version; Dan declined) and 'Bash(docker info*)' for 'docker --version' (refused itself: does not cover the call). Family derivation should never propose a leading-wildcard family."
-  - owner: "post-P12 (record; Dan told 2026-10-09)"
+  - disposition: closed
     thread: "G10 (itv 04, 2026-10-09): Maestro never gives a task worktree a .venv, so a ROADMAP verification written as `.venv/bin/python ...` fails in the worktree with exit 127; the agent asked for Bash(ln -s *) (Dan declined, broad). 04 sat blocked ~10h on that Telegram ask. Workaround: itv 493473d uses the absolute venv path (Dan chose this option)."
-    note: "Fix candidates: link/provision the project venv when the worktree is created, or have the planner/roadmap validator reject a relative .venv command. The 04 agent's compound `ls -a; ls ..; git status | head` was correctly refused (no single-prefix family covers a compound); not a seed bug."
+    note: "CLOSED (Dan 2026-10-09): task_tree.ensure links the project .venv into new worktrees and excludes it; test_task_tree_venv.py. Earlier candidates: link/provision the project venv when the worktree is created, or have the planner/roadmap validator reject a relative .venv command. The 04 agent's compound `ls -a; ls ..; git status | head` was correctly refused (no single-prefix family covers a compound); not a seed bug."
   - disposition: closed
     thread: "Safe command families the pilots asked for (Dan 2026-10-09: note them and seed so they never ask)."
     note: "CLOSED d10cf6e: SEED_ALLOW += systemctl is-active/is-enabled, named version probes (docker/git/node/npm --version, tmux -V, sqlite3 --version), chmod +x *, git mv *. Declined and not seeded: `* --version`, `ln -s *`, broad `chmod *`. Existing installs keep ~/.maestro/permissions.json (already holds Dan's four approvals)."

@@ -4316,3 +4316,21 @@ fixture runs (about 2 MB per accepted run, almost all control DB and WAL) and is
 **Carried into s3.** DuetFlow `01-auth` is still open pending Dan's Spotify consent, and no DuetFlow task
 declares `verifications:`, which the graph gate requires (an empty closed world is a rejection). Both
 are pre-flight steps in the s3 handoff.
+
+## 2026-10-09 — P12 closed: second pilot (instagram-to-value) accepted tasks 01 and 04 on the graph runner
+
+**Pilot result.** itv `01-runtime-evidence` (2 runs, 12 attempts) and `04-quota-adapter` (1 run, 11
+attempts), plus their auto-created followups tasks, were accepted with two `acceptance_decisions` rows each.
+Reviewer cwd was its own attempt workspace, never the task worktree (F1, live). Net diffs stayed in scope.
+The pilot was the first live use of the interactive Claude mode (`fecc0bc`) and of agy
+(`antigravity_cli:gemini-3.8-flash-high`, one rework attempt, succeeded). itv's `.orchestrator` is 7.3 MB
+for 4 accepted runs, in line with the fixture figure of about 2 MB per run.
+
+**Fixed during the pilot.** G1 `ff44b73` (init names the checkout it scaffolds from), G5 `da4e21b`
+(per-project watchdog window), G7 `828c944` (command-shaped deny patterns skip prose files), G6 `9f2a458`
+(interactive hook files outside the task tree), `62eed26` (clean-checkout suite), `d10cf6e` (SEED_ALLOW
+gains the safe families the pilots asked for).
+
+**Left open, recorded.** G10 (task worktrees have no `.venv`; relative `.venv/bin/python` verifications
+fail; itv uses the absolute path), G4 (init leaves `paused_by_user`), G8 (task `scope` not enforced at the
+gate), G9 (D30 can propose leading-wildcard families), shared bot token. Context management stays unbuilt.

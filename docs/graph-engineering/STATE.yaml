@@ -744,11 +744,49 @@ in_progress_details:
   active_branch: feat/graph-engineering-foundation
 
 _p12_open_threads:
-  - owner: "P12-itv-pilot (Dan 2026-10-08: keep P12 open; Dan grills instagram-to-value first)"
-    thread: "P12 qualification: second scratch pilot on instagram-to-value (spec section 2) never ran; B01/B18 not evidenced."
+  - disposition: closed
+    thread: "P12 qualification: second pilot on instagram-to-value (spec section 2)."
+    note: "CLOSED 2026-10-09: itv 01-runtime-evidence (run_DDIFDqwaenBJVInu, accepted, 2 runs, 12 attempts, implementer_04 on antigravity_cli:gemini-3.8-flash-high = first live agy run) and 04-quota-adapter (run_6BT0tAjXGcqF7iL8, accepted) plus both followups tasks; 2 acceptance_decisions per accepted run; F1 live: reviewer cwd = its attempt workspace (proof_review_02, proof_review_01), never the task worktree; 01 net diff = AGENT-DATA-REPORT.md only; 04 diff = itv/, tests/, conftest.py only; no confinement.deny path touched. Pilot also first live use of fecc0bc (interactive Claude via tmux). Suite + qualification at d10cf6e: handoffs/2026-10-08-p12-closeout/. Verdict: artifact sent to Dan."
     note: "2026-10-08 Dan chose 'Keep P12 open for itv' over a qualified pass. Audit: handoffs/2026-10-08-p12-closeout/p12-verdict-evidence.md (QUALIFIED PASS on DuetFlow alone; NOT MET: two-repo pilot, B01/B18, release tag; PARTLY: invariants 6/12 in report, E1-E5 evidence, PROGRESS/EXECUTION docs; F1 worker.py writable=True for reviewers untracked). Next: Dan runs grill-me on instagram-to-value, then maestro-setup with the spec safeguards (bot_files, deny_list_extra, gate.chain [test], tmux isolation), then the pilot. Post-P12 queue ask waits for P12 close."
-  - owner: "P12-pilots (record; found 2026-10-08 close-out)"
-    thread: "Watchdog liveness pgrep pattern 'maestro run|maestro\\\\.cli run|maestro\\\\.orchestrator' matches ANY process whose cmdline contains it (a shell loop, grep, editor), suppressing relaunch."
+  - disposition: closed
+    thread: "G1 (itv onboarding 2026-10-08): `maestro init` silently re-exec'd into the machine pin ~/.maestro/current (2f555c28, old) and scaffolded a stale project (no TEST_COMMAND adapter, no workflows/project.yaml, no engineering/retention blocks)."
+    note: "CLOSED ff44b73: the re-exec passes MAESTRO_INVOKED_FROM; init prints the scaffolding checkout and warns when the pin redirected it. 4 tests in tests/test_bootstrap.py."
+  - owner: "P12 (found itv launch 2026-10-08; fix if small)"
+    thread: "G4: `maestro init`'s no-op loop check leaves paused_by_user=true (and proposal_test_notified=true) in the live .orchestrator/state.json, so a freshly onboarded project's first controller idles paused with no prompt to resume. itv needed a manual `maestro ctl resume` before launch."
+  - disposition: closed
+    note: "CLOSED 62eed26 (phase-spec tests skip when the gitignored specs are absent); clean worktree suite green."
+    thread: "Clean-checkout suite: tests/test_next_graph_prompt.py (5 tests) read docs/graph-engineering/specs, which .gitignore excludes, so they fail in every version worktree (pinned 9867768 run: 5633 passed, 5 failed, 1 skipped, 1 xfailed). Any self-update self-test would be held red by them."
+  - disposition: closed
+    thread: "G5 (itv 01, 2026-10-08): the watchdog's tmux window was a fixed 'orchestrator' in the shared agents session, so DuetFlow's controller window made the itv watchdog skip launching forever."
+    note: "CLOSED da4e21b: window is orchestrator-<project>; regression test in tests/characterization/test_watchdog.py."
+  - disposition: closed
+    thread: "G6 (itv 01, 2026-10-08): fecc0bc interactive Claude mode put .maestro_interactive/ (hook settings, hook script, turn_marker.json with the last assistant message) in the task worktree when no log_file was set. gate_02 failed uncommitted_changes; implementer_03 committed the files out of scope (869f671); gate_03 asked Dan on 'sudo' inside turn_marker.json; Dan disapproved."
+    note: "CLOSED 9f2a458: the fallback hook dir is a temp dir outside the tree; regression test test_interactive_hook_files_never_land_in_the_working_tree."
+  - disposition: closed
+    thread: "G7 (itv 01, 2026-10-08): the D29 deny-list asked Dan on 'sudo' in report prose (3 asks); DuetFlow README had the same (msg 151)."
+    note: "CLOSED 828c944, Dan's choice 2026-10-08: the six command-shaped patterns skip .md/.markdown/.rst/.txt; secret patterns and deny_list_extra still apply everywhere. Legacy merge.deny_list_guard (non-graph loop) unchanged."
+  - owner: "post-P12 (record; design change)"
+    thread: "G8 (itv 01, 2026-10-08): task `scope:` is only a parallelism predictor (writeset, D20); no gate check rejects a commit that writes outside it. 01 (scope [AGENT-DATA-REPORT.md]) committed .maestro_interactive/ and only the deny-list noticed, which put a maestro bug to Dan as a question. Fix idea: a deterministic gate check sends out-of-scope paths back to the implementer as a finding (no Dan ask), with an escape for files the task legitimately needs."
+  - owner: "P12 verdict (record)"
+    thread: "G9 (itv 01, 2026-10-08): D30 proposed family 'Bash(* --version)' for 'claude --version' (a leading wildcard covers any command ending in --version; Dan declined) and 'Bash(docker info*)' for 'docker --version' (refused itself: does not cover the call). Family derivation should never propose a leading-wildcard family."
+  - owner: "post-P12 (record; Dan told 2026-10-09)"
+    thread: "G10 (itv 04, 2026-10-09): Maestro never gives a task worktree a .venv, so a ROADMAP verification written as `.venv/bin/python ...` fails in the worktree with exit 127; the agent asked for Bash(ln -s *) (Dan declined, broad). 04 sat blocked ~10h on that Telegram ask. Workaround: itv 493473d uses the absolute venv path (Dan chose this option)."
+    note: "Fix candidates: link/provision the project venv when the worktree is created, or have the planner/roadmap validator reject a relative .venv command. The 04 agent's compound `ls -a; ls ..; git status | head` was correctly refused (no single-prefix family covers a compound); not a seed bug."
+  - disposition: closed
+    thread: "Safe command families the pilots asked for (Dan 2026-10-09: note them and seed so they never ask)."
+    note: "CLOSED d10cf6e: SEED_ALLOW += systemctl is-active/is-enabled, named version probes (docker/git/node/npm --version, tmux -V, sqlite3 --version), chmod +x *, git mv *. Declined and not seeded: `* --version`, `ln -s *`, broad `chmod *`. Existing installs keep ~/.maestro/permissions.json (already holds Dan's four approvals)."
+  - disposition: accepted
+    thread: "G2 (itv onboarding 2026-10-08): P12 spec section 2 itv safeguards are stale: bot file is scripts/telegram_bot.py (not bot.py); path denials belong in confinement.deny (deny_list_extra holds diff-text regexes); baseline is 374 tests (spec says 235)."
+    note: "Spec text left as written; onboarding used the corrected values (itv 0a18dce). Reported in the P12 verdict."
+  - disposition: accepted
+    thread: "G3: instagram-to-value has no git remote; meta push fails and merges stay local (doctor meta_branch WARN)."
+    note: "Not a defect. Reported in the P12 verdict."
+  - owner: "post-P12 (record; itv phase 03 carries the note, itv b2b7b1c)"
+    thread: "Shared Telegram bot: Dan chose (2026-10-08 20:58 IDT) that maestro's itv controller polls the ITV bot token. The old itv-bot must stay stopped; once itv phase 03 builds its own Telegram intake, two pollers on one token conflict. Decide with Dan: one poller that routes, or a separate maestro bot."
+  - owner: "P12 (Dan 2026-10-08: fix in P12)"
+    thread: "CLOSED b93d3a6 (2026-10-08): field-notes F1, reviewer read-only source boundary. Readers (reviewer/planner/diagnoser) run with cwd=workspace and no worktree/git-dir grant (Codex OS-enforced; Claude Edit rules + agy --add-dir scoped); model-endpoint ToolBox(writes_to=workspace); a reader that changed the tree fails garbage_output. Tests: tests/graph_engineering/test_reviewer_read_only.py (8). Frozen subject: test_integration_acceptance::test_a_candidate_worktree_with_uncommitted_changes_cannot_be_frozen, test_validation_evidence::test_evidence_from_a_different_snapshot_cannot_accept_this_one. Residual: Claude has no OS sandbox, so allowed Bash families (e.g. sed) can still edit the tree; detected post-run, not prevented. Not yet observed live (needs adoption + a pilot review)."
+  - owner: "P12-pilots (record; found 2026-10-08 close-out) - CLOSED 9867768"
+    thread: "CLOSED 9867768 (2026-10-08): watchdog.controller_pattern() anchors the flock wrapper + loop argv of this project's venv (also stops cross-project match/pkill); verified against live DuetFlow PIDs 2027070/2027072. WAS: Watchdog liveness pgrep pattern 'maestro run|maestro\\\\.cli run|maestro\\\\.orchestrator' matches ANY process whose cmdline contains it (a shell loop, grep, editor), suppressing relaunch."
     note: "2026-10-08 observed: an agent's `until pgrep -f \"maestro.cli run$\"` wait loop (and its Monitor script) held the DuetFlow relaunch for ~6 min after HALT cleared; relaunched 09:11:01Z the moment the loop exited. Fix idea: match the exact argv (python -m maestro.cli run / flock ... maestro run) or the orchestrator.lock holder."
   - owner: "post-P12 feature queue item (4) (Dan 2026-10-08: QUEUED, not built)"
     thread: "needs-dan manual-step contract, three findings from DuetFlow 08 (2026-10-08, evidence in the P12-pilots RESUMED thread). (a) brief/gate contract: the prep brief carries verification check prose but not cmd, so the prep named deploy/install.sh while V3 tests deploy/install_timers.sh (cost one Redo). Fix: put each verification's cmd, or at least the paths it references, in the prep brief. (b) Done means only 'I ran it': Maestro should run/wrap the manual command so stdout+exit code land in a file it owns, the gate after Done checks that file plus a step check cmd, and the message states the expected result (seam: verify.render_action_request + handlers post_action_cmd; this prep set none). (c) V-DAN ordering: live checks of deployed behaviour (induced failure -> Telegram, stopped timer -> heartbeat) were requested before merge, but the installed units run the main checkout, so they could not pass until after approval; their prerequisites (config notify.telegram_chat_id, heartbeat monitor) were never asked for. Fix: post-merge operator verification step, prerequisites asked up front."

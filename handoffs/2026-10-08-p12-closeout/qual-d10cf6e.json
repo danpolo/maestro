@@ -1,0 +1,3163 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-10-09T09:41:05+00:00",
+  "target": "/tmp/claude-1001/qual/scratch",
+  "backends": "fixture",
+  "passed": true,
+  "pytest_exit": 0,
+  "summary": {
+    "lanes": 10,
+    "lanes_passed": 10,
+    "tasks_per_class": {
+      "bug": 1,
+      "feature": 1,
+      "documentation": 1,
+      "debugging": 1,
+      "manual-preparation": 1,
+      "recovery": 1
+    },
+    "invariants_checked": 6,
+    "invariants_passed": 6,
+    "invariants_not_checkable": 6,
+    "acceptance_decisions_per_accepted_run": [
+      2
+    ]
+  },
+  "modes": {
+    "subscription": {
+      "lanes": 6,
+      "outcomes": {
+        "succeeded": 5,
+        "running": 1
+      },
+      "label": "fixture-passed; unqualified until the real pilots (s3) qualify paid subscription"
+    },
+    "free": {
+      "lanes": 1,
+      "outcomes": {
+        "succeeded": 1
+      },
+      "label": "unqualified (Dan, 2026-09-18: real pilots qualify paid subscription only)"
+    },
+    "hybrid": {
+      "lanes": 1,
+      "outcomes": {
+        "succeeded": 1
+      },
+      "label": "unqualified (Dan, 2026-09-18: real pilots qualify paid subscription only)"
+    },
+    "script": {
+      "lanes": 1,
+      "outcomes": {
+        "succeeded": 1
+      },
+      "label": "unqualified (Dan, 2026-09-18: real pilots qualify paid subscription only)"
+    }
+  },
+  "invariants": [
+    {
+      "invariant": "INV-01",
+      "title": "SINGLE_WRITER_AUTHORITY",
+      "checked": false,
+      "passed": null,
+      "why_not_checked": "workers run in-process in a lane, so a second writer is not observable here",
+      "covered_by": [
+        "tests/test_integration_acceptance.py",
+        "tests/ops/test_graph_service_lifecycle.py"
+      ]
+    },
+    {
+      "invariant": "INV-02",
+      "title": "PROCESS_LEASE_BINDING",
+      "checked": true,
+      "passed": true,
+      "lanes": [
+        {
+          "lane": "qualify_subscription_bug",
+          "passed": true,
+          "detail": "2 agent attempts; each inbox names the PID that wrote"
+        },
+        {
+          "lane": "qualify_subscription_feature",
+          "passed": true,
+          "detail": "2 agent attempts; each inbox names the PID that wrote"
+        },
+        {
+          "lane": "qualify_subscription_documentation",
+          "passed": true,
+          "detail": "2 agent attempts; each inbox names the PID that wrote"
+        },
+        {
+          "lane": "qualify_subscription_debugging",
+          "passed": true,
+          "detail": "2 agent attempts; each inbox names the PID that wrote"
+        },
+        {
+          "lane": "qualify_subscription_manual-preparation",
+          "passed": true,
+          "detail": "1 agent attempts; each inbox names the PID that wrote"
+        },
+        {
+          "lane": "qualify_subscription_recovery",
+          "passed": true,
+          "detail": "2 agent attempts; each inbox names the PID that wrote"
+        },
+        {
+          "lane": "qualify_free",
+          "passed": true,
+          "detail": "2 agent attempts; each inbox names the PID that wrote"
+        },
+        {
+          "lane": "qualify_hybrid",
+          "passed": true,
+          "detail": "2 agent attempts; each inbox names the PID that wrote"
+        },
+        {
+          "lane": "qualify_script",
+          "passed": true,
+          "detail": "0 agent attempts; each inbox names the PID that wrote"
+        }
+      ]
+    },
+    {
+      "invariant": "INV-03",
+      "title": "CREDENTIAL_BOUNDARY",
+      "checked": true,
+      "passed": true,
+      "lanes": [
+        {
+          "lane": "qualify_subscription_bug",
+          "passed": true,
+          "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+        },
+        {
+          "lane": "qualify_subscription_feature",
+          "passed": true,
+          "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+        },
+        {
+          "lane": "qualify_subscription_documentation",
+          "passed": true,
+          "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+        },
+        {
+          "lane": "qualify_subscription_debugging",
+          "passed": true,
+          "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+        },
+        {
+          "lane": "qualify_subscription_manual-preparation",
+          "passed": true,
+          "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+        },
+        {
+          "lane": "qualify_subscription_recovery",
+          "passed": true,
+          "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+        },
+        {
+          "lane": "qualify_free",
+          "passed": true,
+          "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+        },
+        {
+          "lane": "qualify_hybrid",
+          "passed": true,
+          "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+        },
+        {
+          "lane": "qualify_script",
+          "passed": true,
+          "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+        }
+      ]
+    },
+    {
+      "invariant": "INV-04",
+      "title": "CLOSED_WORLD_VERIFICATION",
+      "checked": true,
+      "passed": true,
+      "lanes": [
+        {
+          "lane": "qualify_subscription_bug",
+          "passed": true,
+          "detail": "2 verification evidence rows, all pass, run by the gate"
+        },
+        {
+          "lane": "qualify_subscription_feature",
+          "passed": true,
+          "detail": "2 verification evidence rows, all pass, run by the gate"
+        },
+        {
+          "lane": "qualify_subscription_documentation",
+          "passed": true,
+          "detail": "2 verification evidence rows, all pass, run by the gate"
+        },
+        {
+          "lane": "qualify_subscription_debugging",
+          "passed": true,
+          "detail": "2 verification evidence rows, all pass, run by the gate"
+        },
+        {
+          "lane": "qualify_subscription_manual-preparation",
+          "passed": true,
+          "detail": "no acceptance without a receipt and a passing gate"
+        },
+        {
+          "lane": "qualify_subscription_recovery",
+          "passed": true,
+          "detail": "2 verification evidence rows, all pass, run by the gate"
+        },
+        {
+          "lane": "qualify_free",
+          "passed": true,
+          "detail": "2 verification evidence rows, all pass, run by the gate"
+        },
+        {
+          "lane": "qualify_hybrid",
+          "passed": true,
+          "detail": "2 verification evidence rows, all pass, run by the gate"
+        },
+        {
+          "lane": "qualify_script",
+          "passed": true,
+          "detail": "2 verification evidence rows, all pass, run by the gate"
+        }
+      ]
+    },
+    {
+      "invariant": "INV-05",
+      "title": "TARGET_BRANCH_PROTECTION",
+      "checked": true,
+      "passed": true,
+      "lanes": [
+        {
+          "lane": "qualify_subscription_bug",
+          "passed": true,
+          "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+        },
+        {
+          "lane": "qualify_subscription_feature",
+          "passed": true,
+          "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+        },
+        {
+          "lane": "qualify_subscription_documentation",
+          "passed": true,
+          "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+        },
+        {
+          "lane": "qualify_subscription_debugging",
+          "passed": true,
+          "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+        },
+        {
+          "lane": "qualify_subscription_manual-preparation",
+          "passed": true,
+          "detail": "branches ['impl/TASK-001', 'main']; accepted decisions bound to main's head below its graduation commit"
+        },
+        {
+          "lane": "qualify_subscription_recovery",
+          "passed": true,
+          "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+        },
+        {
+          "lane": "qualify_free",
+          "passed": true,
+          "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+        },
+        {
+          "lane": "qualify_hybrid",
+          "passed": true,
+          "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+        },
+        {
+          "lane": "qualify_script",
+          "passed": true,
+          "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+        }
+      ]
+    },
+    {
+      "invariant": "INV-06",
+      "title": "NO_CROSS_CANDIDATE_POLLUTION",
+      "checked": false,
+      "passed": null,
+      "why_not_checked": "no catalog task widens into candidates (the winner is never merged: _p12_open_threads)",
+      "covered_by": [
+        "tests/workflows/test_candidates.py",
+        "tests/test_confinement.py"
+      ]
+    },
+    {
+      "invariant": "INV-07",
+      "title": "TRANSACTIONAL_EFFECT_INTENT",
+      "checked": true,
+      "passed": true,
+      "lanes": [
+        {
+          "lane": "qualify_subscription_bug",
+          "passed": true,
+          "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+        },
+        {
+          "lane": "qualify_subscription_feature",
+          "passed": true,
+          "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+        },
+        {
+          "lane": "qualify_subscription_documentation",
+          "passed": true,
+          "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+        },
+        {
+          "lane": "qualify_subscription_debugging",
+          "passed": true,
+          "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+        },
+        {
+          "lane": "qualify_subscription_manual-preparation",
+          "passed": true,
+          "detail": "2 operation intents ['reconciled'], 2 receipts; none left pending"
+        },
+        {
+          "lane": "qualify_subscription_recovery",
+          "passed": true,
+          "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+        },
+        {
+          "lane": "qualify_free",
+          "passed": true,
+          "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+        },
+        {
+          "lane": "qualify_hybrid",
+          "passed": true,
+          "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+        },
+        {
+          "lane": "qualify_script",
+          "passed": true,
+          "detail": "4 operation intents ['reconciled'], 4 receipts; none left pending"
+        }
+      ]
+    },
+    {
+      "invariant": "INV-08",
+      "title": "RETRY_COUNTER_IMMUTABILITY",
+      "checked": false,
+      "passed": null,
+      "why_not_checked": "a clean run has no retry; the fault matrix reaches one",
+      "covered_by": [
+        "tests/graph_engineering/test_end_to_end.py",
+        "tests/workflows/test_plan_repair.py"
+      ]
+    },
+    {
+      "invariant": "INV-09",
+      "title": "PER_PROJECT_BOOTSTRAP_PIN",
+      "checked": false,
+      "passed": null,
+      "why_not_checked": "bootstrap argv pinning happens before maestro is imported, outside a lane",
+      "covered_by": [
+        "tests/test_graph_update_compatibility.py"
+      ]
+    },
+    {
+      "invariant": "INV-10",
+      "title": "TMUX_WINDOW_ISOLATION",
+      "checked": true,
+      "passed": true,
+      "lanes": [
+        {
+          "lane": "qualify_subscription_bug",
+          "passed": true,
+          "detail": "3 worker launches, each a window in the agents session"
+        },
+        {
+          "lane": "qualify_subscription_feature",
+          "passed": true,
+          "detail": "3 worker launches, each a window in the agents session"
+        },
+        {
+          "lane": "qualify_subscription_documentation",
+          "passed": true,
+          "detail": "3 worker launches, each a window in the agents session"
+        },
+        {
+          "lane": "qualify_subscription_debugging",
+          "passed": true,
+          "detail": "3 worker launches, each a window in the agents session"
+        },
+        {
+          "lane": "qualify_subscription_manual-preparation",
+          "passed": true,
+          "detail": "1 worker launches, each a window in the agents session"
+        },
+        {
+          "lane": "qualify_subscription_recovery",
+          "passed": true,
+          "detail": "3 worker launches, each a window in the agents session"
+        },
+        {
+          "lane": "qualify_free",
+          "passed": true,
+          "detail": "3 worker launches, each a window in the agents session"
+        },
+        {
+          "lane": "qualify_hybrid",
+          "passed": true,
+          "detail": "3 worker launches, each a window in the agents session"
+        },
+        {
+          "lane": "qualify_script",
+          "passed": true,
+          "detail": "2 worker launches, each a window in the agents session"
+        }
+      ]
+    },
+    {
+      "invariant": "INV-11",
+      "title": "SEPARATE_FILESYSTEM_BACKUP",
+      "checked": false,
+      "passed": null,
+      "why_not_checked": "the fixture run takes no backup",
+      "covered_by": [
+        "tests/graph_engineering/test_storage_recovery.py"
+      ]
+    },
+    {
+      "invariant": "INV-12",
+      "title": "THIRDPARTY_VERIFICATION_GATE",
+      "checked": false,
+      "passed": null,
+      "why_not_checked": "fixture backends are not registered third parties; doctor --thirdparty is environment-dependent",
+      "covered_by": [
+        "tests/backends/test_catalog.py",
+        "tests/backends/test_model_runtime.py"
+      ]
+    }
+  ],
+  "fault_matrix": {
+    "transaction rollback": {
+      "test": "tests/graph_engineering/test_end_to_end.py::test_an_acceptance_commit_that_fails_part_way_leaves_nothing_behind",
+      "present": true,
+      "note": "exercised by tests/graph_engineering/test_end_to_end.py; not re-run by this script"
+    },
+    "lost controller": {
+      "test": "tests/graph_engineering/test_end_to_end.py::test_a_controller_lost_after_the_claim_is_resumed_and_the_task_still_lands",
+      "present": true,
+      "note": "exercised by tests/graph_engineering/test_end_to_end.py; not re-run by this script"
+    },
+    "writer crash": {
+      "test": "tests/graph_engineering/test_end_to_end.py::test_a_writer_that_dies_mid_task_is_retried_from_its_start_and_only_the_retry_lands",
+      "present": true,
+      "note": "exercised by tests/graph_engineering/test_end_to_end.py; not re-run by this script"
+    },
+    "quota switch": {
+      "test": "tests/graph_engineering/test_end_to_end.py::test_a_route_whose_quota_runs_out_pauses_and_the_task_lands_on_the_other",
+      "present": true,
+      "note": "exercised by tests/graph_engineering/test_end_to_end.py; not re-run by this script"
+    },
+    "interrupted integration (before the swap)": {
+      "test": "tests/graph_engineering/test_end_to_end.py::test_a_controller_lost_inside_merge_leaves_the_target_untouched_and_a_rerun_lands",
+      "present": true,
+      "note": "exercised by tests/graph_engineering/test_end_to_end.py; not re-run by this script"
+    },
+    "interrupted integration (after the swap)": {
+      "test": "tests/graph_engineering/test_end_to_end.py::test_a_controller_lost_after_the_swap_is_escalated_not_replayed",
+      "present": true,
+      "note": "exercised by tests/graph_engineering/test_end_to_end.py; not re-run by this script"
+    }
+  },
+  "retention": {
+    "measured": {
+      "runs": 9,
+      "total_bytes": 19091691,
+      "max_bytes_per_run": 2300692,
+      "mean_bytes_per_run": 2121299,
+      "by_entry_bytes": {
+        "HALT": 189,
+        "artifacts": 69285,
+        "attempts": 47246,
+        "completed_tasks.json": 1304,
+        "control.sqlite3": 2027520,
+        "control.sqlite3-shm": 294912,
+        "control.sqlite3-wal": 16612128,
+        "journal.ndjson": 7580,
+        "model_tasks": 26586,
+        "state.json": 3409,
+        "workspaces": 0,
+        "worktrees": 515,
+        "questions": 1532
+      },
+      "impl_log_bytes": 0,
+      "excludes": "worktrees (released on accept/park; not evidence)"
+    },
+    "default": {
+      "prune": false,
+      "warn_bytes": 1073741824
+    },
+    "basis": "P12 real DuetFlow pilot (2026-09-24..2026-10-08, 11 accepted tasks): .orchestrator held 84.1 MB, 7.6 MB per accepted task, of which 75.9 MB is 18 operator-archived failed runs (largest 15.1 MB). Without the archives it is 2.0 MB per accepted task: control DB + WAL 5.0 MB in all, attempts 44 KB to 1.6 MB per run. 1 GiB covers about 140 accepted tasks at the archive-heavy rate. The fixture qualification (p12-qualification.json) measured 2.09 MB per run.",
+    "caveat": "fixture runs write tiny transcripts; the real-pilot measurement (s3) may revise the default (_p12_open_threads)"
+  },
+  "experiments": [
+    {
+      "id": "E1",
+      "name": "route & graph policy",
+      "state": "baseline graph (implementer, gate, proof_review, merge, accept); candidates and extra nodes off",
+      "decision": "stays off / unqualified",
+      "evidence": "fixture lanes only; no token or pass-rate measurement across the six classes"
+    },
+    {
+      "id": "E2",
+      "name": "repository context value",
+      "state": "Layer 1 (Python tree-sitter facts) on; Layer 2 (SCIP) not built",
+      "decision": "stays off / unqualified",
+      "evidence": "no measurement of search loops or context volume (D07 gates Layer 2)"
+    },
+    {
+      "id": "E3",
+      "name": "validation cache & affected invalidation",
+      "state": "engineering.affected_checks defaults to shadow; authoritative needs qualify_affected",
+      "decision": "stays off (shadow) / unqualified",
+      "evidence": "promotion needs zero false cache hits over 50+ real commits; none recorded"
+    },
+    {
+      "id": "E4",
+      "name": "plan repair vs fresh retry",
+      "state": "plan repair on, bounded by engineering.max_plan_repairs (default 1)",
+      "decision": "stays as shipped, unqualified",
+      "evidence": "the escalation ladder uses it; no token or fix-rate comparison with a fresh retry"
+    },
+    {
+      "id": "E5",
+      "name": "scheduling heuristics",
+      "state": "priority -> aging -> downstream leverage (P08, accepted launch-order policy)",
+      "decision": "stays as shipped, unqualified",
+      "evidence": "no starvation or median-latency comparison against FIFO on a real backlog"
+    }
+  ],
+  "context_gate_mapping": {
+    "Goal": "task (ROADMAP task spec, control-store tasks/task_revisions)",
+    "WorkUnit": "run (task_runs: one compiled workflow revision of a task)",
+    "Session": "node (node_states) and the agent session on its attempt (attempts.session_id, session_mode)",
+    "ContextSnapshot": "attempt (attempts.manifest_artifact_id, the context manifest artifact on the claim)",
+    "GateDecision": "no maestro structure yet; the gate is not built (P12 \u00a74). The routing decision on the attempt (binding_json) is where one would sit",
+    "OutcomeRecord": "attempt outcome (outcome_ref, failure_kind/class) with Usage (usage_start_json/usage_settle_json), plus acceptance_decisions",
+    "seams": "none found that force a second wrapper process or a gate bypass: every agent launch goes through WorkflowRunner.launch_worker"
+  },
+  "lanes": [
+    {
+      "test": "test_each_catalog_class_runs_through_the_graph_loop[bug]",
+      "passed": true,
+      "error": null,
+      "record": {
+        "lane": "qualify_subscription_bug",
+        "mode": "subscription",
+        "case_id": "bug-normalize-slug",
+        "task_class": "bug",
+        "expected": "accepted",
+        "run_status": "succeeded",
+        "acceptance_decisions": 2,
+        "workflow_revisions": 1,
+        "attempts": [
+          {
+            "attempt_id": "att_run_cOvgxAT0FsspBlXv_implementer_01",
+            "run_id": "run_cOvgxAT0FsspBlXv",
+            "node_id": "implementer",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:02Z",
+            "deadline_at": "2026-10-09T17:41:01Z",
+            "outcome_ref": "art_40c77244_BhiryMXwRe",
+            "binding_id": "fixture_cli:fixture-1:medium@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "medium",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "implementer",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [],
+              "requested_effort": "medium",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=paid_efficiency; demand=balanced/medium (default demand); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-sonnet-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "medium",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "medium",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "medium",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_cb45b846_LsJtnBNMgX",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_cOvgxAT0FsspBlXv_implementer_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 1.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": "27da5b7cc9a7fd20de407850e73363baaee5ac8f",
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_cOvgxAT0FsspBlXv_gate_01",
+            "run_id": "run_cOvgxAT0FsspBlXv",
+            "node_id": "gate",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:02Z",
+            "deadline_at": "2026-10-09T10:41:02Z",
+            "outcome_ref": "art_ea765bb6_6qqI5kXUiO",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_cOvgxAT0FsspBlXv_proof_review_01",
+            "run_id": "run_cOvgxAT0FsspBlXv",
+            "node_id": "proof_review",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:02Z",
+            "deadline_at": "2026-10-09T10:41:02Z",
+            "outcome_ref": "art_447c05e8_vLVEoxVYD5",
+            "binding_id": "fixture_cli:fixture-1:medium@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "medium",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "proof_review",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [],
+              "requested_effort": "medium",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=paid_efficiency; demand=strong/medium (role floor min_reasoning_strength=strong); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-opus-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "medium",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "medium",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "medium",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_5ac8cbf3_DCeWgtLyZr",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_cOvgxAT0FsspBlXv_proof_review_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_cOvgxAT0FsspBlXv_merge_01",
+            "run_id": "run_cOvgxAT0FsspBlXv",
+            "node_id": "merge",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:02Z",
+            "deadline_at": "2026-10-09T10:41:02Z",
+            "outcome_ref": "art_9f5b6ab5_evSgDg6B5B",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_cOvgxAT0FsspBlXv_accept_01",
+            "run_id": "run_cOvgxAT0FsspBlXv",
+            "node_id": "accept",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:02Z",
+            "deadline_at": "2026-10-09T13:41:02Z",
+            "outcome_ref": "art_47858dee_KCrLE5bwtf",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          }
+        ],
+        "target_moved": true,
+        "volume": {
+          "by_entry": {
+            "HALT": 21,
+            "artifacts": 8700,
+            "attempts": 5789,
+            "completed_tasks.json": 163,
+            "control.sqlite3": 225280,
+            "control.sqlite3-shm": 32768,
+            "control.sqlite3-wal": 2022952,
+            "journal.ndjson": 854,
+            "model_tasks": 2954,
+            "state.json": 317,
+            "workspaces": 0,
+            "worktrees": 0
+          },
+          "impl_log": 0,
+          "total": 2299798
+        },
+        "invariants": [
+          {
+            "invariant": "INV-02",
+            "checked": true,
+            "passed": true,
+            "detail": "2 agent attempts; each inbox names the PID that wrote"
+          },
+          {
+            "invariant": "INV-03",
+            "checked": true,
+            "passed": true,
+            "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+          },
+          {
+            "invariant": "INV-05",
+            "checked": true,
+            "passed": true,
+            "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+          },
+          {
+            "invariant": "INV-07",
+            "checked": true,
+            "passed": true,
+            "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+          },
+          {
+            "invariant": "INV-10",
+            "checked": true,
+            "passed": true,
+            "detail": "3 worker launches, each a window in the agents session"
+          },
+          {
+            "invariant": "INV-04",
+            "checked": true,
+            "passed": true,
+            "detail": "2 verification evidence rows, all pass, run by the gate"
+          }
+        ]
+      }
+    },
+    {
+      "test": "test_each_catalog_class_runs_through_the_graph_loop[feature]",
+      "passed": true,
+      "error": null,
+      "record": {
+        "lane": "qualify_subscription_feature",
+        "mode": "subscription",
+        "case_id": "feature-expiring-cache",
+        "task_class": "feature",
+        "expected": "accepted",
+        "run_status": "succeeded",
+        "acceptance_decisions": 2,
+        "workflow_revisions": 1,
+        "attempts": [
+          {
+            "attempt_id": "att_run_IKLsDN2wIWDJl7Jw_implementer_01",
+            "run_id": "run_IKLsDN2wIWDJl7Jw",
+            "node_id": "implementer",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:02Z",
+            "deadline_at": "2026-10-09T17:41:02Z",
+            "outcome_ref": "art_3d573990_F0w2Hsayq8",
+            "binding_id": "fixture_cli:fixture-1:medium@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "medium",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "implementer",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [],
+              "requested_effort": "medium",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=paid_efficiency; demand=balanced/medium (default demand); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-sonnet-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "medium",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "medium",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "medium",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_388cbd31_T5ktsE9nYL",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_IKLsDN2wIWDJl7Jw_implementer_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": "a64d6affcfb905d4ffd73d1cf0bb02fea5e73e29",
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_IKLsDN2wIWDJl7Jw_gate_01",
+            "run_id": "run_IKLsDN2wIWDJl7Jw",
+            "node_id": "gate",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:02Z",
+            "deadline_at": "2026-10-09T10:41:02Z",
+            "outcome_ref": "art_9e01bee2_GJk83KOVQe",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_IKLsDN2wIWDJl7Jw_proof_review_01",
+            "run_id": "run_IKLsDN2wIWDJl7Jw",
+            "node_id": "proof_review",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:02Z",
+            "deadline_at": "2026-10-09T10:41:02Z",
+            "outcome_ref": "art_2d04f499_LH1piAQpNz",
+            "binding_id": "fixture_cli:fixture-1:medium@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "medium",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "proof_review",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [],
+              "requested_effort": "medium",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=paid_efficiency; demand=strong/medium (role floor min_reasoning_strength=strong); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-opus-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "medium",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "medium",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "medium",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_06d55742_Zu5Yvu2ma3",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_IKLsDN2wIWDJl7Jw_proof_review_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_IKLsDN2wIWDJl7Jw_merge_01",
+            "run_id": "run_IKLsDN2wIWDJl7Jw",
+            "node_id": "merge",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:02Z",
+            "deadline_at": "2026-10-09T10:41:02Z",
+            "outcome_ref": "art_c1675f80_tmb5OgRnWL",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_IKLsDN2wIWDJl7Jw_accept_01",
+            "run_id": "run_IKLsDN2wIWDJl7Jw",
+            "node_id": "accept",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:02Z",
+            "deadline_at": "2026-10-09T13:41:02Z",
+            "outcome_ref": "art_bf9a7574_4m6OdXSWag",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          }
+        ],
+        "target_moved": true,
+        "volume": {
+          "by_entry": {
+            "HALT": 21,
+            "artifacts": 8676,
+            "attempts": 5789,
+            "completed_tasks.json": 163,
+            "control.sqlite3": 225280,
+            "control.sqlite3-shm": 32768,
+            "control.sqlite3-wal": 2022952,
+            "journal.ndjson": 854,
+            "model_tasks": 2954,
+            "state.json": 317,
+            "workspaces": 0,
+            "worktrees": 0
+          },
+          "impl_log": 0,
+          "total": 2299774
+        },
+        "invariants": [
+          {
+            "invariant": "INV-02",
+            "checked": true,
+            "passed": true,
+            "detail": "2 agent attempts; each inbox names the PID that wrote"
+          },
+          {
+            "invariant": "INV-03",
+            "checked": true,
+            "passed": true,
+            "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+          },
+          {
+            "invariant": "INV-05",
+            "checked": true,
+            "passed": true,
+            "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+          },
+          {
+            "invariant": "INV-07",
+            "checked": true,
+            "passed": true,
+            "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+          },
+          {
+            "invariant": "INV-10",
+            "checked": true,
+            "passed": true,
+            "detail": "3 worker launches, each a window in the agents session"
+          },
+          {
+            "invariant": "INV-04",
+            "checked": true,
+            "passed": true,
+            "detail": "2 verification evidence rows, all pass, run by the gate"
+          }
+        ]
+      }
+    },
+    {
+      "test": "test_each_catalog_class_runs_through_the_graph_loop[documentation]",
+      "passed": true,
+      "error": null,
+      "record": {
+        "lane": "qualify_subscription_documentation",
+        "mode": "subscription",
+        "case_id": "docs-recovery-runbook",
+        "task_class": "documentation",
+        "expected": "accepted",
+        "run_status": "succeeded",
+        "acceptance_decisions": 2,
+        "workflow_revisions": 1,
+        "attempts": [
+          {
+            "attempt_id": "att_run_xiELdKVgkyU5c2ul_implementer_01",
+            "run_id": "run_xiELdKVgkyU5c2ul",
+            "node_id": "implementer",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:03Z",
+            "deadline_at": "2026-10-09T17:41:03Z",
+            "outcome_ref": "art_b203d3cc_hPOVwnAoeU",
+            "binding_id": "fixture_cli:fixture-1:medium@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "medium",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "implementer",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [],
+              "requested_effort": "medium",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=paid_efficiency; demand=balanced/medium (default demand); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-sonnet-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "medium",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "medium",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "medium",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_f550c2ce_4uRr3ibGXd",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_xiELdKVgkyU5c2ul_implementer_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": "8648489d179e26d99e41ffcef22a5cf5a182e8e8",
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_xiELdKVgkyU5c2ul_gate_01",
+            "run_id": "run_xiELdKVgkyU5c2ul",
+            "node_id": "gate",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:03Z",
+            "deadline_at": "2026-10-09T10:41:03Z",
+            "outcome_ref": "art_a3e947ff_MeirpWC8Vc",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_xiELdKVgkyU5c2ul_proof_review_01",
+            "run_id": "run_xiELdKVgkyU5c2ul",
+            "node_id": "proof_review",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:03Z",
+            "deadline_at": "2026-10-09T10:41:03Z",
+            "outcome_ref": "art_963d1f50_PfITDYmMXF",
+            "binding_id": "fixture_cli:fixture-1:medium@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "medium",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "proof_review",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [],
+              "requested_effort": "medium",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=paid_efficiency; demand=strong/medium (role floor min_reasoning_strength=strong); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-opus-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "medium",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "medium",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "medium",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_980d31de_hzt9HJbwTs",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_xiELdKVgkyU5c2ul_proof_review_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_xiELdKVgkyU5c2ul_merge_01",
+            "run_id": "run_xiELdKVgkyU5c2ul",
+            "node_id": "merge",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:03Z",
+            "deadline_at": "2026-10-09T10:41:03Z",
+            "outcome_ref": "art_fb153275_lkl8RlsFn9",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_xiELdKVgkyU5c2ul_accept_01",
+            "run_id": "run_xiELdKVgkyU5c2ul",
+            "node_id": "accept",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:03Z",
+            "deadline_at": "2026-10-09T13:41:03Z",
+            "outcome_ref": "art_ad6d0172_2rfOThQQAC",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          }
+        ],
+        "target_moved": true,
+        "volume": {
+          "by_entry": {
+            "HALT": 21,
+            "artifacts": 8684,
+            "attempts": 5789,
+            "completed_tasks.json": 163,
+            "control.sqlite3": 225280,
+            "control.sqlite3-shm": 32768,
+            "control.sqlite3-wal": 2022952,
+            "journal.ndjson": 854,
+            "model_tasks": 2954,
+            "state.json": 317,
+            "workspaces": 0,
+            "worktrees": 0
+          },
+          "impl_log": 0,
+          "total": 2299782
+        },
+        "invariants": [
+          {
+            "invariant": "INV-02",
+            "checked": true,
+            "passed": true,
+            "detail": "2 agent attempts; each inbox names the PID that wrote"
+          },
+          {
+            "invariant": "INV-03",
+            "checked": true,
+            "passed": true,
+            "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+          },
+          {
+            "invariant": "INV-05",
+            "checked": true,
+            "passed": true,
+            "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+          },
+          {
+            "invariant": "INV-07",
+            "checked": true,
+            "passed": true,
+            "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+          },
+          {
+            "invariant": "INV-10",
+            "checked": true,
+            "passed": true,
+            "detail": "3 worker launches, each a window in the agents session"
+          },
+          {
+            "invariant": "INV-04",
+            "checked": true,
+            "passed": true,
+            "detail": "2 verification evidence rows, all pass, run by the gate"
+          }
+        ]
+      }
+    },
+    {
+      "test": "test_each_catalog_class_runs_through_the_graph_loop[debugging]",
+      "passed": true,
+      "error": null,
+      "record": {
+        "lane": "qualify_subscription_debugging",
+        "mode": "subscription",
+        "case_id": "debug-deadlocked-worker",
+        "task_class": "debugging",
+        "expected": "accepted",
+        "run_status": "succeeded",
+        "acceptance_decisions": 2,
+        "workflow_revisions": 1,
+        "attempts": [
+          {
+            "attempt_id": "att_run_MfXjoqmGlrzksh9S_implementer_01",
+            "run_id": "run_MfXjoqmGlrzksh9S",
+            "node_id": "implementer",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:03Z",
+            "deadline_at": "2026-10-09T17:41:03Z",
+            "outcome_ref": "art_e23767c7_gdR18PtbN1",
+            "binding_id": "fixture_cli:fixture-1:medium@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "medium",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "implementer",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [],
+              "requested_effort": "medium",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=paid_efficiency; demand=balanced/medium (default demand); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-sonnet-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "medium",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "medium",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "medium",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_b720e491_7RFU3O8v75",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_MfXjoqmGlrzksh9S_implementer_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": "7911234d63c3ee874c4c59ef5b2f52fd24b963b2",
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_MfXjoqmGlrzksh9S_gate_01",
+            "run_id": "run_MfXjoqmGlrzksh9S",
+            "node_id": "gate",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:03Z",
+            "deadline_at": "2026-10-09T10:41:03Z",
+            "outcome_ref": "art_4a10546a_JGdfpI3MIg",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_MfXjoqmGlrzksh9S_proof_review_01",
+            "run_id": "run_MfXjoqmGlrzksh9S",
+            "node_id": "proof_review",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:03Z",
+            "deadline_at": "2026-10-09T10:41:03Z",
+            "outcome_ref": "art_da5c5bd1_OqZ3YI1wdX",
+            "binding_id": "fixture_cli:fixture-1:medium@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "medium",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "proof_review",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [],
+              "requested_effort": "medium",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=paid_efficiency; demand=strong/medium (role floor min_reasoning_strength=strong); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-opus-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "medium",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "medium",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "medium",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_3a1e025d_82QtS0SxpM",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_MfXjoqmGlrzksh9S_proof_review_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_MfXjoqmGlrzksh9S_merge_01",
+            "run_id": "run_MfXjoqmGlrzksh9S",
+            "node_id": "merge",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:03Z",
+            "deadline_at": "2026-10-09T10:41:03Z",
+            "outcome_ref": "art_43067e43_QZZzkMZNqx",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_MfXjoqmGlrzksh9S_accept_01",
+            "run_id": "run_MfXjoqmGlrzksh9S",
+            "node_id": "accept",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:03Z",
+            "deadline_at": "2026-10-09T13:41:03Z",
+            "outcome_ref": "art_e42fd1c6_ZKOxIodS8o",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          }
+        ],
+        "target_moved": true,
+        "volume": {
+          "by_entry": {
+            "HALT": 21,
+            "artifacts": 8680,
+            "attempts": 5789,
+            "completed_tasks.json": 163,
+            "control.sqlite3": 225280,
+            "control.sqlite3-shm": 32768,
+            "control.sqlite3-wal": 2022952,
+            "journal.ndjson": 854,
+            "model_tasks": 2954,
+            "state.json": 317,
+            "workspaces": 0,
+            "worktrees": 0
+          },
+          "impl_log": 0,
+          "total": 2299778
+        },
+        "invariants": [
+          {
+            "invariant": "INV-02",
+            "checked": true,
+            "passed": true,
+            "detail": "2 agent attempts; each inbox names the PID that wrote"
+          },
+          {
+            "invariant": "INV-03",
+            "checked": true,
+            "passed": true,
+            "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+          },
+          {
+            "invariant": "INV-05",
+            "checked": true,
+            "passed": true,
+            "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+          },
+          {
+            "invariant": "INV-07",
+            "checked": true,
+            "passed": true,
+            "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+          },
+          {
+            "invariant": "INV-10",
+            "checked": true,
+            "passed": true,
+            "detail": "3 worker launches, each a window in the agents session"
+          },
+          {
+            "invariant": "INV-04",
+            "checked": true,
+            "passed": true,
+            "detail": "2 verification evidence rows, all pass, run by the gate"
+          }
+        ]
+      }
+    },
+    {
+      "test": "test_each_catalog_class_runs_through_the_graph_loop[manual-preparation]",
+      "passed": true,
+      "error": null,
+      "record": {
+        "lane": "qualify_subscription_manual-preparation",
+        "mode": "subscription",
+        "case_id": "manual-credential-bootstrap",
+        "task_class": "manual-preparation",
+        "expected": "awaiting_human",
+        "run_status": "running",
+        "acceptance_decisions": 0,
+        "workflow_revisions": 1,
+        "attempts": [
+          {
+            "attempt_id": "att_run_XFMeDR0mGnslJa1X_prep_01",
+            "run_id": "run_XFMeDR0mGnslJa1X",
+            "node_id": "prep",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:04Z",
+            "deadline_at": "2026-10-09T17:41:04Z",
+            "outcome_ref": "art_3088bfac_Ubmt5kWkqR",
+            "binding_id": "fixture_cli:fixture-1:medium@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "medium",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "prep",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [],
+              "requested_effort": "medium",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=paid_efficiency; demand=balanced/medium (default demand); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-sonnet-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "medium",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "medium",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "medium",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_a7151110_ScuNCjocs2",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_XFMeDR0mGnslJa1X_prep_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": "7109c313bceceb5a54f931e12550b62a3b174180",
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_XFMeDR0mGnslJa1X_human_action_01",
+            "run_id": "run_XFMeDR0mGnslJa1X",
+            "node_id": "human_action",
+            "status": "claimed",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": null,
+            "deadline_at": "2026-11-08T09:41:04Z",
+            "outcome_ref": null,
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          }
+        ],
+        "target_moved": false,
+        "volume": {
+          "by_entry": {
+            "HALT": 21,
+            "artifacts": 3621,
+            "attempts": 1498,
+            "control.sqlite3": 225280,
+            "control.sqlite3-shm": 32768,
+            "control.sqlite3-wal": 774592,
+            "journal.ndjson": 748,
+            "model_tasks": 2954,
+            "questions": 1532,
+            "state.json": 873,
+            "workspaces": 0,
+            "worktrees": 515
+          },
+          "impl_log": 0,
+          "total": 1043887
+        },
+        "invariants": [
+          {
+            "invariant": "INV-02",
+            "checked": true,
+            "passed": true,
+            "detail": "1 agent attempts; each inbox names the PID that wrote"
+          },
+          {
+            "invariant": "INV-03",
+            "checked": true,
+            "passed": true,
+            "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+          },
+          {
+            "invariant": "INV-05",
+            "checked": true,
+            "passed": true,
+            "detail": "branches ['impl/TASK-001', 'main']; accepted decisions bound to main's head below its graduation commit"
+          },
+          {
+            "invariant": "INV-07",
+            "checked": true,
+            "passed": true,
+            "detail": "2 operation intents ['reconciled'], 2 receipts; none left pending"
+          },
+          {
+            "invariant": "INV-10",
+            "checked": true,
+            "passed": true,
+            "detail": "1 worker launches, each a window in the agents session"
+          },
+          {
+            "invariant": "INV-04",
+            "checked": true,
+            "passed": true,
+            "detail": "no acceptance without a receipt and a passing gate"
+          }
+        ]
+      }
+    },
+    {
+      "test": "test_each_catalog_class_runs_through_the_graph_loop[recovery]",
+      "passed": true,
+      "error": null,
+      "record": {
+        "lane": "qualify_subscription_recovery",
+        "mode": "subscription",
+        "case_id": "recovery-lost-ack",
+        "task_class": "recovery",
+        "expected": "accepted",
+        "run_status": "succeeded",
+        "acceptance_decisions": 2,
+        "workflow_revisions": 1,
+        "attempts": [
+          {
+            "attempt_id": "att_run_MLPgXCt9R0RPMyVM_implementer_01",
+            "run_id": "run_MLPgXCt9R0RPMyVM",
+            "node_id": "implementer",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:04Z",
+            "deadline_at": "2026-10-09T17:41:04Z",
+            "outcome_ref": "art_d188a5b5_Rgz7ThXaYf",
+            "binding_id": "fixture_cli:fixture-1:medium@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "medium",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "implementer",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [],
+              "requested_effort": "medium",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=paid_efficiency; demand=balanced/medium (default demand); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-sonnet-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "medium",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "medium",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "medium",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_72475c81_xws9YCo1xi",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_MLPgXCt9R0RPMyVM_implementer_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": "08716996edfd20823b0e8f07255013c43e1a3f07",
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_MLPgXCt9R0RPMyVM_gate_01",
+            "run_id": "run_MLPgXCt9R0RPMyVM",
+            "node_id": "gate",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:04Z",
+            "deadline_at": "2026-10-09T10:41:04Z",
+            "outcome_ref": "art_e5c5d75b_8rcFfKM3fZ",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_MLPgXCt9R0RPMyVM_proof_review_01",
+            "run_id": "run_MLPgXCt9R0RPMyVM",
+            "node_id": "proof_review",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:04Z",
+            "deadline_at": "2026-10-09T10:41:04Z",
+            "outcome_ref": "art_c10caa25_PdnqkltDDa",
+            "binding_id": "fixture_cli:fixture-1:medium@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "medium",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "proof_review",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [],
+              "requested_effort": "medium",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=paid_efficiency; demand=strong/medium (role floor min_reasoning_strength=strong); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-opus-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "medium",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "medium",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "medium",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_d7b0642a_mc55NGuKT1",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_MLPgXCt9R0RPMyVM_proof_review_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_MLPgXCt9R0RPMyVM_merge_01",
+            "run_id": "run_MLPgXCt9R0RPMyVM",
+            "node_id": "merge",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:04Z",
+            "deadline_at": "2026-10-09T10:41:04Z",
+            "outcome_ref": "art_e3163950_x58UBuGHet",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_MLPgXCt9R0RPMyVM_accept_01",
+            "run_id": "run_MLPgXCt9R0RPMyVM",
+            "node_id": "accept",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:04Z",
+            "deadline_at": "2026-10-09T13:41:04Z",
+            "outcome_ref": "art_88099d25_a5Hees8j34",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          }
+        ],
+        "target_moved": true,
+        "volume": {
+          "by_entry": {
+            "HALT": 21,
+            "artifacts": 8680,
+            "attempts": 5789,
+            "completed_tasks.json": 163,
+            "control.sqlite3": 225280,
+            "control.sqlite3-shm": 32768,
+            "control.sqlite3-wal": 2022952,
+            "journal.ndjson": 854,
+            "model_tasks": 2954,
+            "state.json": 317,
+            "workspaces": 0,
+            "worktrees": 0
+          },
+          "impl_log": 0,
+          "total": 2299778
+        },
+        "invariants": [
+          {
+            "invariant": "INV-02",
+            "checked": true,
+            "passed": true,
+            "detail": "2 agent attempts; each inbox names the PID that wrote"
+          },
+          {
+            "invariant": "INV-03",
+            "checked": true,
+            "passed": true,
+            "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+          },
+          {
+            "invariant": "INV-05",
+            "checked": true,
+            "passed": true,
+            "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+          },
+          {
+            "invariant": "INV-07",
+            "checked": true,
+            "passed": true,
+            "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+          },
+          {
+            "invariant": "INV-10",
+            "checked": true,
+            "passed": true,
+            "detail": "3 worker launches, each a window in the agents session"
+          },
+          {
+            "invariant": "INV-04",
+            "checked": true,
+            "passed": true,
+            "detail": "2 verification evidence rows, all pass, run by the gate"
+          }
+        ]
+      }
+    },
+    {
+      "test": "test_the_free_mode_qualifies_on_its_fixture",
+      "passed": true,
+      "error": null,
+      "record": {
+        "lane": "qualify_free",
+        "mode": "free",
+        "case_id": null,
+        "task_class": null,
+        "expected": "accepted",
+        "run_status": "succeeded",
+        "acceptance_decisions": 2,
+        "workflow_revisions": 1,
+        "attempts": [
+          {
+            "attempt_id": "att_run_ZCZGgxj3BR9hWEy9_implementer_01",
+            "run_id": "run_ZCZGgxj3BR9hWEy9",
+            "node_id": "implementer",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:04Z",
+            "deadline_at": "2026-10-09T17:41:04Z",
+            "outcome_ref": "art_bf7ad95e_TRAHbNN7zH",
+            "binding_id": "free_api:free-1:none@0fb099c94bda6621",
+            "binding_json": {
+              "backend_id": "free_api",
+              "billing_category": "free_tier_api",
+              "catalog_revision": "0fb099c94bda6621",
+              "effort_config_key": "",
+              "effort_delivery": "unsupported",
+              "effort_native_value": null,
+              "effort_support": "unsupported",
+              "instruction_delivery": "system_flag",
+              "model_id": "free-1",
+              "node_id": "implementer",
+              "permission_enforcement": "directory_isolation",
+              "rejected_routes": [],
+              "requested_effort": "high",
+              "runtime_instance_id": "free_api",
+              "selection_reason": "objective=free_quality; demand=balanced/high (free_quality objective: effort is not rationed); model strength=strong; effort_support=unsupported; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-sonnet-5-5 unavailable or ineligible; a bare chat endpoint exposes no reasoning-effort control",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "free_api",
+                "effort": "unsupported",
+                "model_id": "free-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "free_api-pool"
+            },
+            "backend_id": "free_api",
+            "model_id": "free-1",
+            "effort": "unsupported",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "free_api",
+              "effort": "unsupported",
+              "model_id": "free-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_f7bedcd6_CpNJvoK73u",
+            "route_refusal": null,
+            "agent_version": "v1",
+            "session_id": "att_run_ZCZGgxj3BR9hWEy9_implementer_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": "ebc99e0422fe163b9de245faafc1cd40995d4c87",
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_ZCZGgxj3BR9hWEy9_gate_01",
+            "run_id": "run_ZCZGgxj3BR9hWEy9",
+            "node_id": "gate",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:04Z",
+            "deadline_at": "2026-10-09T10:41:04Z",
+            "outcome_ref": "art_53f26dda_z0GhOXLyka",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_ZCZGgxj3BR9hWEy9_proof_review_01",
+            "run_id": "run_ZCZGgxj3BR9hWEy9",
+            "node_id": "proof_review",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:04Z",
+            "deadline_at": "2026-10-09T10:41:04Z",
+            "outcome_ref": "art_f92ebc60_oiygdFOZUA",
+            "binding_id": "free_api:free-1:none@0fb099c94bda6621",
+            "binding_json": {
+              "backend_id": "free_api",
+              "billing_category": "free_tier_api",
+              "catalog_revision": "0fb099c94bda6621",
+              "effort_config_key": "",
+              "effort_delivery": "unsupported",
+              "effort_native_value": null,
+              "effort_support": "unsupported",
+              "instruction_delivery": "system_flag",
+              "model_id": "free-1",
+              "node_id": "proof_review",
+              "permission_enforcement": "directory_isolation",
+              "rejected_routes": [],
+              "requested_effort": "high",
+              "runtime_instance_id": "free_api",
+              "selection_reason": "objective=free_quality; demand=strong/high (free_quality objective: effort is not rationed; role floor min_reasoning_strength=strong); model strength=strong; effort_support=unsupported; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-opus-5-5 unavailable or ineligible; a bare chat endpoint exposes no reasoning-effort control",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "free_api",
+                "effort": "unsupported",
+                "model_id": "free-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "free_api-pool"
+            },
+            "backend_id": "free_api",
+            "model_id": "free-1",
+            "effort": "unsupported",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "free_api",
+              "effort": "unsupported",
+              "model_id": "free-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_6b1516cc_yqRHaLrXn8",
+            "route_refusal": null,
+            "agent_version": "v1",
+            "session_id": "att_run_ZCZGgxj3BR9hWEy9_proof_review_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_ZCZGgxj3BR9hWEy9_merge_01",
+            "run_id": "run_ZCZGgxj3BR9hWEy9",
+            "node_id": "merge",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:04Z",
+            "deadline_at": "2026-10-09T10:41:04Z",
+            "outcome_ref": "art_7e2f6412_GblFiYWAGA",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_ZCZGgxj3BR9hWEy9_accept_01",
+            "run_id": "run_ZCZGgxj3BR9hWEy9",
+            "node_id": "accept",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:04Z",
+            "deadline_at": "2026-10-09T13:41:04Z",
+            "outcome_ref": "art_e08274d5_wxpLPA4pCY",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          }
+        ],
+        "target_moved": true,
+        "volume": {
+          "by_entry": {
+            "HALT": 21,
+            "artifacts": 9117,
+            "attempts": 5961,
+            "completed_tasks.json": 163,
+            "control.sqlite3": 225280,
+            "control.sqlite3-shm": 32768,
+            "control.sqlite3-wal": 2022952,
+            "journal.ndjson": 854,
+            "model_tasks": 2954,
+            "state.json": 317,
+            "workspaces": 0,
+            "worktrees": 0
+          },
+          "impl_log": 0,
+          "total": 2300387
+        },
+        "invariants": [
+          {
+            "invariant": "INV-02",
+            "checked": true,
+            "passed": true,
+            "detail": "2 agent attempts; each inbox names the PID that wrote"
+          },
+          {
+            "invariant": "INV-03",
+            "checked": true,
+            "passed": true,
+            "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+          },
+          {
+            "invariant": "INV-05",
+            "checked": true,
+            "passed": true,
+            "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+          },
+          {
+            "invariant": "INV-07",
+            "checked": true,
+            "passed": true,
+            "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+          },
+          {
+            "invariant": "INV-10",
+            "checked": true,
+            "passed": true,
+            "detail": "3 worker launches, each a window in the agents session"
+          },
+          {
+            "invariant": "INV-04",
+            "checked": true,
+            "passed": true,
+            "detail": "2 verification evidence rows, all pass, run by the gate"
+          }
+        ]
+      }
+    },
+    {
+      "test": "test_the_hybrid_mode_qualifies_on_its_fixture",
+      "passed": true,
+      "error": null,
+      "record": {
+        "lane": "qualify_hybrid",
+        "mode": "hybrid",
+        "case_id": null,
+        "task_class": null,
+        "expected": "accepted",
+        "run_status": "succeeded",
+        "acceptance_decisions": 2,
+        "workflow_revisions": 1,
+        "attempts": [
+          {
+            "attempt_id": "att_run_qAnSYXdLM9quEiOV_implementer_01",
+            "run_id": "run_qAnSYXdLM9quEiOV",
+            "node_id": "implementer",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:05Z",
+            "deadline_at": "2026-10-09T17:41:05Z",
+            "outcome_ref": "art_cd55cb1b_EWs8Jfnm3u",
+            "binding_id": "free_api:free-1:none@6bdf6042fd1c97fb",
+            "binding_json": {
+              "backend_id": "free_api",
+              "billing_category": "free_tier_api",
+              "catalog_revision": "6bdf6042fd1c97fb",
+              "effort_config_key": "",
+              "effort_delivery": "unsupported",
+              "effort_native_value": null,
+              "effort_support": "unsupported",
+              "instruction_delivery": "system_flag",
+              "model_id": "free-1",
+              "node_id": "implementer",
+              "permission_enforcement": "directory_isolation",
+              "rejected_routes": [
+                {
+                  "backend_id": "fixture_cli",
+                  "detail": "subscription is not in the permitted set ['free_tier_api']",
+                  "model_id": "fixture-1",
+                  "reason": "billing_not_permitted"
+                }
+              ],
+              "requested_effort": "high",
+              "runtime_instance_id": "free_api",
+              "selection_reason": "objective=free_quality; demand=balanced/high (free_quality objective: effort is not rationed); model strength=balanced; effort_support=unsupported; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-sonnet-5-5 unavailable or ineligible; a bare chat endpoint exposes no reasoning-effort control",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "free_api",
+                "effort": "unsupported",
+                "model_id": "free-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "free_api-pool"
+            },
+            "backend_id": "free_api",
+            "model_id": "free-1",
+            "effort": "unsupported",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "free_api",
+              "effort": "unsupported",
+              "model_id": "free-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_de087c68_Vfrn6UxMB6",
+            "route_refusal": null,
+            "agent_version": "v1",
+            "session_id": "att_run_qAnSYXdLM9quEiOV_implementer_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": "c07be3178a4ac5a788401dd5759999e88a1960ae",
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_qAnSYXdLM9quEiOV_gate_01",
+            "run_id": "run_qAnSYXdLM9quEiOV",
+            "node_id": "gate",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:05Z",
+            "deadline_at": "2026-10-09T10:41:05Z",
+            "outcome_ref": "art_34efa623_dDBFSOVGgE",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_qAnSYXdLM9quEiOV_proof_review_01",
+            "run_id": "run_qAnSYXdLM9quEiOV",
+            "node_id": "proof_review",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:05Z",
+            "deadline_at": "2026-10-09T10:41:05Z",
+            "outcome_ref": "art_2805e7d5_SVMaQzRZOn",
+            "binding_id": "fixture_cli:fixture-1:high@0f2c865fb5451330",
+            "binding_json": {
+              "backend_id": "fixture_cli",
+              "billing_category": "subscription",
+              "catalog_revision": "0f2c865fb5451330",
+              "effort_config_key": "",
+              "effort_delivery": "flag",
+              "effort_native_value": "high",
+              "effort_support": "native",
+              "instruction_delivery": "appended_prompt",
+              "model_id": "fixture-1",
+              "node_id": "proof_review",
+              "permission_enforcement": "conventional",
+              "rejected_routes": [
+                {
+                  "backend_id": "free_api",
+                  "detail": "model strength balanced is below the demanded strong (free_quality objective: effort is not rationed; role floor min_reasoning_strength=strong)",
+                  "model_id": "free-1",
+                  "reason": "strength_below_demand"
+                }
+              ],
+              "requested_effort": "high",
+              "runtime_instance_id": "fixture_cli",
+              "selection_reason": "objective=free_quality; demand=strong/high (free_quality objective: effort is not rationed; role floor min_reasoning_strength=strong); model strength=strong; effort_support=native; role preference unavailable or ineligible; eligible fallback selected; preferred claude:claude-opus-5-5 unavailable or ineligible",
+              "shape_key": {
+                "active_fragment_set": [],
+                "backend_id": "fixture_cli",
+                "effort": "high",
+                "model_id": "fixture-1",
+                "role_version": "1.0.0",
+                "task_class": "ordinary",
+                "template_id": "",
+                "template_version": ""
+              },
+              "usage_pool_id": "fixture-pool"
+            },
+            "backend_id": "fixture_cli",
+            "model_id": "fixture-1",
+            "effort": "high",
+            "shape_key_json": {
+              "active_fragment_set": [],
+              "backend_id": "fixture_cli",
+              "effort": "high",
+              "model_id": "fixture-1",
+              "role_version": "1.0.0",
+              "task_class": "ordinary",
+              "template_id": "",
+              "template_version": ""
+            },
+            "manifest_artifact_id": "art_7668fcc2_8AwjiOVA6z",
+            "route_refusal": null,
+            "agent_version": "1.0.0",
+            "session_id": "att_run_qAnSYXdLM9quEiOV_proof_review_01",
+            "session_mode": "fresh",
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": 0.0,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_qAnSYXdLM9quEiOV_merge_01",
+            "run_id": "run_qAnSYXdLM9quEiOV",
+            "node_id": "merge",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:05Z",
+            "deadline_at": "2026-10-09T10:41:05Z",
+            "outcome_ref": "art_4dd9d517_vRspGEEleV",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_qAnSYXdLM9quEiOV_accept_01",
+            "run_id": "run_qAnSYXdLM9quEiOV",
+            "node_id": "accept",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:05Z",
+            "deadline_at": "2026-10-09T13:41:05Z",
+            "outcome_ref": "art_cdc34a05_xXX21nP0uy",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          }
+        ],
+        "target_moved": true,
+        "volume": {
+          "by_entry": {
+            "HALT": 21,
+            "artifacts": 9248,
+            "attempts": 6135,
+            "completed_tasks.json": 163,
+            "control.sqlite3": 225280,
+            "control.sqlite3-shm": 32768,
+            "control.sqlite3-wal": 2022952,
+            "journal.ndjson": 854,
+            "model_tasks": 2954,
+            "state.json": 317,
+            "workspaces": 0,
+            "worktrees": 0
+          },
+          "impl_log": 0,
+          "total": 2300692
+        },
+        "invariants": [
+          {
+            "invariant": "INV-02",
+            "checked": true,
+            "passed": true,
+            "detail": "2 agent attempts; each inbox names the PID that wrote"
+          },
+          {
+            "invariant": "INV-03",
+            "checked": true,
+            "passed": true,
+            "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+          },
+          {
+            "invariant": "INV-05",
+            "checked": true,
+            "passed": true,
+            "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+          },
+          {
+            "invariant": "INV-07",
+            "checked": true,
+            "passed": true,
+            "detail": "5 operation intents ['reconciled'], 5 receipts; none left pending"
+          },
+          {
+            "invariant": "INV-10",
+            "checked": true,
+            "passed": true,
+            "detail": "3 worker launches, each a window in the agents session"
+          },
+          {
+            "invariant": "INV-04",
+            "checked": true,
+            "passed": true,
+            "detail": "2 verification evidence rows, all pass, run by the gate"
+          }
+        ]
+      }
+    },
+    {
+      "test": "test_the_script_mode_qualifies_on_its_fixture",
+      "passed": true,
+      "error": null,
+      "record": {
+        "lane": "qualify_script",
+        "mode": "script",
+        "case_id": null,
+        "task_class": null,
+        "expected": "accepted",
+        "run_status": "succeeded",
+        "acceptance_decisions": 2,
+        "workflow_revisions": 1,
+        "attempts": [
+          {
+            "attempt_id": "att_run_xdVcKSqlvWYJRwDp_script_01",
+            "run_id": "run_xdVcKSqlvWYJRwDp",
+            "node_id": "script",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:05Z",
+            "deadline_at": "2026-10-09T10:11:05Z",
+            "outcome_ref": "art_49df956b_BaG0D5EUgb",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          },
+          {
+            "attempt_id": "att_run_xdVcKSqlvWYJRwDp_gate_01",
+            "run_id": "run_xdVcKSqlvWYJRwDp",
+            "node_id": "gate",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:05Z",
+            "deadline_at": "2026-10-09T10:41:05Z",
+            "outcome_ref": "art_7af26576_L5xIOjpHdj",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_xdVcKSqlvWYJRwDp_merge_01",
+            "run_id": "run_xdVcKSqlvWYJRwDp",
+            "node_id": "merge",
+            "status": "succeeded",
+            "lease_epoch": 1,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:05Z",
+            "deadline_at": "2026-10-09T10:41:05Z",
+            "outcome_ref": "art_8804e068_ZRMcVEP752",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": {
+              "V1": "passed"
+            }
+          },
+          {
+            "attempt_id": "att_run_xdVcKSqlvWYJRwDp_accept_01",
+            "run_id": "run_xdVcKSqlvWYJRwDp",
+            "node_id": "accept",
+            "status": "succeeded",
+            "lease_epoch": 0,
+            "writer_pid": null,
+            "started_at": null,
+            "heartbeat_at": "2026-10-09T09:41:05Z",
+            "deadline_at": "2026-10-09T13:41:05Z",
+            "outcome_ref": "art_14b367d5_J0pMxB9imP",
+            "binding_id": null,
+            "binding_json": null,
+            "backend_id": null,
+            "model_id": null,
+            "effort": null,
+            "shape_key_json": null,
+            "manifest_artifact_id": null,
+            "route_refusal": null,
+            "agent_version": null,
+            "session_id": null,
+            "session_mode": null,
+            "usage_start_json": null,
+            "usage_settle_json": null,
+            "wall_time_sec": null,
+            "reset_crossing": null,
+            "failure_kind": null,
+            "failure_class": null,
+            "failure_json": null,
+            "start_sha": null,
+            "stepped_down": null,
+            "verification": null
+          }
+        ],
+        "target_moved": true,
+        "volume": {
+          "by_entry": {
+            "HALT": 21,
+            "artifacts": 3879,
+            "attempts": 4707,
+            "completed_tasks.json": 163,
+            "control.sqlite3": 225280,
+            "control.sqlite3-shm": 32768,
+            "control.sqlite3-wal": 1676872,
+            "journal.ndjson": 854,
+            "model_tasks": 2954,
+            "state.json": 317,
+            "workspaces": 0,
+            "worktrees": 0
+          },
+          "impl_log": 0,
+          "total": 1947815
+        },
+        "invariants": [
+          {
+            "invariant": "INV-02",
+            "checked": true,
+            "passed": true,
+            "detail": "0 agent attempts; each inbox names the PID that wrote"
+          },
+          {
+            "invariant": "INV-03",
+            "checked": true,
+            "passed": true,
+            "detail": "no real agent CLI started (guarded by tests/conftest.py)"
+          },
+          {
+            "invariant": "INV-05",
+            "checked": true,
+            "passed": true,
+            "detail": "branches ['main']; accepted decisions bound to main's head below its graduation commit"
+          },
+          {
+            "invariant": "INV-07",
+            "checked": true,
+            "passed": true,
+            "detail": "4 operation intents ['reconciled'], 4 receipts; none left pending"
+          },
+          {
+            "invariant": "INV-10",
+            "checked": true,
+            "passed": true,
+            "detail": "2 worker launches, each a window in the agents session"
+          },
+          {
+            "invariant": "INV-04",
+            "checked": true,
+            "passed": true,
+            "detail": "2 verification evidence rows, all pass, run by the gate"
+          }
+        ]
+      }
+    },
+    {
+      "test": "test_the_script_refuses_a_non_scratch_target_unless_told_it_is_a_deployment",
+      "passed": true,
+      "error": null,
+      "record": null
+    }
+  ]
+}

@@ -11,7 +11,11 @@ This continues `handoffs/2026-10-08-p12-itv-pilot-next.md`, which is still the s
 
 This session should:
 
-1. **Check the F1/pgrep work landed** on maestro `feat/graph-engineering-foundation`. Look in `git log` for commits about the reviewer read-only boundary (F1) and the watchdog liveness pgrep, and check that the STATE `_p12_open_threads` entries say CLOSED with shas. If they are missing or incomplete, do the work yourself; the spec is in "Decisions" below.
+1. **F1 and pgrep landed** on maestro `feat/graph-engineering-foundation`. The fork finished at about 21:25 IDT; STATE marks both CLOSED.
+   - **F1 (`b93d3a6`):** non-writer agents run with cwd = workspace, and the worktree and git dirs are not granted. The model-endpoint ToolBox confines writes to the workspace. A post-run tree-change check fails a reviewer that changed the tree anyway. Tests are in `tests/graph_engineering/test_reviewer_read_only.py` (8 tests). The frozen-subject case is covered by the existing `test_integration_acceptance.py::test_a_candidate_worktree_with_uncommitted_changes_cannot_be_frozen`.
+   - **pgrep (`9867768`):** the liveness check (`maestro/watchdog.py`) matches only this project's controller argv. The stall-kill uses the same match, so it can no longer kill another project's controller, which matters now that itv runs beside DuetFlow. It was checked live against DuetFlow's PIDs.
+   - **Full suite:** 5639 passed and 1 xfailed. But a parallel session had **uncommitted** edits at the time (`maestro/backends/claude.py`, `tests/backends/test_claude_driver.py`, `tests/conftest.py`; not ours, leave them). So **re-run the suite inside the clean version worktree you pin in launch step 2.**
+   - **Not verified live:** a review under F1 (the itv pilot is the first; collect it as evidence) and agy. Claude has no OS sandbox, so a reviewer can still edit files through allowed shell commands; the post-run check catches that rather than preventing it. Say so in the verdict.
 2. **Pin itv to a maestro version that includes those fixes, then launch its watchdog.** See "Launch recipe".
 3. **Supervise the two pilot tasks** `01-runtime-evidence` → `04-quota-adapter` the way DuetFlow was supervised.
 4. **Close P12:**
@@ -98,7 +102,7 @@ Telegram: at first not configured. Later configured to use the ITV bot (see Laun
 
 ## Launch recipe (do in order)
 
-1. Confirm that the F1/pgrep commits exist and that the full maestro suite passes (`.venv/bin/python -m pytest -q`, monitored in an `agents` tmux window).
+1. Pin to a sha at or after `9867768` (ideally the branch HEAD with no uncommitted edits from other sessions), and run the full suite inside that version worktree, monitored in an `agents` tmux window.
 2. **Create a version checkout for the new HEAD** the way `maestro/selfupdate.py` does (`git worktree add ~/.maestro/versions/<sha> <sha>`; read `selfupdate.py` ~line 135 for the exact helper). Then write `/home/dan/projects/instagram-to-value/.orchestrator/current` containing that path, just as DuetFlow's `.orchestrator/current` points at `~/.maestro/versions/0c7eb92…`. **Do not touch `~/.maestro/current`**: the machine pin is out of scope. Re-run `doctor` and confirm that the `adopted_code` and `model_policy` warnings are gone.
 3. **Telegram is configured. Dan decided at 20:58 IDT that maestro uses the ITV bot.**
    - itv `.env` (mode 600, gitignored) holds `TELEGRAM_BOT_TOKEN`, plus `TELEGRAM_ALERT_CHAT_ID` copied from `TELEGRAM_ALLOWED_CHAT_ID` in `~/.config/instagram-to-value/secrets.env`.

@@ -4334,3 +4334,31 @@ gains the safe families the pilots asked for).
 **Left open, recorded.** G10 (task worktrees have no `.venv`; relative `.venv/bin/python` verifications
 fail; itv uses the absolute path), G4 (init leaves `paused_by_user`), G8 (task `scope` not enforced at the
 gate), G9 (D30 can propose leading-wildcard families), shared bot token. Context management stays unbuilt.
+
+## 2026-10-10 — P13 W1 slices 1 and 2 released (`9f770ed`): global config layer, roles state only a strength, routes are (model, effort) pairs
+
+**Built.** `~/.maestro/config.yaml` sits under `project.yaml` (deep merge); `maestro config show --effective`
+prints each key with its source; `doctor` gained `config_keys` and `role_shape`. A role is
+`{strength, independent_of}`: `effort`, `backend`, the model map and `fallback_chain` are retired, and which
+backend and model run a role is derived from the adopted (or shipped) model policy. Catalog and router work
+on `(harness, model, effort)` pairs with a class and cost per pair; a schema 2 policy is readable, none is
+published. A schema 1 policy is read under a migration rule that keeps each role's effort, and `high` when
+risk, class or failure rate raised the demand (Dan's decision 6 = A).
+
+**Integrated** as one squashed commit (two branch commits were red on purpose). Release log:
+`announced:9f770ed0f65ef1a626a23137862ebdfbd25ff734` at 17:02 IDT. Suite in the worktree before the squash:
+5788 passed, 6 skipped, 2 xfailed. DuetFlow `e06c68f` and itv `96987c2` dropped `roles:` and
+`fallback_chain:` and added the agy limits table.
+
+**Routing after the release** (read-only probe, old code against new, all five roles at three risk levels):
+itv is unchanged in all 15 rows. On DuetFlow the planner (all risk levels) and the high-risk implementer and
+test designer moved from Codex 6.1 Sol to Opus 5.5, because the router now ranks by
+`routing.harness_order` (default `[claude, codex]`) before cost. Dan approved this as interim.
+
+**Decided by Dan the same day** (spec §1.1 B20-B22): numeric intelligence and per-pool cost for every pair,
+role minimum intelligence with separate effort rules, and global selection with no fixed harness priority.
+His text is `handoffs/2026-10-10-p13-w1-decisions-3-4-dan-answer.md`; it governs W1 slice 3.
+
+**Left open, recorded in the spec §5.** The deferred items of the slice 2 review; `maestro doctor` exits 1
+on a project whose controller is running (`docs` FAIL on `control.sqlite3` ownership). `~/.maestro/.env`
+for the single bot does not exist yet (Dan's action, blocks slice 4 only).

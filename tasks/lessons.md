@@ -440,3 +440,14 @@ hand-fed in between.
   once Dan approved. Edit fails loudly on a non-unique match and leaves a reviewable diff.
   **Rule:** source and test files go through Edit/Write. Bash is for running things, and for a
   bulk or structured rewrite only when Edit cannot express it (then parse/validate the result).
+
+### 2026-10-09 (auto-pin latest maestro)
+- Moving a project's controller to new code is not enough: the watchdog runs in a bare tmux
+  pane and keeps its start-up code forever. A DuetFlow watchdog on 0c7eb92 (pre per-project
+  liveness) mistook itv's controller for its own, never relaunched DuetFlow's, then
+  stall-killed every `maestro run` on the host, including the release's own test subprocess,
+  which made the release hold a green commit red. **Rule:** when re-pinning, restart the
+  watchdogs too (now automatic from af638a9: they re-exec when the project pin moves), and
+  read a held-red verdict before trusting it; clear `~/.maestro/latest.held` to retest.
+- A fake `time` module in a loop test must carry every attribute the loop may reach
+  (`monotonic` broke when a new branch reached `_self_update_maybe`).

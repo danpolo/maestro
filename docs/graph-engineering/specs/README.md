@@ -202,38 +202,24 @@ All implementation rules incorporate amendments through **Revision 2 (2026-09-08
 
 Each phase spec's §4 "FORWARD COMPATIBILITY: CONTEXT GATE" holds the binding details. Load the gate plan itself only when a §4 constraint is unclear.
 
-## 9. NEXT AFTER P12: QUEUED FEATURE PHASE (DAN MUST ELABORATE FIRST)
+## 9. P13: POST-P12 FEATURE PHASE (SPEC WRITTEN 2026-10-10)
 
-Queued by Dan on 2026-09-27. **The agent that closes P12 must tell Dan that this phase is next and ask him
-to elaborate on each item before any planning starts.** Nothing here has a spec yet; do not write one from
-these notes alone. Independent of the Context Gate (§8, AGENTS.md): do not fold the two together.
+P12 closed on 2026-10-09 (tag `p12-qualified`). Dan elaborated the queued phase on 2026-10-10, and its binding
+spec is [`phases/P13_POST_P12_FEATURES.md`](phases/P13_POST_P12_FEATURES.md). Load that file for any P13 work;
+the plan artifact it cites (`~/.agent/diagrams/maestro-post-p12-plan-2026-10-10.html`) holds the figures and
+the code seams, and the spec wins where the two differ.
 
-Recommended order, as one phase:
+| Stage | Workstreams |
+|---|---|
+| 0 | W0 housekeeping (done 2026-10-10) |
+| 1 | W1 global config, model+effort routes, one bot · W2 telemetry and blame ledger · W8 reliability · W9 safety and gate checks |
+| 2 | W3 usage plane · W4 agy as a full peer · W6 manual-step contract · W7 polish stage · W11a goals docs and briefs · W13 runaway detection |
+| 3 | W5 pace routing, cost budget, sprint · W11b goal check stage |
+| 4 | W10 visibility · W12 improvement proposals · qualification pilot on instagram-to-value · close-out |
 
-1. **agy as a real harness.** Starting point: the P07B driver (`maestro/backends/antigravity.py`) exists and is
-   tested. It is graded below claude/codex. No shipped role asks for `light` demand, so it gets no real work.
-   Its `--sandbox` does not confine file writes. The agy catalog rows still name older third-party models
-   (`claude-opus-4-6-thinking`, `claude-sonnet-4-6`, `gpt-oss-120b-medium`).
-2. **Choose models by usage left.** Starting point: per-pool usage (`usage_pool_id`, `Usage.pools`) exists, an
-   exhausted pool pauses its routes at admission, and `switch.on_quota_exhausted` falls back along
-   `fallback_chain`. What is missing is ranking routes by remaining 5h/weekly headroom. Use P12's per-step
-   `quota` telemetry (pilot goal: subscription efficiency) as the input data. This comes after item 1
-   because balancing across three subscriptions is where it pays off.
-
-   **Includes the `project.yaml` redesign** (Dan 2026-09-27): roles and models become global to all maestro
-   projects, with a project overriding only when it must, so a new model is never a per-project hand edit. Each
-   role states a strength rather than "backend + a model map mixing backends". Telegram (the bot and `chat_id`)
-   becomes global; the `chat_id: <captured by init>` placeholder goes. Dan has more items: ask him.
-3. **Review follow-ups move to an end-of-project polish stage.** This replaces "one `<id>-followups` task right
-   after each accept". By default a non-blocker follow-up waits until the main tasks are done. The reviewer may
-   mark one "before dependents" only when a later task builds on that exact code. The polish stage opens with a
-   triage step that merges duplicates and declines moot follow-ups.
-
-Why after P12: all three change routing or scheduling, so doing them mid-pilot would contaminate the P12 verdict. Item 2 also
-needs the usage data P12 collects.
-
-Not in this queue: the model-id refresh (claude-opus-5-5, gpt-6-sol, gpt-6-luna) went in during P12
-(maestro 6dc102e) as a P12 manifest amendment.
+Open threads for P13 are the STATE.yaml entries with `owner: P13`; each names its workstream. P13 is
+independent of the Context Gate (§8, AGENTS.md): do not fold the two together. §10's field notes F2-F4 are
+now owned by P13 (W9, W10).
 
 ## 10. POST-PILOT REVIEW INPUT: GRAPH ENGINEERING FIELD NOTES
 

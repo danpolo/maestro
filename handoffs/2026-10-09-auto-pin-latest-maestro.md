@@ -1,5 +1,9 @@
 # Auto-pin the newest tested maestro to every project (hybrid)
 
+> **DONE 2026-10-09** (1c058f4, 4b90216, af638a9, e753cc2; hook installed; itv + DuetFlow follow
+> `~/.maestro/latest` automatically). Evidence and the one open follow-up: `docs/graph-engineering/STATE.yaml`
+> `_p12_open_threads` (first two entries).
+
 ## Goal
 
 Dan (2026-10-09): when a new commit lands in the maestro checkout, every maestro project should end up pinned to it automatically, with no manual `.orchestrator/current` edits. Dan chose the **hybrid** owner model:

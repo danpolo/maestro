@@ -2,6 +2,151 @@
 
 **Read this first. It is the process source of truth for building Maestro.**
 
+## Current P13 execution boundary
+
+The extraction programme below records M0–M6. For P13, root AGENTS.md, the current
+phase spec and the approved slice plan govern. W1 slice 6 rechecks the model-transition
+carryovers in an isolated candidate, including the pending slice5 completion docs. Its
+qualification suite uses a disposable Maestro home outside the candidate source tree.
+Use the canonical shared `maestro-setup` skill in `~/agent-skills`, with static validation
+and isolated install checks for its narrow priority/shared-bot wording change.
+
+Telegram credentials now come from the existing shared `~/.maestro/.env` (mode 600),
+never a per-project setup prompt. One standalone `maestro telegram poll` owns network
+updates; controllers and halted watchdogs consume durable local mailboxes. Tests use fake
+credentials and injected HTTP boundaries. W1 slice 4 requires one combined concrete
+rollout approval after suite/spec review before root integration/release, live polling
+switch or one tagged smoke per project. That slice4 rollout is complete. Slice5's exact
+candidate0f0d2f9 was explicitly approved through async on2026-10-12 and released through
+the normal gate (5964passed/6skipped/1xfailed,534.50s,exit0). Stopped/locked idle adoption
+installed eight reviewed global defaults, committed project.yaml only on both projects,
+confirmed tagged notices185/186, and restarted/verified both watchdogs/controllers and
+the sole poller. Effective differences0; all preservation contracts pass. Evidence:
+`handoffs/2026-10-12-p13-w1-slice5-complete.md`. Slice6 preparation does not replay
+model asks or alter live model values, policy or project pins. Its plan and ledger are
+`docs/plans/2026-10-12-p13-w1-slice6.md` and
+`handoffs/2026-10-12-p13-w1-slice6-ledger.md`. The historical unattended M4/M5
+authorizations do not authorize later rollouts. Current W2 qualification is isolated
+as described below. Other P13 workstreams retain their own authority and status.
+Context Gate remains unbuilt.
+
+W5 is in progress in its accepted isolated worktree, with no whole-W5 qualification
+or completion claim. The implemented routing slice recognizes `objective: pace`,
+checks current five-hour and applicable Claude Opus scope headroom, keeps the quality
+floor on waits, and consumes explicit initial per-pool burn/runtime configuration
+with task overrides. Real claims now learn eligible exact-shape runtime and estimated
+nonoverlapping pool burn from durable attempts, with recorded prices and explicit
+coverage/fallback. Canonical equivalents share verified quality while recorded
+costs stay local to each harness and pool. Both graph factories consume effective
+global/project/task runaway mode and a separate nullable planner forecast; there
+is no W13 producer or A07 shape change. Quality replay identifies its real source,
+counts, shapes and evidence floor, with null attempt IDs for aggregate statistics.
+Real pace decisions refresh authoritative aggregate verdicts as well as detailed
+history, preserving amendments even without detailed telemetry.
+
+The lossless history read has no arbitrary cap or cross-resolution verdict cache.
+Retained history grows linearly; burn overlap checking can be quadratic per
+candidate. This review does not establish a hard history bound. The current B7 slice
+reserves the selected five-hour estimated percentage cost under the existing host
+ledger lock before claim; it shares capacity by project priority with waiting aging
+and starvation protection. Existing runners now consume the current effective
+priority on their next selected-cost admission after a committed `/priority`
+command, without restart. Invalid current weights follow the existing failed audit
+path without launching a worker or falling back to cached priority. Other objectives
+do not consult this input. Already admitted bindings, charges and prior decisions
+remain frozen. Different account pools, scoped hard gates and weekly
+hard gates retain independent units. Durable bindings freeze admitted holds for
+restart/reassertion, heartbeat and exact terminal/refused-claim release; controller
+errors also sweep unused holds in the same tick. Original charges and runtime/full
+five-hour projections stay frozen across restart. A fresh reset deadline advancing
+by more than 600 seconds uses remaining runtime exposure for new-window admission
+and priority shares; small deadline drift retains the same-window charge. Live
+runtime overruns keep the full frozen charge, and legacy holds keep their known
+charge. An objective change cannot hide or leak an already admitted hold.
+Durable version 2 stage decisions now record actual inputs, survivors/rejections,
+unreached stages and the ledger transaction's budget result. Mandatory preclaim
+`PaceDecisionRecorded` events survive store reopening for both routing and budget
+waits with no attempt; admitted bindings retain the same decision. Injected journal
+write failures wait with no attempt/worker and no unused held cost, and restart can
+retry. Budget admission remains distinct from claim/launch, and the separate ledger
+and event store still have a preclaim crash interval without a complete event.
+There is no cross-store transaction or new dispatch/session mechanism. Legacy
+names-only decisions are not upgraded to admission proof; nonfinite snapshot inputs
+use explicit unavailable-number markers without changing admission. Snapshots have no size
+bound. Sprint domain/config and bounded controls now persist through the actual
+graph quota-refresh/controller and Telegram command mailbox. Weekly behind-pace,
+current announced, sufficiently confident forecast and current available banked
+signals produce distinct frozen reasons. Controls survive restart; observed next
+weekly windows re-arm skips/stops, while permanent config disable remains separate.
+Forecast episode evidence keeps absent outcomes unknown and records only a matching
+observed rollover as a reset. No credit activation/acquisition path exists.
+Mixed pools with missing week identities now retain independent first-week skip/stop
+bindings and reset rearming. Claimed sprint controls recover their frozen original
+week across crashes; global and pool-scoped receipts preserve newer operator choices
+without losing independent pool controls. Reasoned start notices and their
+Skip-this-week callbacks use the real shared transport, addressing, listener,
+mailbox, inbox and controller state. Buttons bind project/bot/chat/message/week/
+episode; the button controls that pool, while `/sprint off` controls the project.
+Synthetic crash/restart/stale/source/unknown-week tests cover those paths. Sending
+and storing the delivery receipt are separate: an orphaned duplicate has no control.
+Real graph routing now consumes the current active weekly sprint target, keeping
+original observations and five-hour, quality and shared-budget admission intact.
+Real selection changes for weekly/announced/forecast/banked reasons and immediate
+off/stop/skip effects have bounded synthetic proof. Admitted and budget-waiting
+events preserve actual sprint inputs and observed/effective weekly scores across
+store reopening; existing attempts retain their original route on restart.
+Unknown, malformed, expired or future weekly evidence cannot supply a sprint target;
+nonpace selection retains its existing behavior. Current own-pool sprint decisions
+now stage eligible polish before exhaustion and prioritize solely budget-waiting
+ready frontiers through the existing graph loop. Current source holds, merged
+provenance, prerequisites, goal/replan gates and other owners' resource mutexes
+remain binding. Compiled node minima and stricter current source requirements use
+the same host round/ledger; oversized requests record a failed audit attempt and
+launch no worker. A run cannot block its own counted-resource retry on its inherited
+mutex. Explicit task priority and every normal route/admission gate remain intact.
+Current inherited mutexes of already-open polish peers now reach that same admission
+round. One selected owner can retry while its peers wait; its ownership is stored
+on existing `graph_runs` rows before dispatch and survives restart with no active
+attempt, including after an operator retry. Cancellation or settlement lets a
+waiting peer progress on the next poll. Real multi-poll, mailbox cancellation and
+idle-owner restart regressions cover these boundaries.
+Compatible idle ownership keeps its retry priority. If idle inherited requirements
+converge into conflicting partial allocations, the existing admission round assigns
+whole available bundles in stable run age/identity order. Active attempts and
+raw/frozen owners remain protected, and a blocked idle contender receives no new
+partial bundle. Bounded live/restart tests cover convergence, protected ownership
+and peer progress after cancellation; they do not prove starvation freedom under
+arbitrary source changes or progress while another gate remains closed.
+A malformed/cyclic ROADMAP graph disables sprint reordering, with a journal reason;
+ordinary eligibility and admission still run. Focused
+synthetic proof does not establish a live forecast pilot.
+The execution reports retain exact affected-run source bindings and
+results; later corrections require fresh affected verification.
+`docs/W5_PACE_ROUTING.md` records the current behavior and proof limits. Independent
+review plus controller-owned full and exact committed clean qualification are required
+before any W5 commit/integration; focused synthetic tests do not replace these gates.
+
+W2's full source is qualified at `89e0817` on `feat/p13-w2-usage`, incorporating the
+completed W3/W8/W9 base. Tasks 1–3 and both Important independent review findings
+are closed with failure-first evidence. The frozen and clean exact-source full suites
+each passed 6510 tests, 6 skipped, 1 xfailed, exit 0, without warnings. Contracts and
+requirement evidence are in `W2_USAGE_REPORT.md` and `agent-plans/p13-w2-proof-inventory.md`.
+`agent-plans/p13-w2-completion.md` pins the source gates and review resolution.
+
+W2 completion uses an exact docs-only allowlist, frozen full suite before its isolated
+commit and clean exact-commit full suite afterward. Run from the native W2 worktree
+with root's Python, explicit native PYTHONPATH, private MAESTRO_HOME, cleared bridge/
+reset/auth overrides and bounded named `agents` TMUX runners. Retain fingerprints,
+status/index/binary diff and runner-owned exit/signal; no mutations while frozen.
+Verify linked hooks skip release, root stays clean at `62f12a0`, all other refs and
+the original saved P12 fixture survive. Final SHA/results and workspace archival/
+cleanup are recorded in root `handoffs/2026-10-15-p13-w2-complete.md`. This authorizes
+no root integration, release, push, live change, future W6/W11/W13 behavior or Context Gate.
+
+Session continuation follows root AGENTS.md and the canonical close-session same-pane
+helper, including verified pane/thread ownership; the historical 150K/overnight driver
+procedure below does not govern current sessions.
+
 You are the orchestrating session for a multi-stage build. Your job is to **run stages, not to write
 code yourself**. Almost all reading and editing is delegated to workflow subagents so that your own
 context stays small enough to carry the whole programme.
@@ -87,6 +232,100 @@ takes the `_healthy_project` fixture must carry the marker too).
   `-m` or `-n` there.
 - Report collected count + exit code from the **full** run when a Done-when or Verification section
   asks for suite numbers — the filtered count is for your own iteration speed, not for reporting.
+
+---
+
+## The graph-engineering lane baseline
+
+`tests/graph_engineering/test_baseline_lanes.py` is not an ordinary suite member. It runs the
+real `orchestrator.main()` under instrumentation and records what each of the seven execution
+lanes costs, so that P1–P12 can show what the migration changed instead of asserting it.
+
+Two rules for anyone touching the event loop while that migration is in flight:
+
+- **A changed lane number is a finding, not a test to fix.** If
+  `.venv/bin/python scripts/graph_baseline.py --check` reports a lane differing from
+  `artifacts/graph-engineering/baseline.json`, the loop's behaviour moved. Say what moved and
+  why in `docs/PROGRESS.md`, then re-record the baseline deliberately — never re-record it to
+  make the check green.
+- **Never widen the fixture to make a lane pass.** The doubles in
+  `tests/graph_engineering/conftest.py` stand in for seams that leave the process; a double
+  that changes which *branch* the loop takes is not instrumentation, it is a different
+  program. (This already bit once: stubbing `mark_roadmap_complete` left every completed task
+  looking pending and the loop relaunched it, which read as an orchestrator defect and was
+  not one.)
+
+Assertions there deliberately pin behaviour the later phases exist to change — a script task
+paying for a diagnosis when it parks, a refused proof review costing a duplicate invocation,
+`read_state()` re-parsing `state.json` 22 times per ordinary task. Those are the baseline.
+
+## Graph qualification (P12)
+
+`tests/graph_engineering/test_end_to_end.py` drives whole tasks through the real
+`orchestrator.main` under `engineering.runner: graph`, with fixture backends only: the happy path
+per mode (subscription `agent_cli`, free model endpoint, hybrid, script), a parked run, the gate
+refusing an uncommitted tree, a widened task landing only its candidate winner, a proof review
+that rejects (the implementer reworks from its findings) or gives no verdict (fails closed), an
+accepted task graduating so its dependent runs next, controller errors,
+and the fault matrix (lost controller after the claim, writer crash mid-task, quota switch,
+controller lost inside merge before and after the swap, acceptance commit failing part-way).
+The runtime behaviour those lanes pin is in `docs/DESIGN.md` §16.
+
+`scripts/graph_qualification.py` runs `tests/graph_engineering/test_qualification.py` (the six
+catalog classes under subscription, plus one happy path each for free, hybrid and script) and
+writes `artifacts/graph-engineering/p12-qualification.json`:
+
+```bash
+.venv/bin/python scripts/graph_qualification.py --repo /tmp/maestro-graph-qualification --fixture-backends
+echo $?     # check the exit code directly: stdout ends in a pytest line
+```
+
+- It refuses a target under `~/projects`, or a non-empty directory it did not create (it drops a
+  `.maestro-graph-qualification` marker), unless `--deployment` is given. Without
+  `--fixture-backends` it exits 2: there is no real-backend mode yet.
+- The report's `summary`, `modes`, `invariants`, `fault_matrix`, `retention`, `experiments` and
+  `context_gate_mapping` are the readable part; `lanes` is raw per-attempt telemetry (model,
+  agent version, session, token split, quota windows, wall time, reset crossing, verification
+  pass/fail; unmeasurable values are `null`). Read it with jq or python, not `cat`.
+- Invariants a fixture run cannot check are listed with the tests that cover them, never
+  counted as passed.
+- **Every mode in the report is labelled unqualified** until a real pilot qualifies it, and only
+  paid subscription is planned for that. A green fixture run is wiring evidence, not production
+  readiness (P12 §3).
+- The repo's pytest `addopts` already has `-q`; adding `-q` makes a run silent.
+
+## Reliability carry-overs (P13 W8)
+
+The design is in `docs/DESIGN.md` §16 "Reliability carry-overs (P13 W8)". What an operator
+or a rollout needs:
+
+- **A stuck graph node.** `maestro ctl retry <task_id> <node_id>` or
+  `maestro ctl cancel <task_id> [<node_id>]`, from any terminal while the loop runs. The loop
+  applies it on its next poll and says on Telegram what it did or why it refused. A refusal at
+  the terminal lists the nodes that can be stopped now and exits 1. Do not edit the control
+  database.
+- **The command inbox.** `command_applied` / `command_rejected` in the journal show what the
+  loop did with each watchdog or `ctl` request. A handler error other than a refusal is
+  journaled but not sent to Telegram.
+- **Publish a new policy shape only after the readers moved.** A controller whose code cannot
+  read the shared `current` policy keeps running on what it adopted and journals
+  `model_policy_unreadable` once; it adopts after idle self-update. That is a safety net, not
+  the procedure: an incompatible publication still comes after every running project has the
+  reader (2026-10-11, W1 slice 3: a reader-4 project stopped at graph startup). A project
+  whose **adopted** revision is unreadable still stops, on purpose.
+- **A held release.** `maestro release` retries a red head once before writing
+  `~/.maestro/latest.held`; the first red is in the hook's `release.log`. A held sha is still
+  never retested: remove the held file and release again. The self-test's child has its own
+  empty `MAESTRO_HOME`, but the slow tier still starts real `maestro run` processes in the
+  shared `agents` tmux session.
+- **A paused controller does not adopt.** A controller parked in the `paused_by_user` poll
+  loop adopts a new release only after it is resumed. By design.
+- **A pilot's manifest.** Declare `pilot: {manifest: <path>}` in the pilot project's
+  `project.yaml` before the pilot starts; each idle adoption is then appended to the manifest
+  (`pilot_manifest_amended`). The pilot is not pinned.
+- **Lanes.** `tests/graph_engineering/test_w8_settlement.py`, `test_w8_probes.py`,
+  `test_w8_command_inbox.py`, `test_w8_operator_verbs.py`, and the W8 cases in
+  `test_end_to_end.py` and `test_dispatch_wiring.py`.
 
 ---
 

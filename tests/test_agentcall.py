@@ -94,6 +94,49 @@ def test_resolve_call_starts_no_process(stub):
     assert stub.driver.seen == []
 
 
+@pytest.mark.parametrize('preference,writer,spent,expected,relaxed', [
+    (['implementer'], ('antigravity', 'fixture-1'), (), 'codex', False),
+    ([], ('antigravity', 'fixture-1'), (), 'claude', False),
+    (['implementer'], ('unknown', 'unknown'), (), None, True),
+    (['implementer'], ('antigravity', 'fixture-1'), ('codex',), 'claude', True),
+])
+def test_legacy_review_routes_against_the_actual_writer_family(
+    monkeypatch, stub, caplog, preference, writer, spent, expected, relaxed
+):
+    from maestro import config, model_policy
+    from maestro.backends import catalog as cat
+    from tests.graph_engineering.conftest import fixture_cli_entry
+    entries = [fixture_cli_entry(backend_id=backend, usage_pool_id=backend,
+        model_profiles={'fixture-1': cat.ModelProfile('fixture-1', model_family=family)},
+        pair_profiles=cat.migrate_pairs(('fixture-1', 'strong', 1.0)), pairs_migrated=True)
+        for backend, family in [('claude', 'claude'), ('antigravity_cli', 'claude'),
+                                ('codex', 'gpt')]]
+    monkeypatch.setattr(cat, 'catalog_from_register', lambda *a, **kw: cat.CapabilityCatalog.of(entries))
+    monkeypatch.setattr(config, 'load_project_yaml', lambda:
+        {'roles': {'reviewer': {'independent_of': preference}}})
+    monkeypatch.setattr(model_policy, 'adopted_policy', lambda repo: (None, None))
+    monkeypatch.setattr(agentcall, 'operator_backend', lambda: 'claude')
+    monkeypatch.setattr(agentcall.quota, 'exhausted_backends', lambda: spent)
+    caplog.set_level('INFO', logger='maestro.agentcall')
+    assert agentcall.ask('judge', 'review', source_routes={
+        'implementer': [writer]}).text == 'stub answer'
+    assert len(stub.chosen) == 1
+    if expected:
+        assert stub.chosen == [expected]
+    assert ('independence_relaxed' in caplog.text) is relaxed
+
+
+def test_legacy_proof_gate_passes_the_actual_authors(monkeypatch):
+    from maestro import gates
+    seen = []
+    monkeypatch.setattr(gates.agentcall, 'ask', lambda *a, **kw:
+        seen.append(kw) or Completion('{"V1":{"pass":true}}'))
+    authors = [('antigravity', 'claude-opus-5-5-high'), ('codex', 'gpt-6.1-sol')]
+    assert gates.sonnet_review_proofs('T1', [{'id':'V1', 'kind':'manual'}],
+        {'V1': {'proof':'The fixture returned its expected result.'}}, writer_routes=authors)[0]
+    assert seen[0]['source_routes'] == {'implementer': authors}
+
+
 # ── ask ──
 
 

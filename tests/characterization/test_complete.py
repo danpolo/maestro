@@ -460,6 +460,46 @@ def test_remove_task_section_orphans_the_heading_when_the_section_opens_the_file
     assert new_content == "### T1 — Only\n\n"
 
 
+def test_remove_task_section_stops_at_the_next_task_block_without_headings(mtc):
+    """P12 pilot finding D18: DuetFlow's ROADMAP is bare consecutive yaml blocks (no
+    `### ` headings, no `---` rules). Graduating 02 ran to EOF and deleted 03..09 too."""
+    content = (
+        "# ROADMAP\n\n"
+        "```yaml\nid: T1\ntitle: First\n```\n\n"
+        "```yaml\nid: T2\ntitle: Second\n```\n\n"
+        "Prose about T2.\n\n"
+        "```yaml\nid: T3\ntitle: Third\n```\n"
+    )
+
+    new_content, title = mtc.remove_task_section(content, "T2")
+
+    assert title == "Second"
+    assert "id: T2" not in new_content
+    assert "Prose about T2." not in new_content
+    assert new_content == (
+        "# ROADMAP\n\n"
+        "```yaml\nid: T1\ntitle: First\n```\n\n"
+        "```yaml\nid: T3\ntitle: Third\n```\n"
+    )
+
+
+def test_remove_task_section_never_reaches_back_past_an_earlier_task_block(mtc):
+    """A `### ` heading above an earlier task's block is not this task's heading."""
+    content = (
+        "# ROADMAP\n\n"
+        "### Tasks\n\n"
+        "```yaml\nid: T1\ntitle: First\n```\n\n"
+        "```yaml\nid: T2\ntitle: Second\n```\n"
+    )
+
+    new_content, title = mtc.remove_task_section(content, "T2")
+
+    assert title == "Second"
+    assert "id: T1" in new_content
+    assert "### Tasks" in new_content
+    assert "id: T2" not in new_content
+
+
 def test_remove_task_section_task_not_found_returns_none_title_and_unchanged_content(mtc):
     content = "# ROADMAP\n\n### T1 — Only\n\n```yaml\nid: T1\ntitle: Only\n```\n"
 
@@ -552,6 +592,26 @@ def test_append_completed_creates_the_registry_when_absent(mtc, box):
         }
     ]
     assert ISO_Z.match(entries[0]["completed_at"])
+
+
+def test_append_completed_keeps_the_goals_a_task_served(mtc, box):
+    """P13 W11a: the stripped block's `serves:` survives, so doctor's "goal no task
+    serves" counts finished tasks too. `serves: []` is kept as said; no key, no field."""
+    mtc.append_completed("T1", "One", "docs/PROJECT.md", serves=["G1", "G3"])
+    mtc.append_completed("T2", "Two", "docs/PROJECT.md", serves=[])
+    mtc.append_completed("T3", "Three", "docs/PROJECT.md")
+    entries = {e["id"]: e for e in _read_completed(box)}
+    assert entries["T1"]["serves"] == ["G1", "G3"]
+    assert entries["T2"]["serves"] == []
+    assert "serves" not in entries["T3"]
+
+
+def test_main_records_the_served_goals_of_the_graduated_block(mtc, monkeypatch, box, runs):
+    _write_roadmap(box, "# ROADMAP\n\n### T5 — Widget\n\n```yaml\nid: T5\ntitle: Widget\n"
+                        "serves: [G2]\n```\n")
+    monkeypatch.setattr(sys, "argv", ["mark_task_complete.py", "T5", "--no-verify"])
+    assert mtc.main() == 0
+    assert _read_completed(box)[0]["serves"] == ["G2"]
 
 
 def test_append_completed_creates_parent_directories(mtc, box):

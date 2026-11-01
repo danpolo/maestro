@@ -79,9 +79,9 @@ try:
     if stage in opus_stages:
         print("claude-opus-5")
     else:
-        print("claude-sonnet-5")
+        print("claude-sonnet-5-5")
 except Exception:
-    print("claude-sonnet-5")
+    print("claude-sonnet-5-5")
 PYEOF
 }
 

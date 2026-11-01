@@ -1,0 +1,732 @@
+{
+  "exported_at": "2026-09-26T07:47:50Z",
+  "project": "/home/dan/projects/duetflow",
+  "since": "2026-09-26T07:22:00Z",
+  "summary": {
+    "tasks_attempted": 1,
+    "tasks_accepted": 0,
+    "runs": 1,
+    "attempts": 11,
+    "rework_attempts": 2,
+    "human_interventions": 1
+  },
+  "tasks": {
+    "02-collector-schema": {
+      "status": "active",
+      "runs": [
+        {
+          "run_id": "run_LisIoqe6p1xbHQj2",
+          "workflow": "wf_02-collector-schema@1",
+          "status": "failed",
+          "started_at": "2026-09-26T07:22:08Z",
+          "finished_at": "2026-09-26T07:46:16Z",
+          "attempts": [
+            {
+              "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_01",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_02",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_03",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_LisIoqe6p1xbHQj2_park_01",
+              "node_id": "park",
+              "status": "claimed",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_LisIoqe6p1xbHQj2_implementer_01",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-26T07:22:39Z",
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.283 (Claude Code)",
+              "session_id": "att_run_LisIoqe6p1xbHQj2_implementer_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 140178,
+                "context_used_pct": 14.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:22:07Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 32.0
+                  },
+                  "300": {
+                    "resets_at": 1790423400,
+                    "used_pct": 12.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 148136,
+                "context_used_pct": 15.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:23:05Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 32.0
+                  },
+                  "300": {
+                    "resets_at": 1790423400,
+                    "used_pct": 15.0
+                  }
+                }
+              },
+              "wall_time_sec": 61.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_LisIoqe6p1xbHQj2_implementer_01/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-02-collector-schema/3d7f093e-344b-48ca-bf1f-f8265d38f489.jsonl",
+                "bytes": 312947,
+                "models": [
+                  "claude-sonnet-5"
+                ],
+                "assistant_turns": 7,
+                "first_at": "2026-09-26T07:22:11.074Z",
+                "last_at": "2026-09-26T07:23:04.040Z",
+                "token_split": {
+                  "fresh_input": 14,
+                  "cache_read": 255131,
+                  "cache_write": 38904,
+                  "output": 5672
+                }
+              },
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_LisIoqe6p1xbHQj2_proof_review_01",
+              "node_id": "proof_review",
+              "status": "failed",
+              "started_at": "2026-09-26T07:24:13Z",
+              "backend_id": "codex",
+              "model_id": "gpt-5.6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.0",
+              "session_id": "att_run_LisIoqe6p1xbHQj2_proof_review_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:23:43Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 55.0
+                  },
+                  "300": {
+                    "resets_at": 1790424907,
+                    "used_pct": 1.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:27:48Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 57.0
+                  },
+                  "300": {
+                    "resets_at": 1790424907,
+                    "used_pct": 10.0
+                  }
+                }
+              },
+              "wall_time_sec": 245.0,
+              "reset_crossing": 0,
+              "failure_kind": "verification_failed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "verification_failed",
+                "failure_class": "bad_output",
+                "evidence": "review changes_requested: Distinct Plays within the same second are collapsed in duetflow/collector.py: collector.collect passes played_at through models.to_iso(), which serializes with timespec=\"seconds\". With the same track at 2026-01-01T10:00:00.100Z and 2026-01-01T10:00:00.900Z, the Collection reports and stores one row instead of two because both become 2026-01-01T10:00:00+00:00. This loses listening evidence and violates the requirement that a one-off Collection store its Plays and that idempotency be based on the full (role, track_id, played_at) natural key.; The phase's public Collection command is still a stub in duetflow/app.py. Running `python -m duetflow.app collect` prints that the command arrives in phase 02-collector-schema and exits 2, so the implemented collector cannot be run manually as docs/PLAN.md requires for this phase or later by the declared timer command.; duetflow/collector.py never checks the last successful Collection against collection.max_collection_gap_minutes and emits no warning. With an existing successful run older than 90 minutes, a Collection proceeds with empty stdout/stderr, hiding the plan's explicitly identified condition that Plays may already have been irrecoverably lost.; The new risky-file path duetflow/spotify.py:recently_played bypasses the data-endpoint response policy required by docs/PLAN.md section 5. Concrete 401, 429 with Retry-After: 1, and 500 responses each make exactly one request and immediately raise SpotifyError; there is no one-time token refresh, bounded Retry-After/quota handling, or exponential 5xx retry. Routine token expiry, rate limiting, or transient Spotify failure therefore loses that hourly Collection instead of following the mandated recovery behavior.",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_LisIoqe6p1xbHQj2_proof_review_01/impl.log",
+              "transcript": null,
+              "review": {
+                "verdict": "changes_requested",
+                "findings": [
+                  "Distinct Plays within the same second are collapsed in duetflow/collector.py: collector.collect passes played_at through models.to_iso(), which serializes with timespec=\"seconds\". With the same track at 2026-01-01T10:00:00.100Z and 2026-01-01T10:00:00.900Z, the Collection reports and stores one row instead of two because both become 2026-01-01T10:00:00+00:00. This loses listening evidence and violates the requirement that a one-off Collection store its Plays and that idempotency be based on the full (role, track_id, played_at) natural key.",
+                  "The phase's public Collection command is still a stub in duetflow/app.py. Running `python -m duetflow.app collect` prints that the command arrives in phase 02-collector-schema and exits 2, so the implemented collector cannot be run manually as docs/PLAN.md requires for this phase or later by the declared timer command.",
+                  "duetflow/collector.py never checks the last successful Collection against collection.max_collection_gap_minutes and emits no warning. With an existing successful run older than 90 minutes, a Collection proceeds with empty stdout/stderr, hiding the plan's explicitly identified condition that Plays may already have been irrecoverably lost.",
+                  "The new risky-file path duetflow/spotify.py:recently_played bypasses the data-endpoint response policy required by docs/PLAN.md section 5. Concrete 401, 429 with Retry-After: 1, and 500 responses each make exactly one request and immediately raise SpotifyError; there is no one-time token refresh, bounded Retry-After/quota handling, or exponential 5xx retry. Routine token expiry, rate limiting, or transient Spotify failure therefore loses that hourly Collection instead of following the mandated recovery behavior."
+                ],
+                "follow_ups": []
+              }
+            },
+            {
+              "attempt_id": "att_run_LisIoqe6p1xbHQj2_implementer_02",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-26T07:28:18Z",
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.283 (Claude Code)",
+              "session_id": "att_run_LisIoqe6p1xbHQj2_implementer_02",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 148136,
+                "context_used_pct": 15.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:23:05Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 32.0
+                  },
+                  "300": {
+                    "resets_at": 1790423400,
+                    "used_pct": 15.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 148136,
+                "context_used_pct": 15.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:23:05Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 32.0
+                  },
+                  "300": {
+                    "resets_at": 1790423400,
+                    "used_pct": 15.0
+                  }
+                }
+              },
+              "wall_time_sec": 93.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_LisIoqe6p1xbHQj2_implementer_02/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-02-collector-schema/50f8b4f6-a949-426a-9813-4364c4548d8e.jsonl",
+                "bytes": 306506,
+                "models": [
+                  "claude-sonnet-5"
+                ],
+                "assistant_turns": 7,
+                "first_at": "2026-09-26T07:27:50.099Z",
+                "last_at": "2026-09-26T07:28:51.075Z",
+                "token_split": {
+                  "fresh_input": 14,
+                  "cache_read": 262956,
+                  "cache_write": 37216,
+                  "output": 7214
+                }
+              },
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_LisIoqe6p1xbHQj2_proof_review_02",
+              "node_id": "proof_review",
+              "status": "failed",
+              "started_at": "2026-09-26T07:30:23Z",
+              "backend_id": "codex",
+              "model_id": "gpt-5.6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.0",
+              "session_id": "att_run_LisIoqe6p1xbHQj2_proof_review_02",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:29:52Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 57.0
+                  },
+                  "300": {
+                    "resets_at": 1790424907,
+                    "used_pct": 10.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:34:27Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 59.0
+                  },
+                  "300": {
+                    "resets_at": 1790424907,
+                    "used_pct": 25.0
+                  }
+                }
+              },
+              "wall_time_sec": 276.0,
+              "reset_crossing": 0,
+              "failure_kind": "verification_failed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "verification_failed",
+                "failure_class": "bad_output",
+                "evidence": "review changes_requested: The public Collection command polls every authorized account in duetflow/app.py:161-176, although duetflow/auth.py:24-29 and docs/PLAN.md section 5 grant user-read-recently-played only to role B. With the intended two-account setup, role A's recently-played request returns 403, cmd_collect marks the run failed, and `duetflow collect` exits 1 every time; if role A instead raises InvalidGrant, the ordered loop aborts before role B is polled and loses the listening evidence this phase exists to preserve.; The 401 recovery callback in duetflow/app.py:169-172 discards refresh-token rotation: when refresh_access_token returns TokenGrant(access='new-access', refresh='new-refresh', ...), it persists only the access token and expiry, leaving the old refresh token in accounts. The next access refresh can therefore present an obsolete credential and stop Collection or force premature re-consent; this is especially unsafe in the new risky Spotify auth/retry path.; The risky-file retry policy in duetflow/spotify.py:201-208 ignores Retry-After for QUOTA_EXCEEDED responses. A 429 carrying Retry-After: 1 and body {\"error\":{\"reason\":\"QUOTA_EXCEEDED\"}} makes one request, sleeps zero seconds, and fails immediately, even though docs/PLAN.md section 5 requires Retry-After to be honored for 429 values within the configured bound while distinguishing quota exhaustion from an ordinary rate limit. tests/test_collector.py:104-109 currently codifies this contrary behavior as fail-fast.",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_LisIoqe6p1xbHQj2_proof_review_02/impl.log",
+              "transcript": null,
+              "review": {
+                "verdict": "changes_requested",
+                "findings": [
+                  "The public Collection command polls every authorized account in duetflow/app.py:161-176, although duetflow/auth.py:24-29 and docs/PLAN.md section 5 grant user-read-recently-played only to role B. With the intended two-account setup, role A's recently-played request returns 403, cmd_collect marks the run failed, and `duetflow collect` exits 1 every time; if role A instead raises InvalidGrant, the ordered loop aborts before role B is polled and loses the listening evidence this phase exists to preserve.",
+                  "The 401 recovery callback in duetflow/app.py:169-172 discards refresh-token rotation: when refresh_access_token returns TokenGrant(access='new-access', refresh='new-refresh', ...), it persists only the access token and expiry, leaving the old refresh token in accounts. The next access refresh can therefore present an obsolete credential and stop Collection or force premature re-consent; this is especially unsafe in the new risky Spotify auth/retry path.",
+                  "The risky-file retry policy in duetflow/spotify.py:201-208 ignores Retry-After for QUOTA_EXCEEDED responses. A 429 carrying Retry-After: 1 and body {\"error\":{\"reason\":\"QUOTA_EXCEEDED\"}} makes one request, sleeps zero seconds, and fails immediately, even though docs/PLAN.md section 5 requires Retry-After to be honored for 429 values within the configured bound while distinguishing quota exhaustion from an ordinary rate limit. tests/test_collector.py:104-109 currently codifies this contrary behavior as fail-fast."
+                ],
+                "follow_ups": []
+              }
+            },
+            {
+              "attempt_id": "att_run_LisIoqe6p1xbHQj2_implementer_03",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-26T07:35:00Z",
+              "backend_id": "codex",
+              "model_id": "gpt-5.6-terra",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.0",
+              "session_id": "att_run_LisIoqe6p1xbHQj2_implementer_03",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:34:29Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 59.0
+                  },
+                  "300": {
+                    "resets_at": 1790424907,
+                    "used_pct": 25.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:38:04Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 60.0
+                  },
+                  "300": {
+                    "resets_at": 1790424907,
+                    "used_pct": 29.0
+                  }
+                }
+              },
+              "wall_time_sec": 216.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_LisIoqe6p1xbHQj2_implementer_03/impl.log",
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_LisIoqe6p1xbHQj2_proof_review_03",
+              "node_id": "proof_review",
+              "status": "failed",
+              "started_at": "2026-09-26T07:39:07Z",
+              "backend_id": "codex",
+              "model_id": "gpt-5.6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.0",
+              "session_id": "att_run_LisIoqe6p1xbHQj2_proof_review_03",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:38:36Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 60.0
+                  },
+                  "300": {
+                    "resets_at": 1790424907,
+                    "used_pct": 29.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:42:41Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 62.0
+                  },
+                  "300": {
+                    "resets_at": 1790424907,
+                    "used_pct": 43.0
+                  }
+                }
+              },
+              "wall_time_sec": 245.0,
+              "reset_crossing": 0,
+              "failure_kind": "verification_failed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "verification_failed",
+                "failure_class": "bad_output",
+                "evidence": "review changes_requested: duetflow/collector.py:15-20 still truncates the supplied played_at natural-key value by serializing with timespec=\"milliseconds\". With two same-track Plays at 2026-01-01T10:00:00.1001Z and 2026-01-01T10:00:00.1009Z, collector.collect reports and stores one row at 2026-01-01T10:00:00.100+00:00 instead of both Plays. This loses listening evidence, violates the one-off Collection requirement and I8's full (role, track_id, played_at) key, and only partially fixes round 1's blocking timestamp-collision finding.",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_LisIoqe6p1xbHQj2_proof_review_03/impl.log",
+              "transcript": null,
+              "review": {
+                "verdict": "changes_requested",
+                "findings": [
+                  "duetflow/collector.py:15-20 still truncates the supplied played_at natural-key value by serializing with timespec=\"milliseconds\". With two same-track Plays at 2026-01-01T10:00:00.1001Z and 2026-01-01T10:00:00.1009Z, collector.collect reports and stores one row at 2026-01-01T10:00:00.100+00:00 instead of both Plays. This loses listening evidence, violates the one-off Collection requirement and I8's full (role, track_id, played_at) key, and only partially fixes round 1's blocking timestamp-collision finding."
+                ],
+                "follow_ups": []
+              }
+            },
+            {
+              "attempt_id": "att_run_LisIoqe6p1xbHQj2_diagnose_01",
+              "node_id": "diagnose",
+              "status": "failed",
+              "started_at": "2026-09-26T07:43:14Z",
+              "backend_id": "codex",
+              "model_id": "gpt-5.6-sol",
+              "effort": "high",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.0",
+              "session_id": "att_run_LisIoqe6p1xbHQj2_diagnose_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:42:44Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 62.0
+                  },
+                  "300": {
+                    "resets_at": 1790424907,
+                    "used_pct": 43.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-26T07:46:19Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 62.0
+                  },
+                  "300": {
+                    "resets_at": 1790424907,
+                    "used_pct": 47.0
+                  }
+                }
+              },
+              "wall_time_sec": 217.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_LisIoqe6p1xbHQj2_diagnose_01/impl.log",
+              "transcript": null,
+              "review": null
+            }
+          ]
+        }
+      ],
+      "rework_attempts": 2,
+      "reopens": 0,
+      "review_follow_ups": [],
+      "verification_evidence": [
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:23:10Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:23:12Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:23:12Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:23:13Z"
+        },
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:29:20Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:29:20Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:29:20Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:29:21Z"
+        },
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:38:04Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:38:04Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:38:05Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_LisIoqe6p1xbHQj2_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-26T07:38:05Z"
+        }
+      ],
+      "acceptance_decisions": [],
+      "human_interventions": [],
+      "attempt_wall_time_sec_sum": 1353.0,
+      "tokens_sum": {
+        "fresh_input": 28,
+        "cache_read": 518087,
+        "cache_write": 76120,
+        "output": 12886
+      }
+    }
+  },
+  "project_human_interventions": [
+    {
+      "ts": "2026-09-26T07:47:10Z",
+      "event": "control_halt",
+      "agent": "B5.1-orchestrator",
+      "session_id": "",
+      "detail": "halted via `maestro ctl halt`"
+    }
+  ]
+}

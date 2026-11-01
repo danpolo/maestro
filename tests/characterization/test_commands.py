@@ -35,7 +35,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from maestro import bootstrap
+
 pytestmark = pytest.mark.maestro_module("hitl.commands")
+
+# /ask and /redo start their helper through the pinned launcher (`maestro/pinned.py`), so a
+# tmux window runs the controller's checkout and not the venv's editable install.
+PINNED_LAUNCHER = bootstrap.running_root() / "maestro" / "pinned.py"
 
 
 # The reference's operator-facing strings are emoji-prefixed. Spelled out by name so the
@@ -225,6 +231,14 @@ def control(subject, sandbox, monkeypatch):
     monkeypatch.setattr(subject, "notify_telegram", lambda msg: sent.append(msg))
 
     box = SimpleNamespace(sent=sent, in_flight=[], stdout='{"ok": true, "result": []}')
+    box.fetches = []
+    def fetch(offset, long_poll=0, limit=100):
+        box.fetches.append((offset, long_poll, limit))
+        body = json.loads(box.stdout)
+        if not body.get('ok'):
+            raise RuntimeError('fetch failed')
+        return body.get('result') or []
+    monkeypatch.setattr(subject, '_fetch_updates', fetch)
     fake = _fake_subprocess(monkeypatch, subject, lambda: box.stdout)
     box.calls = fake.calls
 
@@ -272,14 +286,10 @@ def test_poll_does_nothing_at_all_without_an_alert_chat_id(subject, sandbox, con
     assert control.sent == []
 
 
-def test_poll_fetches_updates_with_a_bounded_non_blocking_curl(subject, sandbox, control):
+def test_poll_reads_local_delivery_without_a_network_consumer(subject, sandbox, control):
     control.deliver()
-    (args, kwargs), = control.calls
-    assert args[0][:4] == ["curl", "-s", "--max-time", "5"]
-    assert args[0][-1] == (
-        "https://api.telegram.org/botT0KEN/getUpdates?offset=0&timeout=0&limit=10"
-    )
-    assert kwargs == {"capture_output": True, "text": True, "timeout": 10}
+    assert control.calls == []
+    assert control.fetches == [(0, 0, 100)]
 
 
 def test_poll_advances_the_getupdates_offset_past_the_last_update_seen(subject, sandbox, control):
@@ -287,7 +297,7 @@ def test_poll_advances_the_getupdates_offset_past_the_last_update_seen(subject, 
     control.deliver(_update("/status", uid=100), _update("/status", uid=105))
     assert control.offset() == 106
     control.deliver()
-    assert control.curl_urls()[-1].endswith("?offset=106&timeout=0&limit=10")
+    assert control.fetches[-1] == (0, 0, 100)  # durable files, including failed deliveries
 
 
 def test_poll_swallows_a_non_json_getupdates_body_and_leaves_the_offset_alone(
@@ -409,17 +419,16 @@ def test_poll_hands_the_freetext_handler_the_original_casing_not_the_lowered_cop
     assert routed == ["Use the CSV Export"]
 
 
-def test_poll_swallows_a_handler_exception_and_abandons_every_later_update(
+def test_poll_isolates_a_handler_exception_and_continues_later_updates(
     subject, sandbox, control
 ):
-    """There is no per-update try/except: `read_state` blowing up on a missing state.json
-    kills the whole batch, and the offset is left past the *failing* update, so the
-    unprocessed remainder is never re-delivered."""
+    """P13 W1: a failing handler leaves its durable delivery intact and the batch
+    continues, so a later /halt is still executed."""
     assert not _state_json(subject, sandbox).exists()
     control.deliver(_update("/pause", uid=100), _update("/halt", uid=101))
-    assert control.sent == []
-    assert control.offset() == 101
-    assert not _halt_file(subject, sandbox).exists()
+    assert len(control.sent) == 1 and 'HALT' in control.sent[0]
+    assert control.offset() == 102
+    assert _halt_file(subject, sandbox).exists()
 
 
 # =======================================================================================
@@ -434,7 +443,7 @@ def test_help_commands_and_start_all_print_the_same_control_sheet(
     control.deliver(_update(verb))
     (sheet,) = control.sent
     assert sheet.startswith(f"{MAESTRO} Maestro controls")
-    for documented in ("/status", "/progress", "/pause", "/resume", "/halt", "/hitl on|off",
+    for documented in ("/status", "/progress", "/pause", "/resume", "/halt", "/hitl [project] on|off",
                        "/waiting", "/approve", "/fix", "/ask", "/redo", "/reject",
                        "/unpark", "/manual", "/detail", "/help"):
         assert documented in sheet
@@ -449,11 +458,8 @@ def test_help_advertises_backend_in_the_extracted_package_and_not_in_the_referen
     has no such verb and must not claim one."""
     control.deliver(_update(verb))
     (sheet,) = control.sent
-    assert (
-        "/backend <name> [task_id] — pick the agent backend for new launches, "
-        "or move one in-flight task to it now (same worktree, uncommitted "
-        "work kept)\n"
-    ) in sheet
+    assert '/backend [project] <name|auto> [task_id]' in sheet
+    assert 'Pick a launch backend or move one in-flight task' in sheet
 
 
 def test_status_reports_phase_in_flight_ids_and_the_halted_and_paused_flags(
@@ -851,6 +857,19 @@ def test_show_waiting_truncates_parked_at_to_its_date_prefix(subject, sandbox, n
         "9": {"task_id": "P14", "parked_at": "2026-07-04T23:59:59.123456+00:00"}})
     subject._show_waiting()
     assert notifier == ["*1 task(s) waiting for your review:*\n• ID 9: `P14` (parked 2026-07-04)"]
+
+
+def test_show_waiting_and_status_list_tasks_paused_on_dans_decision(subject, sandbox, notifier):
+    """D26: a task paused on an agent's spec question is listed under its own header."""
+    _put_state(subject, sandbox, waiting_on_dan={}, awaiting_dan_questions={
+        "TASK-006": {"run_id": "r1", "request_ids": ["dq-TASK-006-a", "dq-TASK-006-b"],
+                     "title": "writer", "requested_at": "2026-09-28T10:00:00Z", "sent": True}})
+    subject._show_waiting()
+    status = subject._status_text()
+    line = ("• TASK-006: 2 decision questions — tap an option on the ❓ message, "
+            "or reply to it with your own answer")
+    assert notifier == ["*1 task(s) waiting for your decision on a question:*\n" + line]
+    assert status.endswith("\n❓ Waiting for your decision:\n" + line)
 
 
 def test_show_waiting_raises_on_a_waiting_entry_that_never_recorded_parked_at(
@@ -1263,8 +1282,9 @@ def test_handle_ask_writes_a_request_file_and_launches_a_dedicated_tmux_window(
     assert payload["log"] == str(request.with_name(request.name[:-5] + ".answer.log"))
 
     (args, kwargs), = launcher
-    assert args[0].startswith("tmux new-window -t agents -n ask-P12C ")
-    assert "-m maestro.hitl.ask" in args[0]
+    assert args[0] == (
+        f"tmux new-window -t agents -n ask-P12C "
+        f"'cd {subject.REPO} && {subject.VENV_PYTHON} {PINNED_LAUNCHER} maestro.hitl.ask {request}'")
     assert kwargs == {"shell": True, "check": True}
 
 
@@ -1412,8 +1432,10 @@ def test_handle_redo_writes_a_request_file_and_launches_the_redo_helper(
     assert payload["worktree"] == str(worktree)
 
     (args, kwargs), = launcher
-    assert args[0].startswith("tmux new-window -t agents -n redo-P12C ")
-    assert "maestro.selfheal.redo" in args[0]
+    assert args[0] == (
+        f"tmux new-window -t agents -n redo-P12C "
+        f"'cd {subject.REPO} && {subject.VENV_PYTHON} {PINNED_LAUNCHER} "
+        f"maestro.selfheal.redo {request}'")
     assert kwargs == {"shell": True, "check": True}
 
 
@@ -1579,6 +1601,27 @@ def test_process_approve_reports_an_unknown_dan_id(subject, sandbox, notifier, m
     subject._process_approve("7", [])
     assert notifier == ["No pending item with ID 7."]
     assert merge_stubs.merged == []
+
+
+def test_process_approve_keeps_merged_task_pending_until_operator_pass(
+    subject, sandbox, notifier, merge_stubs, tmp_path, monkeypatch
+):
+    from maestro import parking
+    from maestro.hitl import verify
+
+    task = {'id': 'P8B2', 'title': 'Rebuild', 'verifications': [
+        {'id': 'D', 'kind': 'dan', 'check': 'phone'}]}
+    monkeypatch.setattr(parking, 'get_task_by_id', lambda t: task)
+    monkeypatch.setattr(parking, 'read_state', subject.read_state)
+    monkeypatch.setattr(parking, 'write_state', subject.write_state)
+    monkeypatch.setattr(verify, 'DanVerificationChannel', lambda: SimpleNamespace(poll=lambda **kw: None))
+    _put_state(subject, sandbox, waiting_on_dan={'7': _parked_entry(tmp_path)})
+    subject._process_approve('7', [])
+    assert len(merge_stubs.merged) == 1
+    assert not merge_stubs.graduated and not merge_stubs.phase_reports
+    waiting = subject.read_state()['waiting_on_dan']
+    assert len(waiting) == 1
+    assert next(iter(waiting.values()))['kind'] == 'operator-verification'
 
 
 def test_process_approve_hands_a_manual_action_item_to_the_manual_finalizer(
@@ -1865,3 +1908,96 @@ def test_run_status_does_not_shield_the_caller_from_a_launch_failure(
         PIPE=subprocess.PIPE, DEVNULL=subprocess.DEVNULL))
     with pytest.raises(FileNotFoundError):
         subject.run_status()
+
+
+# =======================================================================================
+# /verify and /waiting — `kind: dan` checks awaiting Dan before merge (graph runner)
+# =======================================================================================
+
+
+def _awaiting_verification(subject, sandbox, monkeypatch):
+    from maestro.hitl import telegram, verify
+
+    questions = sandbox.orch_dir / "questions"
+    monkeypatch.setattr(telegram, "QUESTIONS_DIR", questions)
+    monkeypatch.setattr(telegram, "append_journal", lambda *a, **k: None)
+    req = verify.request_id("T7", "abcdef1234567890")
+    questions.mkdir(parents=True, exist_ok=True)
+    (questions / f"{req}.json").write_text(json.dumps(
+        {"id": req, "type": "verification", "status": "pending", "task_id": "T7",
+         "options": ["Approve", "Reject"]}), encoding="utf-8")
+    _put_state(subject, sandbox, awaiting_dan_verification={"T7": {
+        "run_id": "run_1", "snapshot": "abcdef1234567890", "request_id": req,
+        "title": "t", "requested_at": "x", "sent": True}})
+    return questions / f"{req}.answer"
+
+
+def test_help_advertises_verify(subject, sandbox, control):
+    control.deliver(_update("/help"))
+    (sheet,) = control.sent
+    assert '/verify [project] <id> approve|reject|done|redo|abandon [reason]' in sheet
+
+
+def test_verify_reject_records_the_reason_with_its_case_kept(
+    subject, sandbox, control, monkeypatch
+):
+    answer = _awaiting_verification(subject, sandbox, monkeypatch)
+
+    control.deliver(_update("/verify T7 reject The Banner is BLUE"))
+
+    assert answer.read_text(encoding="utf-8").strip() == "Reject: The Banner is BLUE"
+    (reply,) = control.sent
+    assert reply.startswith("✅ Recorded your rejection of T7")
+
+
+def test_waiting_lists_a_dan_verification_even_with_nothing_parked(
+    subject, sandbox, control, monkeypatch
+):
+    _awaiting_verification(subject, sandbox, monkeypatch)
+
+    control.deliver(_update("/waiting"))
+
+    (msg,) = control.sent
+    assert "T7: verify snapshot abcdef123456" in msg
+    assert "/verify T7 approve" in msg
+
+
+def test_ask_reads_pending_graph_verification_without_answering_it(
+    subject, sandbox, notifier, launcher, monkeypatch, tmp_path
+):
+    answer = _awaiting_verification(subject, sandbox, monkeypatch)
+    request = answer.with_suffix(".json")
+    record = json.loads(request.read_text())
+    tree = tmp_path / "verified-tree"
+    tree.mkdir()
+    record.update(question="Run explain TRACK to check attribution", run_id="run_1",
+                  snapshot="abcdef1234567890", worktree=str(tree))
+    request.write_text(json.dumps(record))
+    from maestro.control.store import ControlStore
+    from maestro.control.artifacts import ArtifactStore
+    with ControlStore.open_controller(subject.REPO / ".orchestrator/control.sqlite3") as store:
+        store.conn.execute("PRAGMA foreign_keys=OFF")
+        store.conn.execute("INSERT INTO task_runs VALUES ('run_1','T7','wf',1,'running','now',NULL)")
+        ref = ArtifactStore(subject.REPO / ".orchestrator/artifacts", store).put_bytes(
+            b'{"task_id":"T7","task_notes":"Inspect the Pin record"}', type="context_manifest")
+        store.conn.execute("INSERT INTO attempts (attempt_id,run_id,node_id,status,manifest_artifact_id) "
+                           "VALUES ('att_1','run_1','implementer','succeeded',?)", (ref.artifact_id,))
+    subject._handle_ask("t7 explain shows plays, why?")
+    paths = list(_ask_dir(subject, sandbox).glob("T7-*.json"))
+    assert len(paths) == 1
+    payload = json.loads(paths[0].read_text())
+    assert payload["graph_request"]["run_id"] == "run_1"
+    assert payload["action"] == "Run explain TRACK to check attribution"
+    assert payload["worktree"] == str(tree)
+    assert not answer.exists()
+    assert len(launcher) == 1
+
+
+def test_ask_refuses_an_already_answered_graph_request(
+    subject, sandbox, notifier, launcher, monkeypatch
+):
+    answer = _awaiting_verification(subject, sandbox, monkeypatch)
+    answer.write_text("Approve")
+    subject._handle_ask("T7 what next?")
+    assert not launcher
+    assert not list(_ask_dir(subject, sandbox).glob("*.json"))

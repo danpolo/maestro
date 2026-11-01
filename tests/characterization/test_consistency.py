@@ -602,7 +602,7 @@ def test_questions_schema_duplicate_ids_flagged(crc, box):
     assert problems == ["(f) task T2 has duplicate question id 'q1'"]
 
 
-def test_questions_schema_questions_and_dispatch_manual_conflict(crc, box):
+def test_questions_schema_allows_manual_task_prerequisites(crc, box):
     _write_roadmap(
         box,
         "```yaml\nid: T3\nstatus: pending\ndispatch: manual\n"
@@ -610,10 +610,7 @@ def test_questions_schema_questions_and_dispatch_manual_conflict(crc, box):
     )
     problems: list[str] = []
     crc.check_questions_schema(problems)
-    assert problems == [
-        "(f) task T3 sets both `questions:` and `dispatch: manual` — "
-        "Dan either answers a question or performs the task, not both"
-    ]
+    assert problems == []
 
 
 def test_questions_schema_missing_id_flagged_by_index(crc, box):

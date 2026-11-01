@@ -67,6 +67,7 @@ __all__ = [
     "ExitKind",
     "ExitVerdict",
     "WindowUsage",
+    "TokenSplit",
     "Usage",
     "AgentBackend",
     "to_usage_json",
@@ -107,6 +108,9 @@ class LaunchSpec:
     worktree: Path
     system_prompt_file: Optional[Path] = None
     sandbox: Optional[str] = None
+    #: Register-verified controls for the selected model/effort pair.
+    effort_args: Sequence[str] = ()
+    effort_config: Sequence[tuple[str, str]] = ()
 
 
 @dataclass(frozen=True)
@@ -141,6 +145,16 @@ class CompletionSpec:
     log_file: Optional[Path] = None
     writable: bool = False
     add_dirs: Sequence[Path] = ()
+    #: A binding's effort, in the backend's own vocabulary (`router.dispatch_plan`).
+    #: `effort_args` are appended as CLI flags; `effort_config` as config overrides.
+    #: Both empty means "no effort requested", which every driver already handles.
+    effort_args: Sequence[str] = ()
+    effort_config: Sequence[tuple[str, str]] = ()
+    #: A session id the caller wants this *fresh* call to run under, so the session's own
+    #: record (a transcript) can be found afterwards to count the call's tokens. Empty
+    #: (the default) names none. A driver whose CLI cannot choose its session id ignores
+    #: it, and `resume_id` wins over it: a resumed call already has a session.
+    session_id: str = ""
 
 
 @dataclass(frozen=True)
@@ -202,6 +216,21 @@ class WindowUsage:
 
 
 @dataclass(frozen=True)
+class TokenSplit:
+    """One turn's tokens, split the way a context-management decision needs them.
+
+    `fresh_input + cache_read + (cache_write or 0)` is the input side that
+    `Usage.context_total_input_tokens` sums. A count the CLI does not expose stays
+    `None` and is never estimated (G6).
+    """
+
+    fresh_input: Optional[int] = None
+    cache_read: Optional[int] = None
+    cache_write: Optional[int] = None
+    output: Optional[int] = None
+
+
+@dataclass(frozen=True)
 class Usage:
     """A usage sample, normalised across backends.
 
@@ -234,6 +263,31 @@ class Usage:
     #: file cannot honour. A driver that can attribute a reading must return it from
     #: `usage()` directly.
     session_id: str = ""
+    #: The per-turn split behind `context_total_input_tokens`, when the driver can read
+    #: one; `None` otherwise. Like `session_id`, not part of the `usage.json` document.
+    token_split: Optional[TokenSplit] = None
+    #: Per-quota-pool windows, keyed by the catalog's `usage_pool_id` and then, like
+    #: `windows`, by `window_minutes` (G5). A backend whose account holds more than one
+    #: quota — agy bills the third-party models it serves against `antigravity-3p`, not
+    #: the Gemini pools — reports each pool here so admission can pause the exhausted one
+    #: without pausing the rest. Empty means "this driver measures no per-pool split".
+    #:
+    #: `windows` stays the driver's single headline account view and is what
+    #: `max_used_pct` and the thresholds read; `pools` never feeds it, because merging
+    #: two independent quotas into one window would report pressure the routed pool does
+    #: not have. Deliberately **not** part of the `usage.json` document, for the same
+    #: reason `session_id` is not: that file is one global snapshot shared with the
+    #: operator's statusline sampler, which knows nothing of catalog pool ids.
+    pools: Mapping[str, Mapping[int, WindowUsage]] = field(default_factory=dict)
+    #: The agent CLI version that produced this reading, when the CLI reports it.
+    cli_version: Optional[str] = None
+    #: Where the sample came from (`statusline_usage_json`, `claude_oauth_usage_api`,
+    #: `codex_app_server`, `codex_rollout`), so a reader can tell a fresh account read
+    #: from a carried-forward snapshot. `None` for a driver that does not say.
+    source: Optional[str] = None
+    #: Why this sample carries no windows, when a read was attempted and failed. A reading
+    #: with an `error` is "not measurable", never "no pressure" (G6).
+    error: Optional[str] = None
 
     def window(self, window_minutes: int) -> Optional[WindowUsage]:
         """The window of that exact duration, or `None` when the account has none."""
@@ -277,7 +331,7 @@ class AgentBackend(Protocol):
     def launch(self, spec: LaunchSpec) -> Handle:
         """Start an agent for `spec` and return its handle."""
 
-    def resume(self, handle: Handle, prompt: str) -> Handle:
+    def resume(self, handle: Handle, prompt: str, *, spec: Optional[LaunchSpec] = None) -> Handle:
         """Continue an existing session with `prompt`, returning the new handle."""
 
     def complete(self, spec: CompletionSpec) -> Completion:

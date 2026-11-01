@@ -22,6 +22,7 @@ import os
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from collections.abc import Callable
 from typing import Literal, Optional
 
 #: The adapter kinds DESIGN.md §4's table defines. Not enforced by `run_adapter` itself
@@ -59,6 +60,78 @@ class AdapterResult:
     exit_code: Optional[int] = None
     detail: str = ""
     raw_tail: Optional[str] = None
+
+
+# ── effect classes and postcondition probes (`[P4]`, `A05`) ──────────────────────────
+#
+# `04_VALIDATION_STAGING_AND_ACCEPTANCE.md` §4 makes every adapter declare what kind of
+# effect it has, because that is what decides whether a crashed invocation may simply be
+# run again. Until now the answer was implicitly "yes, always": `run_adapter` is a plain
+# subprocess call and a caller that timed out had nothing to consult before retrying.
+# Five of the six kinds are genuinely repeatable — they measure. `deploy` is not, and
+# blindly re-running it is a duplicate deployment.
+
+#: `kind -> effect_class`, in the vocabulary of `maestro.validation.EFFECT_CLASSES`.
+ADAPTER_EFFECT_CLASSES: dict[str, str] = {
+    "test": "repeatable_local_check",
+    "eval": "repeatable_local_check",
+    "smoke": "repeatable_local_check",
+    "healthcheck": "repeatable_local_check",
+    "latency": "repeatable_local_check",
+    "deploy": "external_side_effect",
+}
+
+#: Postcondition probes, registered by kind. Nothing is registered by default: a probe
+#: maestro invented for a project's deployment would be a guess about that project's
+#: external state, and a wrong probe is worse than no probe — it authorises a retry.
+_PROBES: dict[str, Callable[[dict], bool]] = {}
+
+
+def effect_class(kind: str) -> str:
+    """This adapter kind's effect class. Unknown kinds fail closed as external."""
+    return ADAPTER_EFFECT_CLASSES.get(kind, "external_side_effect")
+
+
+def register_probe(kind: str, probe: Callable[[dict], bool]) -> None:
+    """Declare a postcondition probe for `kind` (`§4.1`).
+
+    `probe(context) -> bool` answers one question and only one: *did the effect already
+    happen?* It must not perform the effect, and it must return False rather than raise
+    when it cannot tell — `retry_allowed` treats an unanswered probe and a negative one
+    the same way, which is to refuse.
+    """
+    _PROBES[kind] = probe
+
+
+def probe_for(kind: str) -> Optional[Callable[[dict], bool]]:
+    return _PROBES.get(kind)
+
+
+def retry_allowed(kind: str, *, context: Optional[dict] = None) -> tuple[bool, str]:
+    """`[INV-A05]` for one adapter kind. Delegates the rule; supplies the declaration.
+
+    Imported lazily because `maestro.validation` sits above this module: adapters are one
+    of the things validation runs, so a top-level import here would be a cycle.
+    """
+    from maestro.validation import retry_allowed as _rule
+
+    probe = probe_for(kind)
+    bound = (lambda: probe(context or {})) if probe is not None else None
+    return _rule(effect_class(kind), probe=bound)
+
+
+def adapter_source(project_root: Path, kind: str) -> bytes:
+    """The adapter's own bytes, for `command_hash` (`§2.1`).
+
+    An adapter edited between two runs is a different check with the same argv, so its
+    contents are part of the command identity. A missing adapter hashes as empty, which
+    still differs from any real file.
+    """
+    path = adapter_path(project_root, kind)
+    try:
+        return path.read_bytes()
+    except OSError:
+        return b""
 
 
 def adapter_path(project_root: Path, kind: str) -> Path:

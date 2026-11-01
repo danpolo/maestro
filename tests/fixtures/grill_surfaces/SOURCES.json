@@ -1,0 +1,47 @@
+{
+  "drive/GOALS-FORMAT.md": {
+    "drive_id": "1LqJPZVKE7dreV8dCXQ6s8Ucst4fgJVoXcoJKb1RKrVw",
+    "drive_modified": "2026-10-22T09:27:45.186Z",
+    "sha256": "20fe4c5615ca46110d81e639da6a5ece0067d70dffbad888210aeb03e2d035af",
+    "source": "gdrive:ChatGPT/grill-me-framework/GOALS-FORMAT.md"
+  },
+  "drive/PLAN-FORMAT.md": {
+    "drive_id": "161_o_zPMIVizEahymL-V6wOnlmeebzp5JoPfQDaSzyE",
+    "drive_modified": "2026-10-20T23:49:32.462Z",
+    "sha256": "7efdc4880e3ebcc9a27a5ee06877f0632e258c30c5ad06bab422a51b268056de",
+    "source": "gdrive:ChatGPT/grill-me-framework/PLAN-FORMAT.md"
+  },
+  "drive/SKILL.md": {
+    "drive_id": "1dv_TNLAWxqjXai6HoxhM5Ksr0iWdXUiDUfm4SkqDa2k",
+    "drive_modified": "2026-10-20T23:48:54.474Z",
+    "sha256": "051521391354b10f102864b453d483139dca56f652136e285738f45fc1399d1d",
+    "source": "gdrive:ChatGPT/grill-me-framework/SKILL.md"
+  },
+  "grill-me/GOALS-FORMAT.md": {
+    "agent_skills_commit": "a588a24bfd559d08355154893f488683de4d26fe",
+    "sha256": "7e375c7ca24af7d853c10732dcacfd6901bc69db7a172e7453dcd10ee1610434",
+    "source": "/home/dan/agent-skills/skills/grill-me/GOALS-FORMAT.md"
+  },
+  "grill-me/PLAN-FORMAT.md": {
+    "agent_skills_commit": "504b2325df151db742097581a9ec09230fde4a0e",
+    "sha256": "7efdc4880e3ebcc9a27a5ee06877f0632e258c30c5ad06bab422a51b268056de",
+    "source": "/home/dan/agent-skills/skills/grill-me/PLAN-FORMAT.md"
+  },
+  "grill-me/SKILL.md": {
+    "agent_skills_commit": "5591e43355ca0141d4b9fb6a217474c06f082338",
+    "sha256": "2822c7e08c734180ef47964a4027cf9354f7b90399a7912b48ca6ec38748ef2f",
+    "source": "/home/dan/agent-skills/skills/grill-me/SKILL.md"
+  },
+  "setup/claude/SKILL.md": {
+    "agent_skills_commit": "253cdf98dcefc83058198baa75fe91af67d18d00",
+    "sha256": "f336771fb8bec1a18a045b518367fe41ff67d7bcbc144223c5a15aa040b173e9",
+    "source": "/home/dan/agent-skills/skills/maestro-setup/SKILL.md",
+    "target": "maestro/skills/claude/SKILL.md"
+  },
+  "setup/codex/maestro-setup.md": {
+    "agent_skills_commit": "253cdf98dcefc83058198baa75fe91af67d18d00",
+    "sha256": "c587633b90303204b91c3dd899c7dcc142d76607f687385c38600870ea7e8c15",
+    "source": "/home/dan/agent-skills/skills/maestro-setup/SKILL.md (body, for Codex)",
+    "target": "maestro/skills/codex/maestro-setup.md"
+  }
+}

@@ -76,9 +76,11 @@ from maestro.backends.base import Handle, LaunchSpec, Usage
 from maestro.config import threshold
 from maestro.hitl.telegram import notify_telegram
 from maestro.implementer import SYS_PROMPT, brief_with_profile
+from maestro.model_policy import with_task_models
 from maestro.paths import Paths
 from maestro.state import append_journal, now_iso, read_state, write_state
 from maestro.worktree import _kill_tmux_window, tmux_window_exists, worktree_path_for
+from maestro.workflows import handlers as _facade
 
 __all__ = [
     "REPO",
@@ -135,7 +137,11 @@ WORKSPACES = _PATHS.workspaces
 #: workspace. It is deliberately not one of the terminal sentinels the orchestrator's
 #: reconcile loop reads (`DONE` / `FAILED` / `PAUSED`), so writing it cannot be mistaken
 #: for a task outcome.
-SWITCH_SENTINEL = "SWITCH"
+#: `[P3]`: the name comes from the compatibility facade, which is now the single place
+#: the legacy sentinel vocabulary is declared. The value is unchanged — this is the same
+#: file the implementer is told to watch for — but a rename can no longer happen in one
+#: module and not the other.
+SWITCH_SENTINEL = _facade.SWITCH_SENTINEL
 
 #: Where an implementer is asked to leave its handover notes, and where the handoff brief
 #: reads them back from.
@@ -280,8 +286,9 @@ class SwitchDeps:
     session_id_factory: Optional[Callable[[str], str]] = None
 
     def make_driver(self, name: str):
-        factory = self.driver_factory or registry.get_backend
-        return factory(name)
+        if self.driver_factory is not None:
+            return self.driver_factory(name)
+        return registry.launch_driver_class(name)()
 
     def record(self, event: str, detail: str, session_id: str = "") -> None:
         """Journal, best effort: a failed write must not abandon a half-done switch."""
@@ -781,6 +788,7 @@ def context_crossed(
     model: str = "",
     *,
     resolve: Optional[Callable[[str], Any]] = None,
+    backend: Optional[str] = None,
 ) -> bool:
     """True when a sample says this session's *own context* is time to rotate (D4).
 
@@ -805,6 +813,8 @@ def context_crossed(
 
     `resolve` is the seam, defaulting to `limits.resolve`; callers that check several
     entries in one pass memoise through it rather than re-parsing the tables per entry.
+    `backend` scopes the name to that harness's rows (`limits.scoped_model_name`) before
+    it reaches the seam, so an agy session is measured against its `agy/` row.
     """
     if usage is None:
         return False
@@ -815,7 +825,7 @@ def context_crossed(
     if not name:
         return False
     try:
-        row = (resolve or limits.resolve)(name)
+        row = (resolve or limits.resolve)(limits.scoped_model_name(name, backend))
     except Exception:
         return False
     if row is None:
@@ -852,6 +862,7 @@ def _replace_in_flight(old_session_id: str, entry: dict, deps: SwitchDeps) -> st
     return ""
 
 
+@with_task_models
 def switch_task(
     task_id: str,
     *,
@@ -984,6 +995,7 @@ def switch_task(
     model_id = carried_model or _text(roles.model_for(role_name, target, config=config))
 
     try:
+        model_id, effort_args, effort_config = roles.launch_controls(role_name, target, model_id)
         driver = deps.make_driver(target)
         capabilities = driver.capabilities()
         spec = LaunchSpec(
@@ -994,6 +1006,8 @@ def switch_task(
             workspace=new_workspace,
             worktree=path,
             system_prompt_file=SYS_PROMPT if capabilities.system_prompt_file else None,
+            effort_args=effort_args,
+            effort_config=effort_config,
         )
         # Capability, never name: a driver that can resume a session it already owns is
         # handed the brief as a continuation; one that cannot is re-briefed from scratch.
@@ -1011,7 +1025,12 @@ def switch_task(
             and bool(handle.native_id)
             and registry.normalise_name(handle.backend) == target
         )
-        new_handle = driver.resume(handle, brief) if resumable else driver.launch(spec)
+        if resumable:
+            from dataclasses import replace
+            new_handle = driver.resume(handle, brief, spec=replace(
+                spec, workspace=Path(handle.workspace), session_id=handle.session_id))
+        else:
+            new_handle = driver.launch(spec)
     except Exception as exc:
         deps.record(
             ROTATE_FAILED_EVENT if rotation else SWITCH_FAILED_EVENT,
@@ -1032,6 +1051,8 @@ def switch_task(
 
     live_session_id = _text(getattr(new_handle, "session_id", "")) or new_session_id
     new_entry = dict(entry)
+    from maestro.model_policy import legacy_writer_routes
+    new_entry['writer_routes'] = legacy_writer_routes(entry)
     new_entry.update(
         {
             "session_id": live_session_id,

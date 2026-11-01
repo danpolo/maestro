@@ -325,6 +325,9 @@ def _make_ordinary_brief(task: dict, workspace: Path, worktree: Path, retry_note
         "sitting — you do NOT need to finish everything now, and an incomplete gate is NOT a "
         "failure. Only touch data/ files; do not change code."
     ) if task.get("resumable") else ""
+    from maestro.workflows import goal_progress
+    goals = goal_progress.brief_section(REPO, task, role="implementer")
+    goals_section = f"\n\n{goals}" if goals else ""
 
     return (
         f"You are an implementer running {_implementer_identity(model, backend)}. "
@@ -348,7 +351,8 @@ def _make_ordinary_brief(task: dict, workspace: Path, worktree: Path, retry_note
         f"- Do NOT write to {REPO} directly (only read tooling from it).\n"
         f"- NEVER edit docs/ROADMAP.md status fields — task completion is owned by the orchestrator.\n"
         f"- Read docs/ROADMAP.md and docs/PROJECT.md for full context.\n"
-        f"{verif_section}{note}{needs_dan_note}{resumable_note}{_answers_section(task)}"
+        f"{goals_section}{verif_section}{note}{needs_dan_note}{resumable_note}"
+        f"{_answers_section(task)}"
     )
 
 
@@ -366,6 +370,8 @@ def _make_prep_brief(task: dict, workspace: Path, worktree: Path, retry_note: st
     scaffolded project): the same signal `maestro.selfheal.redo` uses to decide whether its
     RUNNER prompt is notebook-shaped.
     """
+    from maestro.taskgraph import verification_brief
+
     task_id = task["id"]
     title   = task.get("title", task_id)
     note    = f"\n\nNOTE FROM ORCHESTRATOR: {retry_note}" if retry_note else ""
@@ -381,6 +387,10 @@ def _make_prep_brief(task: dict, workspace: Path, worktree: Path, retry_note: st
         '"dan_action":"<ONE action: a URL to open + \'Run all\', OR a single '
         'bash scripts/x.sh command — never a multi-step list>",'
         '"post_action_cmd":"<a single shell cmd to finalize AFTER Dan acts, or null>",'
+        '"step_command":"<exact manual shell command for Maestro to wrap; null for a non-shell action>",'
+        '"step_kind":"<shell or external; external requires an artifact/result step check>",'
+        '"step_check_cmd":"<unprivileged command checking the step result>",'
+        '"expected_result":"<what Dan should see when he runs the step>",'
         '"files_changed":[],"summary":"<=5 lines","ts":"ISO"}' % task_id
     )
     if confinement.available(CHECK_NB):
@@ -417,12 +427,15 @@ def _make_prep_brief(task: dict, workspace: Path, worktree: Path, retry_note: st
         f"VENV Python: {VENV_PYTHON}\n\n"
         f"TASK DESCRIPTION:\n  {task.get('short_desc', '')}\n"
         f"  Read docs/ROADMAP.md ({task_id} block) + docs/PROJECT.md for full context.{hint}\n\n"
+        f"{verification_brief(task)}\n\n"
         f"DO (all automatable prep):\n"
         f"{deliverable_step}"
         f"- Commit your prep changes in the worktree:\n"
         f"     git add -A && git commit -m 'prep({task_id}): <one-line summary>'\n"
         f"  (Skip only if prep produced no committable files — e.g. a pure upload.)\n"
         f"- Decide the SINGLE action Dan must take; write it as result.json `dan_action` (ONE line).\n"
+        f"- Declare step_check_cmd and expected_result for every manual step. Shell actions are wrapped by Maestro; "
+        f"external actions use step_kind=external and a check of their resulting artifact or state. Done is not proof.\n"
         f"- If a finalize step can be automated AFTER Dan acts (e.g. importing the deliverable's "
         f"output into a store), put that one shell command in `post_action_cmd` — the orchestrator "
         f"runs it when Dan approves, then runs the task's verification gate to graduate.\n\n"
@@ -435,15 +448,16 @@ def _make_prep_brief(task: dict, workspace: Path, worktree: Path, retry_note: st
         f"1. result.json at {workspace}/result.json:\n   {schema}\n"
         f"2. {workspace}/DONE (content: DONE) as the final step, or {workspace}/FAILED (reason) on failure.\n"
         f"{note}"
+        f"{_answers_section(task)}"
     )
 
 
 IMPLEMENTER_MODELS: dict[str, str] = {
     "haiku":  "claude-haiku-4-5",
-    "sonnet": "claude-sonnet-5",
-    "opus":   "claude-opus-5",
+    "sonnet": "claude-sonnet-5-5",
+    "opus":   "claude-opus-5-5",
 }
-_DEFAULT_IMPLEMENTER_MODEL = "claude-sonnet-5"
+_DEFAULT_IMPLEMENTER_MODEL = "claude-sonnet-5-5"
 
 
 # ── B12: pre-implementation question gating ──
@@ -455,8 +469,8 @@ _DEFAULT_IMPLEMENTER_MODEL = "claude-sonnet-5"
 # genuinely non-delegable physical work (Colab/GPU runs, prod downtime windows).
 
 #: Keyword spellings that resolve through a backend's size map rather than being taken as
-#: a literal model id — bare `haiku`/`sonnet`/`opus`, plus the `<name>5` and canonical-id
-#: spellings this allowlist has always also accepted. Recognising a spelling *here*, not
+#: a literal model id — bare `haiku`/`sonnet`/`opus`, plus legacy family shorthands and
+#: the current canonical ids. Recognising a spelling *here*, not
 #: merely finding it in a backend's size map, is what tells a keyword typed for the wrong
 #: backend apart from an ordinary literal id: R2 requires the former to warn and fall back
 #: to the role table's default, never to reach a CLI as a bogus id.
@@ -466,8 +480,10 @@ _MODEL_KEYWORD_ALIASES: dict[str, str] = {
     "opus": "opus",
     "opus5": "opus",
     "claude-opus-5": "opus",
+    "claude-opus-5-5": "opus",
     "sonnet5": "sonnet",
-    "claude-sonnet-5": "sonnet",
+    "sonnet5.5": "sonnet",
+    "claude-sonnet-5-5": "sonnet",
 }
 
 #: backend -> {size keyword: model id}. `IMPLEMENTER_MODELS` is `claude`'s map and
@@ -575,9 +591,9 @@ def _implementer_backend() -> tuple[str, dict]:
     short of `/backend auto` (`hitl/commands.py`), which clears the pin itself; this is
     what stops honouring a live one blindly. `available=` is still never passed (no
     binary is probed on this path), so an unpinned launch with nothing recorded as
-    exhausted resolves exactly as it always has: one read of `project.yaml`, degrading
-    to the default backend on every malformed `roles:` entry rather than raising, so a
-    typo cannot stop a launch.
+    exhausted takes the head of the role's chain. The role's backend and models are
+    derived from its strength and the model policy (`model_policy.runtime_roles`,
+    `docs/DESIGN.md` §17.2); no `roles:` entry names them.
 
     **A6 (2026-09-02):** `exhausted=quota.exhausted_backends()` is now passed too — the
     timed per-backend record `orchestrator.reconcile_in_flight` writes when a real exit
@@ -590,9 +606,9 @@ def _implementer_backend() -> tuple[str, dict]:
     entry can name a backend the task is not actually running on (see `_launch_backend`'s
     own docstring).
 
-    The models table is the role's either way: a role declares its model *per backend*
-    (`docs/DESIGN.md` §5), so the operator's choice picks a column out of the same table
-    rather than needing one of its own.
+    The models table is the role's either way: it is derived *per backend* from the
+    role's strength (`docs/DESIGN.md` §17.2), so the operator's choice picks a column out
+    of the same table rather than needing one of its own.
     """
     settings = roles.role_config(roles.ROLE_IMPLEMENTER)
     pinned = operator_backend()
@@ -600,9 +616,18 @@ def _implementer_backend() -> tuple[str, dict]:
         roles.ROLE_IMPLEMENTER, preferred=pinned or None,
         exhausted=quota.exhausted_backends(),
     )
-    return resolution.backend, dict(settings.models)
+    if settings.strict_models and not resolution.usable:
+        # A role with no usable route is refused, not degraded onto a route the policy
+        # does not offer.
+        from maestro.model_policy import PolicyError
+        raise PolicyError(f'no eligible implementer route: {resolution.reason}')
+    return resolution.backend, settings.eligible_models
 
 
+from maestro.model_policy import with_task_models
+
+
+@with_task_models
 def resolve_launch_model(task: dict, backend: str,
                          backend_models: dict | None = None) -> tuple[str, str]:
     """The model a launch of `task` on `backend` hands to `--model`, plus any warning.
@@ -626,10 +651,27 @@ def resolve_launch_model(task: dict, backend: str,
     same way `_implementer_backend` reads it, so both call paths answer identically.
     """
     if backend_models is None:
-        backend_models = dict(roles.role_config(roles.ROLE_IMPLEMENTER).models)
-    role_default = backend_models.get(backend) or _DEFAULT_IMPLEMENTER_MODEL
+        backend_models = roles.role_config(roles.ROLE_IMPLEMENTER).eligible_models
+    from maestro.model_policy import runtime_model_inputs, check_task_pin, PolicyError
+    from maestro import config as _project_config
+    _, shared, project = runtime_model_inputs(_project_config.load_project_yaml(), _project_config.PROJECT_YAML.parent)
     task_model, warning = resolve_implementer_model(task, backend)
-    return (task_model or role_default), warning
+    if frozen := project.get('_model_policy_task_models'):
+        task_model, warning = frozen[backend]['model'], frozen[backend]['warning']
+    if shared is not None:
+        # Keywords are checked as the model they resolve to; literals exactly as written.
+        if task_model:
+            task_model = check_task_pin(project, shared, backend, task_model)
+        elif not backend_models.get(backend):
+            raise PolicyError(f'{backend}: no inherited implementer model in adopted policy')
+    # An inheriting project configures no column: the role's own default for this
+    # backend, never another backend's model id.
+    role_default = (backend_models.get(backend)
+                    or roles.DEFAULT_MODELS[roles.ROLE_IMPLEMENTER].get(registry.normalise_name(backend))
+                    or _DEFAULT_IMPLEMENTER_MODEL)
+    delivered, _, _ = roles.launch_controls(
+        roles.ROLE_IMPLEMENTER, backend, task_model or role_default)
+    return delivered, warning
 
 
 def _implementer_driver(backend: str, session_uuid: str):
@@ -639,7 +681,7 @@ def _implementer_driver(backend: str, session_uuid: str):
     are passed in rather than left to the driver's own module globals — which is also
     what keeps a launch inside a test sandbox from reaching the real repository.
     """
-    cls = registry.driver_class(backend)
+    cls = registry.launch_driver_class(backend)
     return cls(**_driver_kwargs(
         cls,
         python=VENV_PYTHON,
@@ -648,6 +690,7 @@ def _implementer_driver(backend: str, session_uuid: str):
     ))
 
 
+@with_task_models
 def launch_implementer(task: dict, session_id: str, workspace: Path,
                        worktree: Path, retry_note: str = "", backend: str = "") -> None:
     """Start an implementer. `backend` pins one instead of resolving the role's default.
@@ -686,6 +729,7 @@ def launch_implementer(task: dict, session_id: str, workspace: Path,
     (workspace / "session_uuid.txt").write_text(sess_uuid, encoding="utf-8")
 
     driver = _implementer_driver(backend, sess_uuid)
+    effort_args, effort_config = roles.effort_controls(roles.ROLE_IMPLEMENTER, backend, model_id)
     offers_system_prompt = driver.capabilities().system_prompt_file
     handle = driver.launch(LaunchSpec(
         task_id=task_id,
@@ -697,6 +741,8 @@ def launch_implementer(task: dict, session_id: str, workspace: Path,
         workspace=workspace,
         worktree=worktree,
         system_prompt_file=SYS_PROMPT if offers_system_prompt else None,
+        effort_args=effort_args,
+        effort_config=effort_config,
     ))
     # A handle's window may or may not be session-qualified; the bare name is what
     # tmux was given and what `in_flight` and `_kill_tmux_window` compare against.
@@ -711,13 +757,20 @@ def _synthesize_sentinel(workspace: Path) -> str:
     forever. Returns 'DONE' or 'FAILED'. status==DONE writes DONE (the verification gate
     still runs downstream — a resumable coverage miss then routes to handle_incomplete);
     any other / unreadable status writes FAILED."""
+    # `[P3]`: the reading of result.json's `status` now comes from the compatibility
+    # facade, which is the single place the legacy sentinel vocabulary is interpreted.
+    # The verdict and the file written are unchanged — `DONE` only for a DONE claim,
+    # `FAILED` for everything else including an unreadable document — but there is no
+    # longer a second copy of that mapping to drift from the facade's.
+    from maestro.workflows.handlers import RESULT_JSON_STATUS
+
     status = ""
     try:
         status = str(json.loads((workspace / "result.json").read_text())
                      .get("status", "")).strip().upper()
     except Exception:
         status = ""
-    if status == "DONE":
+    if RESULT_JSON_STATUS.get(status) == "succeeded":
         (workspace / "DONE").write_text("DONE (synthesized: implementer left no sentinel)")
         return "DONE"
     reason = status or "no terminal status"

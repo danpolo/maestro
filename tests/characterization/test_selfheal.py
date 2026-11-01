@@ -37,6 +37,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from maestro import bootstrap
 from maestro.backends.base import Completion
 
 
@@ -78,14 +79,18 @@ def _fake_subprocess(monkeypatch, subject, handler=None):
     return fake
 
 
-def tmp_path_repo(subject):
-    """The sandbox repo, read off the subject's own rebased `REPO` global.
+def tmp_path_repo(tmp_path, monkeypatch):
+    """A temp project root whose `project.yaml` is the one `maestro.config` reads.
 
-    The two runner fixtures take `tmp_path` rather than `sandbox`, but `maestro.config`
-    reads `project.yaml` from the *rebased* repo root — so the file has to land where the
-    subject is actually looking, not beside the request files.
+    The two runner fixtures take `tmp_path` rather than `sandbox`, so nothing rebased the
+    subject's `REPO`: writing to it rewrote this checkout's own tracked `project.yaml`.
     """
-    return SimpleNamespace(repo=subject.REPO)
+    import maestro.config
+
+    repo = tmp_path / "project"
+    repo.mkdir(exist_ok=True)
+    monkeypatch.setattr(maestro.config, "PROJECT_YAML", repo / "project.yaml")
+    return SimpleNamespace(repo=repo)
 
 
 def _write_project_yaml(sandbox, document) -> None:
@@ -954,10 +959,10 @@ def test_attempt_self_fix_spawns_a_detached_tmux_window_through_a_shell(
     cmd, kwargs = fake.calls[0][0][0], fake.calls[0][1]
     req = sorted(subject.SELFFIX_DIR.glob("*.request.json"))[0]
     assert kwargs == {"shell": True, "check": True}
-    assert cmd.startswith(f"tmux new-window -t {subject.TMUX_SESSION} -n selffix-T1 ")
-    assert f"cd {subject.REPO} && {subject.VENV_PYTHON} " in cmd
-    assert " -m maestro.selfheal.selffix " in cmd
-    assert cmd.endswith(f"{req}'")
+    pinned = bootstrap.running_root() / "maestro" / "pinned.py"
+    assert cmd == (
+        f"tmux new-window -t {subject.TMUX_SESSION} -n selffix-T1 "
+        f"'cd {subject.REPO} && {subject.VENV_PYTHON} {pinned} maestro.selfheal.selffix {req}'")
 
 
 @SELFFIX
@@ -1550,7 +1555,7 @@ def redo_case(redo_runner_subject, tmp_path, monkeypatch):
     # The runner tests below ship notebooks, so the sandbox project declares the surface
     # that makes that legal. It used to be a module constant naming the reference
     # project's directories; declaring it here is what an adopting project now does.
-    _write_project_yaml(tmp_path_repo(subject),
+    _write_project_yaml(tmp_path_repo(tmp_path, monkeypatch),
                         {"confinement": {"redo_allow": ["colab/", "docs/", "notebooks/"]}})
     fake = _fake_subprocess(monkeypatch, subject, _redo_handler(state))
     agent = _fake_agentcall(monkeypatch, subject, _agent_handler(state))
@@ -1972,7 +1977,7 @@ def selffix_case(selffix_runner_subject, tmp_path, monkeypatch):
     # Same reasoning as `redo_case`: these exercise the runner's *other* gates (commit,
     # byte-compile, cleanup), so the sandbox declares a surface that lets a fix through
     # to them. `scripts/` was the reference project's orchestrator directory.
-    _write_project_yaml(tmp_path_repo(subject),
+    _write_project_yaml(tmp_path_repo(tmp_path, monkeypatch),
                         {"confinement": {"self_fix_allow": ["scripts/", "docs/"]}})
     fake = _fake_subprocess(monkeypatch, subject, _selffix_handler(state))
     agent = _fake_agentcall(monkeypatch, subject, _agent_handler(state))

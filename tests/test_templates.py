@@ -12,9 +12,11 @@ asserted.
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
+import sys
 from pathlib import Path
 
 import pytest
@@ -72,29 +74,60 @@ def test_project_yaml_tmpl_has_the_three_placeholders():
 
 
 def test_project_yaml_tmpl_roles_are_exactly_the_known_roles():
-    """`project.yaml.tmpl`'s `roles:` block must declare exactly `roles.KNOWN_ROLES` — no
-    more (a role no code resolves, like the struck `orchestrator` entry) and no fewer (a
-    real role, like `diagnoser`, silently getting no configured model on every adopted
-    project)."""
+    """`project.yaml.tmpl`'s `roles:` block must declare exactly the roles the legacy loop
+    resolves (`roles.KNOWN_ROLES`, under the graph's role ids: `judge` reads `reviewer`)
+    plus `planner` — no more (a role no code resolves, like the struck `orchestrator`
+    entry) and no fewer (a real role, like `diagnoser`, silently missing from the block
+    an operator edits). Every name must be one a shipped role template defines."""
+    from maestro import model_policy
     from maestro import roles as roles_mod
 
     doc = yaml.safe_load((TEMPLATES_DIR / "project.yaml.tmpl").read_text())
-    assert set(doc["roles"].keys()) == set(roles_mod.KNOWN_ROLES)
+    resolved = {model_policy.LEGACY_ROLE_NAMES.get(role, role) for role in roles_mod.KNOWN_ROLES}
+    assert set(doc["roles"].keys()) == resolved | {"planner"}
+    assert set(doc["roles"].keys()) <= set(model_policy.shipped_role_strengths())
+
+
+def test_project_yaml_tmpl_roles_have_only_the_new_shape():
+    """`docs/DESIGN.md` §17.2: a role states `strength` and `independent_of` and nothing
+    else, and `fallback_chain` is gone. The check `maestro doctor` runs on a project must
+    find nothing to report in the document `maestro init` scaffolds, and the strengths it
+    writes out are the shipped ones — scaffolding a project changes no role."""
+    from maestro import model_policy
+
+    doc = yaml.safe_load((TEMPLATES_DIR / "project.yaml.tmpl").read_text())
+    assert model_policy.role_shape_issues(doc) == []
+    assert "fallback_chain" not in doc
+
+    shipped = model_policy.shipped_role_strengths()
+    assert {role: entry["strength"] for role, entry in doc["roles"].items()} == {
+        role: shipped[role] for role in doc["roles"]
+    }
 
 
 def test_project_yaml_tmpl_diagnoser_role_is_actually_read_by_role_config():
-    """Observable effect, not just presence: the backend/model the template declares for
-    `diagnoser` is what `roles.role_config` resolves when handed this exact document —
-    proving the block is read, not merely parsed."""
+    """Observable effect, not just presence: `roles.role_config` handed this exact document
+    resolves the model the template's `diagnoser` strength derives — and a strength
+    written into the entry is what it then reads, proving the block is read, not merely
+    parsed."""
     from maestro import roles as roles_mod
 
     doc = yaml.safe_load((TEMPLATES_DIR / "project.yaml.tmpl").read_text())
-    entry = doc["roles"][roles_mod.ROLE_DIAGNOSER]
+    assert doc["roles"][roles_mod.ROLE_DIAGNOSER] == {"strength": "strong"}
 
     settings = roles_mod.role_config(roles_mod.ROLE_DIAGNOSER, doc)
+    assert settings.backend == 'codex'
+    strong = settings.model_for(settings.backend)
+    assert strong
 
-    assert settings.backend == entry["backend"]
-    assert settings.model_for(entry["backend"]) == entry["models"][entry["backend"]]
+    doc["roles"][roles_mod.ROLE_DIAGNOSER] = {"strength": "light"}
+    light = roles_mod.role_config(roles_mod.ROLE_DIAGNOSER, doc).model_for(settings.backend)
+    assert light == strong  # the project's floor cannot lower the approved 50/high rule
+
+    # The legacy loop's `judge` reads the template's `reviewer` entry the same way.
+    assert roles_mod.role_config(roles_mod.ROLE_JUDGE, doc).model_for(settings.backend) == strong
+    doc["roles"]["reviewer"] = {"strength": "light"}
+    assert roles_mod.role_config(roles_mod.ROLE_JUDGE, doc).model_for(settings.backend) == strong
 
 
 # ── model_limits: block names exactly the knob maestro.limits reads (G6) ──
@@ -118,6 +151,19 @@ def test_project_yaml_tmpl_model_limits_is_actually_read_by_default_table_paths(
     monkeypatch.setattr(_config, "load_project_yaml", lambda: doc)
 
     assert limits.default_table_paths() == [custom]
+
+
+def test_project_yaml_tmpl_model_limits_shows_every_default_table(monkeypatch):
+    """"Defaults shown" must be all of them. The mapping replaces the defaults whole, so a
+    table the template leaves out is a harness whose models have no context ceiling in
+    every scaffolded project."""
+    from maestro import config as _config
+    from maestro import limits
+
+    doc = yaml.safe_load((TEMPLATES_DIR / "project.yaml.tmpl").read_text())
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: doc)
+
+    assert limits.default_table_paths() == limits._agent_default_paths()
 
 
 # ── executability ──
@@ -176,23 +222,20 @@ def test_launch_sh_tmpl_runs_the_watchdog_not_the_orchestrator_loop():
     assert "MAESTRO_REPO='$REPO_PATH' '$REPO_PATH/.venv/bin/maestro' watchdog" in body
 
 
-def test_launch_sh_tmpl_still_wraps_tmux_and_blocks_for_type_simple():
-    """DESIGN.md §10's Systemd-and-tmux subsection: named session for phone auditing, then a
-    wait loop so systemd tracks this shell (Type=forking is unusable — the tracked process lives
-    in the tmux server's cgroup)."""
+def test_launch_sh_tmpl_still_wraps_tmux_and_blocks_for_manual_use():
+    """The standalone helper keeps one named session visible and waits for its exit."""
     text = (TEMPLATES_DIR / "launch.sh.tmpl").read_text(encoding="utf-8")
     assert 'SESSION="${PROJECT_NAME}-watchdog"' in text
     assert "tmux new-session -d -s" in text
     assert 'while tmux has-session -t "$SESSION"' in text
 
 
-def test_watchdog_unit_keeps_the_deliberate_systemd_settings():
+def test_watchdog_unit_uses_the_operator_required_tmux_ownership_contract():
     text = (TEMPLATES_DIR / "systemd" / "maestro-watchdog.service.tmpl").read_text(encoding="utf-8")
-    assert "Type=simple" in text
-    assert "Type=forking" not in text.split("[Service]")[1]
-    assert "ExecStart=/bin/bash {{ repo_path }}/launch.sh" in text
-    assert "Restart=on-failure" in text
-    assert "tmux kill-session -t {{ project_name }}-watchdog" in text
+    service = text.split("[Service]")[1]
+    assert "Type=forking" in service
+    assert "ExecStart=/usr/bin/tmux new-session -d -s {{ systemd_session }} -n main" in service
+    assert "ExecStop=-/usr/bin/tmux kill-session -t {{ systemd_session }}" in service
 
 
 @pytest.mark.parametrize(
@@ -249,9 +292,9 @@ def test_eval_stub_reports_unevaluated_verdict_per_d8(tmp_path):
     assert result.data["verdict"] == "unevaluated"
 
 
-def test_test_adapter_stub_fails_closed_with_no_tests_dir(tmp_path):
+def test_test_adapter_stub_fails_closed_with_no_detected_command(tmp_path):
     """The one required adapter must never fabricate a pass. Per the plan: a fresh
-    scaffold with no tests/ prints a TODO and exits 1, which `run_adapter` surfaces
+    scaffold with no detected command prints a TODO and exits 1, which `run_adapter` surfaces
     as `nonzero_exit` — not `ok`, and not a raised exception."""
     from maestro.adapters import run_adapter
 
@@ -259,7 +302,9 @@ def test_test_adapter_stub_fails_closed_with_no_tests_dir(tmp_path):
     adapters_dst = project_root / "adapters"
     adapters_dst.mkdir(parents=True)
     dst = adapters_dst / "test"
-    dst.write_bytes((TEMPLATES_DIR / "adapters" / "test").read_bytes())
+    from maestro.cli import _render
+    template = (TEMPLATES_DIR / "adapters" / "test").read_text(encoding="utf-8")
+    dst.write_text(_render(template, {"test_command_argv_json": "[]"}), encoding="utf-8")
     dst.chmod(0o755)
 
     result = run_adapter("test", project_root)
@@ -274,7 +319,10 @@ def test_test_adapter_stub_runs_real_pytest_when_tests_dir_present(tmp_path):
     adapters_dst = project_root / "adapters"
     adapters_dst.mkdir(parents=True)
     dst = adapters_dst / "test"
-    dst.write_bytes((TEMPLATES_DIR / "adapters" / "test").read_bytes())
+    from maestro.cli import _render
+    command = json.dumps([sys.executable, "-m", "pytest", "-q"])
+    template = (TEMPLATES_DIR / "adapters" / "test").read_text(encoding="utf-8")
+    dst.write_text(_render(template, {"test_command_argv_json": command}), encoding="utf-8")
     dst.chmod(0o755)
 
     tests_dir = project_root / "tests"

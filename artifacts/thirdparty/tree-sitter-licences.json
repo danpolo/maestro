@@ -1,0 +1,48 @@
+{
+  "generated_at": "2026-09-13T06:09:55Z",
+  "grammar_probe": {
+    "python": {
+      "abi_version": 15,
+      "broken_sample_has_error": true
+    }
+  },
+  "limits": [
+    "Reads what each installed wheel declares about itself plus its shipped LICENSE file; not a legal review.",
+    "The parser and each grammar are separate distributions with separate terms ([INV-A09]); a version change invalidates the row (B17)."
+  ],
+  "method": "importlib.metadata over .venv/bin/python after `pip install tree-sitter==0.25.2 tree-sitter-python==0.25.0`; grammar loaded and a syntactically broken sample parsed",
+  "python": "3.11.2",
+  "records": [
+    {
+      "distribution": "tree-sitter",
+      "home_page": [
+        "Homepage, https://tree-sitter.github.io/tree-sitter/",
+        "Source, https://github.com/tree-sitter/py-tree-sitter"
+      ],
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_expression": null,
+      "license_field": null,
+      "license_files": [
+        "tree_sitter-0.25.2.dist-info/licenses/LICENSE"
+      ],
+      "metadata_file": "tree_sitter-0.25.2.dist-info/METADATA",
+      "version": "0.25.2"
+    },
+    {
+      "distribution": "tree-sitter-python",
+      "home_page": [
+        "Homepage, https://github.com/tree-sitter/tree-sitter-python"
+      ],
+      "license_classifiers": [],
+      "license_expression": null,
+      "license_field": "MIT",
+      "license_files": [
+        "tree_sitter_python-0.25.0.dist-info/licenses/LICENSE"
+      ],
+      "metadata_file": "tree_sitter_python-0.25.0.dist-info/METADATA",
+      "version": "0.25.0"
+    }
+  ]
+}

@@ -40,8 +40,13 @@ def _resolve_cmd(cmd: str) -> str:
     return _re.sub(r"^(python3?)\b", VENV_PYTHON, cmd)
 
 
-def get_task_verifications(task_id: str) -> list[dict]:
-    content = ROADMAP_FILE.read_text(encoding="utf-8")
+def parse_verifications(content: str, task_id: str) -> list[dict]:
+    """The pure half of `get_task_verifications`: parse a roadmap *string*.
+
+    Split out for `[P4]`, which needs the criterion keys of a task in a staging worktree
+    — a different checkout of the document than the module-level `ROADMAP_FILE` global
+    names. The reading is unchanged; `get_task_verifications` now calls this.
+    """
     blocks = re.findall(r"```yaml\n(.*?)```", content, re.DOTALL)
     for raw in blocks:
         try:
@@ -55,11 +60,37 @@ def get_task_verifications(task_id: str) -> list[dict]:
     return []
 
 
+def required_criterion_keys(task_id: str, roadmap: Path | None = None) -> list[str]:
+    """Every verification id the task declares — `[P4]`'s closed world for it.
+
+    `[INV-04]` evaluates acceptance against *required criterion keys*: a key with no
+    passing evidence fails closed. That set has to come from the task definition rather
+    than from whatever the checks happened to produce, or a check that silently stopped
+    running would shrink the requirements instead of failing them.
+    """
+    path = Path(roadmap) if roadmap is not None else ROADMAP_FILE
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return [
+        str(entry.get("id", ""))
+        for entry in parse_verifications(content, task_id)
+        if str(entry.get("id", ""))
+    ]
+
+
+def get_task_verifications(task_id: str) -> list[dict]:
+    content = ROADMAP_FILE.read_text(encoding="utf-8")
+    return parse_verifications(content, task_id)
+
+
 def main() -> int:
     # --auto-only restricts the gate to kind:auto items (skips manual proof checks);
     # used by graduation of dispatch:manual tasks where there is no implementer result.json.
     auto_only = "--auto-only" in sys.argv[1:]
-    argv = [a for a in sys.argv[1:] if a != "--auto-only"]
+    pre_merge_only = "--pre-merge-only" in sys.argv[1:]
+    argv = [a for a in sys.argv[1:] if a not in ("--auto-only", "--pre-merge-only")]
     if len(argv) < 2:
         print("Usage: check_verifications.py <task_id> <workspace_path> [worktree_path] [--auto-only]")
         return 1
@@ -89,6 +120,8 @@ def main() -> int:
     for v in verifications:
         vid  = str(v.get("id", ""))
         kind = v.get("kind", "manual")
+        if pre_merge_only and (kind == 'dan' or v.get('stage') == 'post_merge'):
+            continue
         if auto_only and kind != "auto":
             continue
 

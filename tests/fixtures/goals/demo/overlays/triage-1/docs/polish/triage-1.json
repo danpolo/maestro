@@ -1,0 +1,7 @@
+{"stage": 1, "items": [
+  {"id": "BL-0001", "decision": "keep", "reason": "nothing in recipebox says the ingredients are stored lowercased"},
+  {"id": "BL-0002", "decision": "duplicate", "of": "BL-0001", "reason": "the same missing line, in parse_recipe's docstring"},
+  {"id": "BL-0003", "decision": "moot", "reason": "the completion gate reruns AC-1 on HEAD (bench/import_ratio.py): that is G1's evidence"},
+  {"id": "BL-0004", "decision": "keep", "reason": "rank's docstring still says nothing about case"},
+  {"id": "BL-0005", "decision": "duplicate", "of": "BL-0001", "reason": "the same missing line, in parse_recipe's docstring"}
+]}

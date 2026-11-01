@@ -46,7 +46,9 @@ TASK_ID = "P8B2"
 # Two registered backends, taken from the registry rather than written down: this suite is
 # about the command, not about which drivers happen to exist.
 NAMES = known_backends()
-CURRENT, TARGET = NAMES[0], NAMES[1]
+from maestro import roles
+CURRENT = roles.backend_for(roles.ROLE_IMPLEMENTER, config={})
+TARGET = next(name for name in roles.default_chain() if name != CURRENT)
 
 
 def _update(text: str, uid: int = 100, chat: str = CHAT) -> dict:
@@ -138,6 +140,8 @@ def router(monkeypatch, notifier, store):
     monkeypatch.setattr(commands, "_getUpdates_offset", 0)
 
     box = SimpleNamespace(sent=notifier, calls=[], stdout='{"ok": true, "result": []}')
+    monkeypatch.setattr(commands, '_fetch_updates',
+                        lambda *a, **k: json.loads(box.stdout).get('result', []))
 
     def run(*args, **kwargs):
         box.calls.append((args, kwargs))
@@ -248,16 +252,11 @@ def test_a_bare_name_leaves_every_other_state_key_alone(store, notifier):
 
 @pytest.fixture
 def configured(monkeypatch):
-    """`roles:` says the implementer runs on `CURRENT`, whatever the real repo says.
-
-    The launch path resolves through `maestro.roles`, which reads `project.yaml` at call
-    time; pinning it here is what makes "the recorded choice won" mean something rather
-    than "the default happened to match".
-    """
+    """Use the shipped neutral route until an operator records an override."""
     monkeypatch.setattr(
         config_module,
         "load_project_yaml",
-        lambda: {"roles": {"implementer": {"backend": CURRENT}}},
+        lambda: {},
     )
 
 
@@ -373,7 +372,7 @@ def test_a_backend_auto_command_over_telegram_reaches_the_launch_path(
 def test_help_mentions_the_auto_clear_verb(router, store):
     router.deliver("/help")
     (sheet,) = router.sent
-    assert "/backend auto" in sheet
+    assert '/backend [project] <name|auto>' in sheet
 
 
 # =======================================================================================

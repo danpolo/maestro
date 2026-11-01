@@ -1,0 +1,59 @@
+{
+  "answer": "It does. The audit looked at `agy --help` and at Maestro (which has no Antigravity driver). The surface is the status-line payload, and the installed CLI runs a quota manager that force-refreshes it from Google's backend.",
+  "blind_spot_id": "B02",
+  "consequences_for_maestro": [
+    "FOUR pools on one account, not one: a Gemini pool and a separate third-party ('3p') pool, each with its own 5-hour and weekly window and its own independent reset. This is the strongest confirmation yet of the composite account_pool_id decision, and it is now a measured fact rather than an adopted schema generality.",
+    "The pools diverge sharply in practice \u2014 3p-weekly at 27% remaining while gemini-weekly sat at 90% \u2014 so a single per-account headroom number would have been actively wrong.",
+    "Quota is expressed as remaining_fraction, not used_pct, and the reset arrives both absolutely (reset_time) and relatively (reset_in_seconds). QuotaObservation must normalise remaining/used and accept either reset form.",
+    "The payload also carries plan_tier, model id, context_window used/remaining percentage and token counts, and an agent_state field \u2014 an idle/busy signal none of the other backends expose.",
+    "Acquisition is the same PUSH pattern as Claude: the payload is delivered to a status-line command, not pulled on demand. Two of three backends therefore depend on a renderer Maestro does not control, which strengthens rather than weakens the acquisition-path finding in b02-quota-acquisition-path.json."
+  ],
+  "correction_of": "GRAPH_ENGINEERING_RESEARCH_BLIND_SPOTS.md B06 row and MAESTRO_GRAPH_ENGINEERING_ARCHITECTURE.html P6 ('agy 1.1.27 exposes no usage surface at all')",
+  "evidence": [
+    {
+      "kind": "observed",
+      "shows": "a top-level `quota` object with four independent pools",
+      "source": "~/.gemini/statusline_dump.json (operator capture, product antigravity, CLI version 1.0.10, sampled 2026-06-21)"
+    },
+    {
+      "kind": "observed",
+      "shows": "quota_manager.go doRefreshQuota: starting reload (force=true) \u2014 the installed version actively refreshes quota from the backend",
+      "source": "~/.gemini/antigravity-cli/log/cli-20260908_025134.log (installed 1.1.27)"
+    },
+    {
+      "kind": "observed",
+      "shows": "no usage/quota subcommand \u2014 which is why the audit's help-only inspection missed it",
+      "source": "agy --help on 1.1.27"
+    }
+  ],
+  "generated_at": "2026-09-08T14:57:14Z",
+  "limits": [
+    "The pool shape comes from a 1.0.10 capture. The installed 1.1.27 provably still maintains and refreshes quota, but its exact payload was not re-captured \u2014 re-capture before an Antigravity adapter is called supported (B06 gate).",
+    "Whether the payload can be obtained without an interactive session, and whether a headless `--print` run emits it, was not tested.",
+    "No Maestro driver exists for this backend, so nothing consumes any of it yet."
+  ],
+  "pool_shape_observed": {
+    "3p-5h": {
+      "remaining_fraction": 1,
+      "reset_in_seconds": 17664,
+      "reset_time": "ISO-8601 Z"
+    },
+    "3p-weekly": {
+      "remaining_fraction": 0.26718387,
+      "reset_in_seconds": 460672,
+      "reset_time": "ISO-8601 Z"
+    },
+    "gemini-5h": {
+      "remaining_fraction": 0.9715051,
+      "reset_in_seconds": 17294,
+      "reset_time": "ISO-8601 Z"
+    },
+    "gemini-weekly": {
+      "remaining_fraction": 0.89695656,
+      "reset_in_seconds": 529289,
+      "reset_time": "ISO-8601 Z"
+    }
+  },
+  "question": "Does the installed Antigravity CLI expose a subscription quota surface? The 2026-09-08 audit recorded 'no usage surface observed' and the plan was amended to say routing must tolerate a quota-unavailable backend.",
+  "schema_version": 1
+}

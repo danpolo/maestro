@@ -47,6 +47,7 @@ __all__ = [
     "normalise_name",
     "driver_ref",
     "driver_class",
+    "driver_name_for_backend_id",
     "get_backend",
     "find_binaries",
     "resolve_binary",
@@ -75,6 +76,17 @@ class DriverRef:
     module: str
     attr: str
     binary: str
+    #: Whether `roles.default_chain()` may fall back onto this backend when no
+    #: `fallback_chain` is configured. A backend graded below the others (antigravity)
+    #: stays reachable by an explicit chain or `/backend`, but quota pressure on the
+    #: default backend must not silently move its work there.
+    in_default_chain: bool = True
+    #: The catalog's `backend_id` for this driver (`catalog_from_register` uses the
+    #: register subject unless a `*_CATALOG_DEFAULTS` row names another), so a binding
+    #: can be turned back into the driver that launches it (P12A `_p07b` #2).
+    backend_id: str = ""
+    #: External discovery/table adapter, or None when modelctl has no adapter.
+    modelctl_provider: str | None = None
 
 
 @dataclass(frozen=True)
@@ -113,12 +125,25 @@ BACKENDS: dict[str, DriverRef] = {
         module="maestro.backends.claude",
         attr="ClaudeBackend",
         binary="claude",
+        backend_id="claude",
+        modelctl_provider="claude",
     ),
     "codex": DriverRef(
         name="codex",
         module="maestro.backends.codex",
         attr="CodexBackend",
         binary="codex",
+        backend_id="codex",
+        modelctl_provider="codex",
+    ),
+    "antigravity": DriverRef(
+        name="antigravity",
+        module="maestro.backends.antigravity",
+        attr="AntigravityBackend",
+        binary="agy",
+        in_default_chain=False,
+        backend_id="antigravity_cli",
+        modelctl_provider="antigravity",
     ),
 }
 
@@ -145,6 +170,25 @@ def driver_ref(name: str) -> DriverRef:
         raise UnknownBackend(
             f"unknown backend {name!r}; known backends: {', '.join(known_backends())}"
         ) from None
+
+
+def driver_name_for_backend_id(backend_id: str) -> str:
+    """The registry name whose driver serves catalog `backend_id`, or `UnknownBackend`."""
+    for name in known_backends():
+        if BACKENDS[name].backend_id and BACKENDS[name].backend_id == str(backend_id):
+            return name
+    raise UnknownBackend(
+        f"no driver serves catalog backend_id {backend_id!r}; known: "
+        + ", ".join(BACKENDS[name].backend_id for name in known_backends())
+    )
+
+
+def backend_id_for_modelctl_provider(provider: str) -> str:
+    """Translate an owner's provider id at the external contract boundary."""
+    matches = [ref.backend_id for ref in BACKENDS.values() if ref.modelctl_provider == provider]
+    if len(matches) != 1:
+        raise UnknownBackend(f'no unique catalog backend for modelctl provider {provider!r}')
+    return matches[0]
 
 
 def _find_by_declared_name(module, ref: DriverRef):
@@ -182,6 +226,17 @@ def driver_class(name: str) -> type:
         raise BackendUnavailable(
             f"{ref.module} exposes no {ref.attr} and no class named {ref.name!r}"
         )
+    return cls
+
+
+def launch_driver_class(name: str) -> type:
+    """Fresh-launch adapter, preserving injected drivers and the base driver API."""
+    cls = driver_class(name)
+    if normalise_name(name) == "codex":
+        from maestro.backends.codex import CodexBackend
+        if cls is CodexBackend:
+            from maestro.backends.codex_launch import CodexLaunchBackend
+            return CodexLaunchBackend
     return cls
 
 

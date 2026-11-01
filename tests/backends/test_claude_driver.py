@@ -39,6 +39,7 @@ from maestro.backends.base import (
 )
 from maestro.backends import claude as claude_mod
 from maestro.backends.claude import ClaudeBackend
+from tests.hang_bound import HANG_SECONDS
 
 MODEL = "a-model-id"
 SESSION_UUID = "11111111-2222-3333-4444-555555555555"
@@ -87,6 +88,7 @@ def _isolated_paths(tmp_path, monkeypatch):
     monkeypatch.setattr(claude_mod, "USAGE_JSON", tmp_path / "repo" / "usage.json")
     monkeypatch.setattr(claude_mod, "VENV_PYTHON", tmp_path / "repo" / "venv-python3")
     monkeypatch.setattr(quota, "USAGE_JSON", tmp_path / "repo" / "quota-usage.json")
+    monkeypatch.setenv("MAESTRO_CLAUDE_MODE", "headless")
 
 
 @pytest.fixture
@@ -290,8 +292,11 @@ def test_resume_argv_puts_the_prompt_positional_and_last():
 def test_generated_launcher_is_byte_identical_to_the_reference(
     driver, workspace, worktree
 ):
-    driver.launch(_spec(workspace, worktree))
-    assert (workspace / "launch.py").read_text(encoding="utf-8") == _reference_launcher(
+    source = claude_mod.launcher_source(
+        claude_mod.launch_argv(_spec(workspace, worktree), SESSION_UUID),
+        prompt_file=workspace / "brief.txt", log_file=workspace / "impl.log",
+    )
+    assert source == _reference_launcher(
         workspace / "brief.txt", workspace / "impl.log", MODEL, SESSION_UUID
     )
 
@@ -301,8 +306,11 @@ def test_generated_launcher_matches_the_reference_with_a_system_prompt_file(
 ):
     prompt = tmp_path / "sys.md"
     prompt.write_text("profile", encoding="utf-8")
-    driver.launch(_spec(workspace, worktree, system_prompt_file=prompt))
-    assert (workspace / "launch.py").read_text(encoding="utf-8") == _reference_launcher(
+    source = claude_mod.launcher_source(
+        claude_mod.launch_argv(_spec(workspace, worktree, system_prompt_file=prompt), SESSION_UUID),
+        prompt_file=workspace / "brief.txt", log_file=workspace / "impl.log",
+    )
+    assert source == _reference_launcher(
         workspace / "brief.txt",
         workspace / "impl.log",
         MODEL,
@@ -317,9 +325,12 @@ def test_generated_launcher_is_valid_python(driver, workspace, worktree):
 
 
 def test_generated_launcher_argv_parses_back_to_the_f4_shape(driver, workspace, worktree):
+    from maestro import permissions
+
     driver.launch(_spec(workspace, worktree))
     assert _agent_argv((workspace / "launch.py").read_text(encoding="utf-8")) == [
         "claude", "-p",
+        *permissions.cli_args(cwd=worktree, add_dirs=(workspace,), writable=True),
         "--model", MODEL,
         "--session-id", SESSION_UUID,
         "<brief>",
@@ -351,10 +362,10 @@ def test_generated_launcher_is_executable(driver, workspace, worktree):
 # ── launch() ──
 
 
-def test_launch_writes_exactly_the_three_reference_artifacts(driver, workspace, worktree):
+def test_launch_writes_artifacts_and_durable_parameters(driver, workspace, worktree):
     driver.launch(_spec(workspace, worktree))
     assert sorted(p.name for p in workspace.iterdir()) == [
-        "brief.txt", "launch.py", "session_uuid.txt"
+        "brief.txt", "launch.py", "launch_spec.json", "session_uuid.txt"
     ]
 
 
@@ -436,10 +447,13 @@ def test_launch_propagates_a_tmux_failure(driver, workspace, worktree, monkeypat
 def test_resume_generates_a_resume_launcher_with_the_resume_flag(
     driver, workspace, worktree
 ):
+    from maestro import permissions
+
     handle = driver.launch(_spec(workspace, worktree))
     driver.resume(handle, "keep going", model=MODEL, worktree=worktree)
     argv = _agent_argv((workspace / "resume.py").read_text(encoding="utf-8"))
-    assert argv == ["claude", "-p", "--model", MODEL, "--resume", SESSION_UUID, "<brief>"]
+    assert argv == ["claude", "-p", *permissions.cli_args(cwd=worktree, add_dirs=(workspace,), writable=True),
+                    "--model", MODEL, "--resume", SESSION_UUID, "<brief>"]
     assert "--session-id" not in argv
 
 
@@ -471,14 +485,12 @@ def test_resume_runs_in_the_worktree_it_is_given(driver, workspace, worktree, ru
     assert f"'cd {worktree} &&" in runs.calls[1][0][0]
 
 
-def test_resume_derives_the_worktree_from_the_task_id_when_not_given(
+def test_resume_retains_the_actual_launch_worktree_when_not_given(
     driver, workspace, worktree, runs
 ):
-    from maestro.worktree import worktree_path_for
-
     handle = driver.launch(_spec(workspace, worktree))
     driver.resume(handle, "keep going")
-    assert f"'cd {worktree_path_for('T1')} &&" in runs.calls[1][0][0]
+    assert f"'cd {worktree} &&" in runs.calls[1][0][0]
 
 
 def test_resume_reuses_the_window_name(driver, workspace, worktree, runs):
@@ -1074,3 +1086,332 @@ def test_complete_survives_an_unwritable_log_file(tmp_path):
     driver, _ = _completion_driver(stdout="the answer")
     result = driver.complete(CompletionSpec(prompt="q", log_file=clash / "nope.log"))
     assert result.text == "the answer"
+
+
+# P12 pilot finding D11: verbatim from run 4 of DuetFlow 02 (2026-09-25). This notice also
+# fires for the ordinary 5h/weekly caps, not only a real billing cap.
+CLAUDE_SPEND_LIMIT = (
+    "You've hit your monthly spend limit · raise it at "
+    "claude.ai/settings/usage?from=cc_cli_limit_message · "
+    "your session limit resets 2pm (Asia/Jerusalem)"
+)
+
+
+def test_the_monthly_spend_limit_notice_is_a_limit_with_its_reset(driver, monkeypatch):
+    monkeypatch.setattr(quota, "USAGE_JSON", Path("/nonexistent/usage.json"))
+    verdict = driver.parse_exit(1, f"working\n{CLAUDE_SPEND_LIMIT}\n")
+    assert verdict.kind == "quota_exhausted"
+    assert "spend limit" in verdict.evidence
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    reset = datetime.fromisoformat(verdict.reset_at.replace("Z", "+00:00"))
+    local = reset.astimezone(ZoneInfo("Asia/Jerusalem"))
+    assert (local.hour, local.minute) == (14, 0)
+    assert reset > datetime.now(timezone.utc)
+
+
+def test_the_monthly_spend_limit_notice_classifies_as_blocked(driver):
+    from maestro.workflows.failures import classify_exit
+
+    record = classify_exit(driver.parse_exit(1, CLAUDE_SPEND_LIMIT))
+    assert record.kind == "rate_limited"
+    assert record.is_blocked
+    assert record.reset_at
+
+
+# ── P12 pilot finding D30: dontAsk and explicit lists, never the classifier ──
+
+
+@pytest.mark.parametrize("mode", ["headless", "interactive"])
+def test_tmux_launch_and_resume_receive_both_permission_lists(tmp_path, monkeypatch, mode):
+    from maestro import permissions
+
+    monkeypatch.setattr(claude_mod, "ensure_workspace_trusted", lambda *a, **k: True)
+    workspace, worktree = tmp_path / "ws", tmp_path / "tree"
+    worktree.mkdir()
+    driver = ClaudeBackend(runner=_Runs(), mode=mode, new_session_id=lambda: SESSION_UUID)
+    handle = driver.launch(_spec(workspace, worktree))
+    driver.resume(handle, "continue", model=MODEL, worktree=worktree)
+    for filename in (claude_mod.LAUNCHER_FILE, claude_mod.RESUME_LAUNCHER_FILE):
+        source = (workspace / filename).read_text()
+        assert "--allowedTools" in source
+        assert "--disallowedTools" in source
+        assert "dontAsk" in source
+        assert "--dangerously-skip-permissions" not in source
+        assert "Bash(sudo *)" in source
+        assert f"Edit(/{worktree.resolve()}/**)" in source
+        assert f"Edit(/{workspace.resolve()}/**)" in source
+
+
+def test_a_permission_family_with_quotes_is_preserved_in_the_generated_launcher(tmp_path):
+    import ast
+
+    family = "Bash(git log --format='%H')"
+    source = claude_mod.launcher_source(
+        ["claude", "-p", "--allowedTools", family, "--permission-mode", "dontAsk", "prompt"],
+        prompt_file=tmp_path / "brief", log_file=tmp_path / "log",
+    )
+    try:
+        parsed = ast.parse(source)
+    except SyntaxError:
+        parsed = None
+    assert parsed is not None, "a legitimate quoted family must not break launch.py"
+    assert family in [node.value for node in ast.walk(parsed) if isinstance(node, ast.Constant)]
+
+
+def test_complete_runs_dont_ask_with_the_global_allow_list_and_the_never_allow_list(tmp_path):
+    from maestro import permissions
+
+    workspace = tmp_path / "ws"
+    driver, runner = _completion_driver(stdout="ok")
+    driver.complete(CompletionSpec(
+        prompt="--looks-like-a-flag", model=MODEL, cwd=tmp_path, writable=True,
+        add_dirs=(workspace,),
+    ))
+    argv = runner.calls[0][0][0]
+    assert argv[:2] == ["claude", "-p"]
+    # The variadic lists are closed by the mode, before the model and the prompt.
+    mode = argv.index("--permission-mode")
+    assert argv[mode + 1] == "dontAsk"
+    assert argv[mode + 2:] == ["--model", MODEL, "--looks-like-a-flag"]
+    allowed = argv[argv.index("--allowedTools") + 1: argv.index("--disallowedTools")]
+    denied = argv[argv.index("--disallowedTools") + 1: mode]
+    assert set(permissions.SEED_ALLOW) <= set(allowed)
+    assert f"Edit(/{workspace.resolve()}/**)" in allowed
+    assert denied == list(permissions.NEVER_ALLOW)
+    assert "--dangerously-skip-permissions" not in argv
+
+
+def test_a_family_dan_allows_reaches_the_next_call():
+    from maestro import permissions
+
+    driver, runner = _completion_driver(stdout="ok")
+    permissions.add("Bash(git rebase *)", by="dan", request_id="pr-x")
+    driver.complete(CompletionSpec(prompt="q"))
+    assert "Bash(git rebase *)" in runner.calls[0][0][0]
+
+
+def test_a_judgment_call_may_not_write():
+    driver, runner = _completion_driver(stdout="ok")
+    driver.complete(CompletionSpec(prompt="q", cwd=Path("/tmp/x"), writable=False))
+    argv = runner.calls[0][0][0]
+    allowed = argv[argv.index("--allowedTools") + 1: argv.index("--disallowedTools")]
+    assert not [a for a in allowed if a.startswith(("Edit(", "Write("))]
+
+
+# ── Interactive Mode Tests ──
+
+
+def test_default_mode_is_interactive(monkeypatch):
+    monkeypatch.delenv("MAESTRO_CLAUDE_MODE", raising=False)
+    backend = ClaudeBackend()
+    assert backend.mode() == "interactive"
+
+
+def test_mode_precedence(monkeypatch):
+    monkeypatch.delenv("MAESTRO_CLAUDE_MODE", raising=False)
+    assert ClaudeBackend(mode="headless").mode() == "headless"
+    assert ClaudeBackend(mode="interactive").mode() == "interactive"
+
+    monkeypatch.setenv("MAESTRO_CLAUDE_MODE", "headless")
+    assert ClaudeBackend().mode() == "headless"
+    assert ClaudeBackend(mode="interactive").mode() == "interactive"
+
+    monkeypatch.setenv("MAESTRO_CLAUDE_MODE", "interactive")
+    assert ClaudeBackend().mode() == "interactive"
+
+
+def test_ensure_workspace_trusted_adds_trust_entry(tmp_path):
+    claude_json = tmp_path / ".claude.json"
+    target = tmp_path / "my_workspace"
+    target.mkdir()
+
+    assert claude_mod.ensure_workspace_trusted(target, claude_json=claude_json) is True
+    assert claude_json.is_file()
+    data = json.loads(claude_json.read_text(encoding="utf-8"))
+    assert data["projects"][str(target.resolve())]["hasTrustDialogAccepted"] is True
+
+
+def test_ensure_workspace_trusted_respects_ancestor_trust(tmp_path):
+    claude_json = tmp_path / ".claude.json"
+    parent = tmp_path / "parent_worktree"
+    child = parent / "child_task"
+    child.mkdir(parents=True)
+
+    claude_json.write_text(json.dumps({
+        "projects": {
+            str(parent.resolve()): {"hasTrustDialogAccepted": True}
+        }
+    }), encoding="utf-8")
+
+    mtime_before = claude_json.stat().st_mtime_ns
+    assert claude_mod.ensure_workspace_trusted(child, claude_json=claude_json) is True
+    assert claude_json.stat().st_mtime_ns == mtime_before
+
+
+def test_setup_interactive_hooks(tmp_path):
+    ws = tmp_path / "interactive_ws"
+    hook_file, settings_file, marker_file = claude_mod.setup_interactive_hooks(ws)
+
+    assert hook_file.is_file()
+    assert (hook_file.stat().st_mode & 0o111) != 0  # executable
+    assert settings_file.is_file()
+    assert marker_file.name == claude_mod.MARKER_FILE
+
+    settings_data = json.loads(settings_file.read_text(encoding="utf-8"))
+    assert "Stop" in settings_data["hooks"]
+    assert "StopFailure" in settings_data["hooks"]
+    assert settings_data["hooks"]["Stop"][0]["hooks"][0]["command"] == str(hook_file)
+
+
+def test_interactive_launch_argv():
+    settings = Path("/tmp/settings.json")
+    spec = LaunchSpec(
+        task_id="T1",
+        session_id="impl-T1-1",
+        model=MODEL,
+        brief="do interactive thing",
+        workspace=Path("/tmp/ws"),
+        worktree=Path("/tmp/wt"),
+    )
+    argv = claude_mod.interactive_launch_argv(spec, "uuid-1234", settings)
+    assert argv[0] == "claude"
+    assert "-p" not in argv
+    assert argv[argv.index("--session-id") + 1] == "uuid-1234"
+    assert argv[argv.index("--settings") + 1] == str(settings)
+    assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
+    assert argv[-1] == "do interactive thing"
+
+
+def test_interactive_resume_argv():
+    settings = Path("/tmp/settings.json")
+    argv = claude_mod.interactive_resume_argv("uuid-1234", "keep going", settings, model=MODEL)
+    assert argv[0] == "claude"
+    assert "-p" not in argv
+    assert "--session-id" not in argv
+    assert argv[argv.index("--resume") + 1] == "uuid-1234"
+    assert argv[argv.index("--settings") + 1] == str(settings)
+    assert argv[argv.index("--permission-mode") + 1] == "dontAsk"
+    assert argv[-1] == "keep going"
+
+
+def test_interactive_launcher_source_structure(tmp_path):
+    prompt_file = tmp_path / "prompt.txt"
+    log_file = tmp_path / "impl.log"
+    marker_file = tmp_path / "marker.json"
+    argv = ["claude", "--model", MODEL, "--session-id", "uuid-123", "--settings", "/tmp/s.json", "<brief>"]
+    source = claude_mod.interactive_launcher_source(
+        argv, prompt_file=prompt_file, log_file=log_file, marker_file=marker_file
+    )
+    # Must be valid python
+    ast.parse(source)
+    assert "subprocess.Popen(argv)" in source
+    assert "marker.exists()" in source
+    assert "proc.terminate()" in source
+    assert "stdout=log" not in source  # must retain TTY for entrypoint 'cli'
+
+
+def test_interactive_launch_and_resume(tmp_path, worktree, runs):
+    claude_json = tmp_path / ".claude.json"
+    workspace = tmp_path / "ws"
+    driver = ClaudeBackend(
+        mode="interactive",
+        claude_json=claude_json,
+        new_session_id=lambda: SESSION_UUID,
+    )
+    spec = _spec(workspace, worktree)
+    handle = driver.launch(spec)
+
+    assert (workspace / claude_mod.LAUNCHER_FILE).is_file()
+    assert (workspace / claude_mod.HOOKS_FILE).is_file()
+    assert (workspace / claude_mod.SETTINGS_FILE).is_file()
+    # Workspace and worktree trusted
+    data = json.loads(claude_json.read_text(encoding="utf-8"))
+    assert data["projects"][str(worktree.resolve())]["hasTrustDialogAccepted"] is True
+    assert data["projects"][str(workspace.resolve())]["hasTrustDialogAccepted"] is True
+
+    # Resume in interactive mode
+    resumed = driver.resume(handle, "keep going", worktree=worktree)
+    assert (workspace / claude_mod.RESUME_LAUNCHER_FILE).is_file()
+    resume_src = (workspace / claude_mod.RESUME_LAUNCHER_FILE).read_text(encoding="utf-8")
+    assert "--resume" in resume_src
+    assert "'-p'" not in resume_src and '"-p"' not in resume_src
+
+
+def test_interactive_complete_with_runner(tmp_path):
+    claude_json = tmp_path / ".claude.json"
+    runner_calls = []
+
+    def mock_run(argv, **kwargs):
+        runner_calls.append((argv, kwargs))
+        return subprocess.CompletedProcess(args=argv, returncode=0, stdout="interactive answer", stderr="")
+
+    driver = ClaudeBackend(mode="interactive", claude_json=claude_json, runner=mock_run)
+    res = driver.complete(CompletionSpec(prompt="hello", cwd=tmp_path))
+    assert res.text == "interactive answer"
+    assert res.returncode == 0
+    assert len(runner_calls) == 1
+    argv = runner_calls[0][0]
+    assert "-p" not in argv
+    assert "--settings" in argv
+    assert argv[-1] == "hello"
+
+
+def test_interactive_complete_pty_flow(tmp_path, monkeypatch):
+    """Verify the real PTY execution branch of complete() when runner is None."""
+    claude_json = tmp_path / ".claude.json"
+    fake_claude = tmp_path / "fake_claude.sh"
+    fake_claude.write_text(
+        "#!/usr/bin/env bash\n"
+        "# Find --settings argument\n"
+        "SETTINGS=''\n"
+        "while [[ $# -gt 0 ]]; do\n"
+        "  if [[ \"$1\" == \"--settings\" ]]; then\n"
+        "    SETTINGS=\"$2\"\n"
+        "    shift 2\n"
+        "  else\n"
+        "    shift\n"
+        "  fi\n"
+        "done\n"
+        "if [[ -n \"$SETTINGS\" ]]; then\n"
+        "  python3 -c '\n"
+        "import json, sys, subprocess\n"
+        "settings = json.load(open(sys.argv[1]))\n"
+        "cmd = settings[\"hooks\"][\"Stop\"][0][\"hooks\"][0][\"command\"]\n"
+        "p = subprocess.Popen([cmd], stdin=subprocess.PIPE)\n"
+        "p.communicate(input=json.dumps({\"last_assistant_message\": \"pty output hello\"}).encode())\n"
+        "' \"$SETTINGS\"\n"
+        "fi\n"
+        "exit 0\n"
+    )
+    fake_claude.chmod(0o755)
+    monkeypatch.setattr(claude_mod, "BINARY", str(fake_claude))
+
+    log_file = tmp_path / "completion.log"
+    driver = ClaudeBackend(mode="interactive", claude_json=claude_json)
+    res = driver.complete(CompletionSpec(prompt="test prompt", cwd=tmp_path, log_file=log_file,
+                                         timeout=HANG_SECONDS))
+
+    assert res.text == "pty output hello"
+    assert res.returncode == 0
+    assert not res.timed_out
+    assert log_file.read_text(encoding="utf-8").strip() == "pty output hello"
+
+
+
+
+def test_interactive_hook_files_never_land_in_the_working_tree(tmp_path):
+    """itv pilot 2026-10-08: with no log_file the hook dir fell back to
+    `<cwd>/.maestro_interactive`, i.e. the task worktree; the gate refused the uncommitted
+    files, the implementer then committed them, and turn_marker.json tripped the deny-list."""
+    tree = tmp_path / "tree"
+    tree.mkdir()
+
+    def mock_run(argv, **kwargs):
+        return subprocess.CompletedProcess(args=argv, returncode=0, stdout="ok", stderr="")
+
+    driver = ClaudeBackend(mode="interactive", claude_json=tmp_path / ".claude.json", runner=mock_run)
+    driver.complete(CompletionSpec(prompt="hello", cwd=tree))
+
+    assert list(tree.iterdir()) == []

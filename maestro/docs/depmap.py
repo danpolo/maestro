@@ -52,6 +52,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from maestro import taskgraph
 from maestro.paths import Paths
 
 _PATHS = Paths.from_env()
@@ -76,57 +77,25 @@ MMDC          = Path(_GLOBAL_MMDC) if _GLOBAL_MMDC else REPO_ROOT / ".mermaid" /
 PUPPETEER_CFG = REPO_ROOT / ".mermaid" / "puppeteer-config.json"
 DEP_MAP_PNG   = REPO_ROOT / "docs" / "dependency_map.png"
 
-REQUIRED_FIELDS = ("id", "title", "short_desc", "est_time", "mode", "eval_relevance", "deps")
+#: A task block must name these for the map to draw it. `short_desc`, `est_time` and
+#: `eval_relevance` were required too, by the reference project's ROADMAP format; the
+#: current one (`maestro/templates/docs/ROADMAP.md`) has none of them, so every map of a
+#: current project was refused whole — the DuetFlow pilot never got one (2026-09-26).
+#: `_label` shows them when a task has them.
+REQUIRED_FIELDS = ("id", "title", "mode")
 
-_YAML_BLOCK = re.compile(r"```yaml\s*\n(.*?)\n```", re.DOTALL)
+#: Kept as a module global because `maestro.taskgraph` (P02) now owns the pattern and
+#: this name is part of this module's published surface.
+_YAML_BLOCK = taskgraph.YAML_BLOCK_TRIMMED_RE
 
-
-def _parse_block(text: str) -> dict | None:
-    """Parse one fenced yaml task block into a dict. Falls back to a tiny
-    hand parser if PyYAML is unavailable. Returns None if it has no `id`."""
-    data: dict | None = None
-    try:
-        import yaml  # type: ignore
-
-        data = yaml.safe_load(text)
-    except Exception:
-        data = _manual_parse(text)
-    if not isinstance(data, dict) or "id" not in data:
-        return None
-    return data
-
-
-def _manual_parse(text: str) -> dict:
-    """Dependency-free parser for the simple single-line `key: value` blocks
-    this repo uses (deps is a bracketed list)."""
-    out: dict = {}
-    for line in text.splitlines():
-        line = line.rstrip()
-        if not line or line.lstrip().startswith("#") or ":" not in line:
-            continue
-        key, _, val = line.partition(":")
-        key = key.strip()
-        val = val.strip()
-        if key == "deps":
-            inner = val.strip().lstrip("[").rstrip("]").strip()
-            out[key] = [d.strip().strip("'\"") for d in inner.split(",") if d.strip()]
-        else:
-            out[key] = val.strip().strip("'\"")
-    return out
+#: The tolerant block reader and its hand-rolled fallback both live in
+#: `maestro.taskgraph` now — `maestro.status` carried a second copy of exactly this pair.
+_manual_parse = taskgraph.manual_parse_block
+_parse_block = taskgraph.parse_block_tolerant
 
 
 def parse_tasks(roadmap_text: str) -> list[dict]:
-    tasks: list[dict] = []
-    for block in _YAML_BLOCK.findall(roadmap_text):
-        parsed = _parse_block(block)
-        if parsed is None:
-            continue
-        if isinstance(parsed.get("deps"), str):
-            inner = parsed["deps"].strip().lstrip("[").rstrip("]").strip()
-            parsed["deps"] = [d.strip().strip("'\"") for d in inner.split(",") if d.strip()]
-        parsed.setdefault("deps", [])
-        tasks.append(parsed)
-    return tasks
+    return taskgraph.scan_tasks_tolerant(roadmap_text)
 
 
 def _validate(tasks: list[dict]) -> None:
@@ -161,6 +130,11 @@ def _active_ids() -> set[str]:
         tid = row.get("task_id") if isinstance(row, dict) else None
         if tid:
             active.add(tid)
+    # The graph runner's live runs (G4), kept apart from legacy's `in_flight` sessions.
+    for row in state.get("graph_runs", []) or []:
+        tid = row.get("task_id") if isinstance(row, dict) else None
+        if tid:
+            active.add(tid)
     phase = state.get("phase") or {}
     if isinstance(phase, dict) and phase.get("status") == "in_progress" and phase.get("id"):
         active.add(phase["id"])
@@ -186,6 +160,17 @@ def _registry_completed() -> set[str]:
     return {str(r["id"]) for r in rows if isinstance(r, dict) and r.get("id")}
 
 
+def _registry_deps() -> dict[str, list[str]]:
+    """Graduated task id → its recorded deps (`taskgraph.read_registry_deps`), read from
+    this module's `COMPLETED_TASKS`. Absent or corrupt ⇒ empty."""
+    try:
+        rows = json.loads(COMPLETED_TASKS.read_text())
+        return {str(r["id"]): taskgraph.legacy_deps(r) for r in rows
+                if isinstance(r, dict) and r.get("id")}
+    except Exception:
+        return {}
+
+
 def _node_class(task: dict, active: set[str], completed: set[str]) -> str:
     """Pick the node colour by *why* a task can or cannot run right now.
     Precedence (most-salient first): in-flight > pinned-out > dep-blocked >
@@ -204,10 +189,15 @@ def _node_class(task: dict, active: set[str], completed: set[str]) -> str:
 
 
 def _label(task: dict) -> str:
+    """`id — title`, then the estimate and `mode · relevance` when the task carries the
+    legacy `est_time` / `eval_relevance` fields; a current-format task shows its mode alone
+    rather than `?` placeholders."""
     mode = task.get("mode", "?")
+    title = str(task.get("title", "")).replace('"', "'")
+    if "est_time" not in task and "eval_relevance" not in task:
+        return f'{task["id"]}["{task["id"]} — {title}<br/>{mode}"]'
     relevance = task.get("eval_relevance", "?")
     est = task.get("est_time", "?")
-    title = str(task.get("title", "")).replace('"', "'")
     est = str(est).replace('"', "'")
     return f'{task["id"]}["{task["id"]} — {title}<br/>{est}<br/>{mode} · {relevance}"]'
 
@@ -269,10 +259,14 @@ def render(tasks: list[dict], active: set[str]) -> str:
         lines.append(f"    {_label(t)}:::{_node_class(t, active, completed)}")
     lines.append("")
     has_edges = False
+    # Drawn reduced: an edge another path already implies is noise (P12 finding D21).
+    # Graduated tasks' recorded deps count as paths too.
+    reduced = taskgraph.transitive_reduction(
+        {t["id"]: t.get("deps", []) for t in tasks}, known=_registry_deps())
     for t in tasks:
         if t["id"] in completed:
             continue
-        for dep in t.get("deps", []):
+        for dep in reduced[str(t["id"])]:
             if dep not in rendered_ids:
                 continue  # dep already complete/graduated — satisfied, not drawn
             lines.append(f"    {dep} --> {t['id']}")
@@ -374,11 +368,17 @@ def render_png() -> None:
     try:
         with os.fdopen(fd, "w") as fh:
             fh.write(body)
-        subprocess.run(
+        proc = subprocess.run(
             [str(MMDC), "-i", str(tmp_path), "-o", str(DEP_MAP_PNG),
              "-p", str(PUPPETEER_CFG), "-s", "3", "-w", "2400", "--quiet"],
-            check=True,
+            capture_output=True, text=True,
         )
+        if proc.returncode != 0:
+            # mmdc's own stderr is the only useful reason (the command line is not).
+            lines = [ln.strip() for ln in proc.stderr.splitlines() if ln.strip()]
+            said = next((ln for ln in lines if "rror" in ln), lines[-1] if lines else "no stderr")
+            print(f"render_dependency_map: mmdc rc={proc.returncode}: {said}", file=sys.stderr)
+            raise SystemExit(1)
     finally:
         tmp_path.unlink(missing_ok=True)
     print(f"render_dependency_map: wrote {DEP_MAP_PNG}")

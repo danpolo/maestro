@@ -33,11 +33,11 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
 
-from maestro import verifications
+from maestro import taskgraph, verifications
 from maestro.docs import consistency as doc_consistency
 from maestro.docs import depmap as doc_depmap
+from maestro.docs import goals as doc_goals
 from maestro.paths import Paths
 
 _PATHS = Paths.from_env()
@@ -75,38 +75,64 @@ def remove_task_section(content: str, task_id: str) -> tuple[str, str | None]:
     """Return (new_content, title_or_None). Removes the whole task section: the
     `### <id> …` heading, the fenced yaml block, and any trailing prose, up to (but
     not including) the next `### ` heading / `---` rule / EOF."""
-    for m in re.finditer(r"```yaml\n(.*?)```", content, re.DOTALL):
-        try:
-            task = yaml.safe_load(m.group(1))
-        except yaml.YAMLError:
-            continue
-        if not isinstance(task, dict) or str(task.get("id", "")) != str(task_id):
+    span = task_section_span(content, task_id)
+    if span is None:
+        return content, None
+    start, end, task = span
+    new_content = content[:start] + content[end:]
+    # Collapse any 3+ blank-line runs left behind into a single blank line.
+    new_content = re.sub(r"\n{3,}", "\n\n", new_content)
+    return new_content, task.get("title", task_id)
+
+
+def task_section_span(content: str, task_id: str) -> tuple[int, int, dict] | None:
+    """`(start, end, task)` of the task's section in `content`, or None.
+
+    The section `remove_task_section` removes; also where graduation queues the task's
+    follow-up task (`maestro.docs.followups`), so it takes the graduated task's place.
+    """
+    # The fence pattern and the "unparsable block is skipped" rule are
+    # `maestro.taskgraph`'s (P02) — one reading of the roadmap, not six. The match
+    # objects are needed here rather than the parsed dicts, because this function splices
+    # the surrounding prose section out around the block's source offsets.
+    matches = list(taskgraph.iter_yaml_matches(content))
+    for i, m in enumerate(matches):
+        task = taskgraph.parse_block(m.group(1))
+        if task is None or str(task.get("id", "")) != str(task_id):
             continue
 
-        title = task.get("title", task_id)
+        # A section never spans another yaml block (P12 pilot finding D18: a roadmap of
+        # bare consecutive blocks, with no headings or rules, lost every later task).
+        floor = matches[i - 1].end() if i > 0 else 0
+        ceiling = matches[i + 1].start() if i + 1 < len(matches) else len(content)
 
-        # Section start: the nearest "### " heading line preceding this yaml block.
-        head = content.rfind("\n### ", 0, m.start())
+        # Section start: the nearest "### " heading line preceding this yaml block, but
+        # not one above the previous block.
+        head = content.rfind("\n### ", floor, m.start())
         start = head + 1 if head != -1 else m.start()
 
-        # Section end: first "### " heading or "---" rule after the yaml block, else EOF.
-        rest = content[m.end():]
-        end_candidates = []
+        # Section end: first "### " heading or "---" rule after the yaml block, else the
+        # next yaml block, else EOF.
+        rest = content[m.end():ceiling]
+        end_candidates = [ceiling]
         for pat in (r"\n### ", r"\n---\n"):
             mm = re.search(pat, rest)
             if mm:
                 end_candidates.append(m.end() + mm.start() + 1)  # keep the boundary line
-        end = min(end_candidates) if end_candidates else len(content)
-
-        new_content = content[:start] + content[end:]
-        # Collapse any 3+ blank-line runs left behind into a single blank line.
-        new_content = re.sub(r"\n{3,}", "\n\n", new_content)
-        return new_content, title
-    return content, None
+        end = min(end_candidates)
+        return start, end, task
+    return None
 
 
-def append_completed(task_id: str, title: str, graduated_to: str) -> None:
-    """Append/refresh the registry entry, deduped by id, recording graduated_to."""
+def append_completed(task_id: str, title: str, graduated_to: str,
+                     deps: list[str] | None = None, serves: list[str] | None = None) -> None:
+    """Append/refresh the registry entry, deduped by id, recording graduated_to.
+
+    `deps`, when given, are the task's deps as its block had them: once the block is
+    stripped they are the only record left, and the dep reduction reads them as
+    reachability through the graduated task (`taskgraph.read_registry_deps`, P12 D21).
+    `serves`, likewise, are the goals it served (P13 W11a): doctor's "goal no task
+    serves" counts finished tasks from here."""
     existing: list[dict] = []
     if COMPLETED_TASKS.exists():
         try:
@@ -122,10 +148,18 @@ def append_completed(task_id: str, title: str, graduated_to: str) -> None:
             "completed_at": now_iso(),
             "graduated_to": graduated_to,
         })
+        if deps is not None:
+            existing[-1]["deps"] = list(deps)
+        if serves is not None:
+            existing[-1]["serves"] = list(serves)
     else:  # dedup: refresh in place, preserve original completed_at
         entry["title"] = title or entry.get("title", task_id)
         entry.setdefault("completed_at", now_iso())
         entry["graduated_to"] = graduated_to
+        if deps is not None:
+            entry["deps"] = list(deps)
+        if serves is not None:
+            entry["serves"] = list(serves)
 
     COMPLETED_TASKS.parent.mkdir(parents=True, exist_ok=True)
     COMPLETED_TASKS.write_text(
@@ -178,6 +212,7 @@ def main() -> int:
     graduated_to = str(doc.relative_to(REPO))
 
     content = ROADMAP_FILE.read_text(encoding="utf-8")
+    block = next((t for t in taskgraph.scan_tasks(content) if str(t.get("id")) == task_id), None)
     new_content, title = remove_task_section(content, task_id)
 
     if title is None:
@@ -187,7 +222,10 @@ def main() -> int:
         ROADMAP_FILE.write_text(new_content, encoding="utf-8")
         print(f"[mark] Removed {task_id} ({title!r}) section from ROADMAP.md")
 
-    append_completed(task_id, title, graduated_to)
+    served = doc_goals.task_serves(block) if block is not None else None
+    append_completed(task_id, title, graduated_to,
+                     deps=taskgraph.legacy_deps(block) if block is not None else None,
+                     serves=list(served) if served is not None else None)
     print(f"[mark] Registry updated: {COMPLETED_TASKS} (graduated_to={graduated_to})")
 
     if ensure_graduation_marker(task_id, title, doc):

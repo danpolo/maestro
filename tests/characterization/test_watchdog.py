@@ -520,6 +520,35 @@ def test_orchestrator_alive_pattern_matches_the_loop_entrypoints(wd, runs):
     assert isinstance(pattern, str) and pattern
 
 
+def test_orchestrator_alive_pattern_matches_the_module_entrypoint_not_the_watchdog(wd, runs):
+    """The installed venv runs the loop as ``python -m maestro.cli run``."""
+    wd.orchestrator_alive()
+    pattern = runs.one("pgrep").argv[2]
+    bin_dir = wd.VENV_MAESTRO.parent
+    assert re.search(pattern, f"{bin_dir}/python3 -m maestro.cli run")
+    assert re.search(pattern, f"{bin_dir}/python {wd.VENV_MAESTRO} run")
+    assert re.search(pattern, f"flock -n {wd.ORCHESTRATOR_LOCK} {wd.VENV_MAESTRO} run")
+    assert not re.search(pattern, f"{bin_dir}/python3 -m maestro.cli watchdog")
+
+
+def test_orchestrator_alive_pattern_ignores_a_wait_loop_and_other_projects(wd, runs):
+    """P12 finding 2026-10-08: an agent's ``until pgrep -f "maestro.cli run$"`` wait loop
+    matched the old unanchored pattern and held DuetFlow's relaunch for ~6 min. Another
+    project's loop matched too, so a stall `pkill` here would have killed it."""
+    wd.orchestrator_alive()
+    pattern = runs.one("pgrep").argv[2]
+    bin_dir = wd.VENV_MAESTRO.parent
+    for cmdline in (
+        'bash -c until pgrep -f "maestro.cli run$"; do sleep 5; done',
+        f"bash -c until pgrep -f '{bin_dir}/python3 -m maestro.cli run'; do sleep 5; done",
+        "/bin/bash /tmp/monitor.sh maestro.cli run",
+        "/home/dan/projects/other/.venv/bin/python -m maestro.cli run",
+        f"pgrep -f {pattern}",
+        f"vim {wd.REPO}/maestro run",
+    ):
+        assert not re.search(pattern, cmdline), cmdline
+
+
 def test_orchestrator_alive_true_on_a_match(wd, runs):
     runs.when("pgrep", returncode=0, stdout="1234\n")
     assert wd.orchestrator_alive() is True
@@ -578,30 +607,53 @@ def test_tmux_window_exists_ignores_the_return_code(wd, runs):
 # ===================================================================================
 
 
-def test_launch_orchestrator_spawns_one_shell_command(wd, runs, capsys):
+def test_launch_orchestrator_probes_then_spawns_one_shell_command(wd, runs, capsys):
     wd.launch_orchestrator()
     capsys.readouterr()
-    assert len(runs.calls) == 1
-    call = runs.calls[0]
+    assert len(runs.calls) == 2
+    assert runs.calls[0].argv == [
+        "tmux", "list-windows", "-t", wd.TMUX_SESSION, "-F", "#{window_name}",
+    ]
+    call = runs.one("new-window")
     assert isinstance(call.argv, str)
     assert call.kwargs == {"shell": True}
+
+
+def test_launch_orchestrator_skips_when_the_canonical_window_is_live(wd, box, runs, capsys):
+    """A false process probe must not create ``orchestrator-1`` beside a live owner."""
+    runs.when("list-windows", stdout=f"main\n{wd.TMUX_WINDOW}\n")
+
+    wd.launch_orchestrator()
+
+    assert runs.of("new-window") == []
+    assert _event_names(box) == []
+    assert "skipping duplicate launch" in capsys.readouterr().out
 
 
 def test_launch_orchestrator_targets_the_session_and_window(wd, runs, capsys):
     wd.launch_orchestrator()
     capsys.readouterr()
-    command = runs.calls[0].argv
+    command = runs.one("new-window").argv
     assert f"tmux new-window -t {wd.TMUX_SESSION} -n {wd.TMUX_WINDOW}" in command
 
 
 def test_launch_orchestrator_runs_the_launcher_from_the_repo(wd, box, runs, capsys):
     wd.launch_orchestrator()
     capsys.readouterr()
-    command = runs.calls[0].argv
+    command = runs.one("new-window").argv
     assert f"cd {wd.REPO} &&" in command
     assert str(wd.VENV_MAESTRO) in command
     assert str(wd.REPO / ".venv" / "bin" / "maestro") in command
     assert "'maestro run'" not in command
+
+
+def test_launch_orchestrator_holds_an_exclusive_lock_for_the_child_lifetime(wd, runs, capsys):
+    """Even if probes race or use the wrong TMUX socket, only one loop can execute."""
+    wd.launch_orchestrator()
+    capsys.readouterr()
+
+    command = runs.one("new-window").argv
+    assert f"flock -n {wd.REPO / '.orchestrator' / 'orchestrator.lock'}" in command
 
 
 def test_launch_orchestrator_journals_and_prints(wd, box, runs, capsys):
@@ -631,8 +683,9 @@ def test_launch_orchestrator_interpolates_paths_into_a_shell_string_unquoted(
     monkeypatch.setattr(wd, "REPO", spaced)
     wd.launch_orchestrator()
     capsys.readouterr()
-    assert f"cd {spaced} &&" in runs.calls[0].argv
-    assert "'two words'" not in runs.calls[0].argv
+    command = runs.one("new-window").argv
+    assert f"cd {spaced} &&" in command
+    assert "'two words'" not in command
 
 
 # ===================================================================================
@@ -1279,6 +1332,120 @@ def test_main_waiting_on_dan_keeps_the_stall_timer_fresh(wd, box, env, capsys):
     assert "stall_restart" not in _event_names(box)
 
 
+def test_main_a_graph_run_waiting_on_dans_verification_is_not_a_stall(wd, box, env, capsys):
+    """`kind: dan`: a graph run holding a task before merge for Dan's confirmation polls
+    silently (nothing to journal until he answers). `maestro.hitl.verify` lists it under
+    `awaiting_dan_verification`, and that silence is not a stall."""
+    _write_state(box, {"awaiting_dan_verification": {
+        "T1": {"run_id": "run_1", "snapshot": "abc", "request_id": "verify-T1-abc"}}})
+    env.alive = True
+    assert _run(wd, env, ticks=5, step=STALL) == RUNNING
+    capsys.readouterr()
+    assert env.notices == []
+    assert "stall_restart" not in _event_names(box)
+    assert "watchdog_halt_stall" not in _event_names(box)
+
+
+def test_main_a_graph_run_paused_on_dans_decision_is_not_a_stall(wd, box, env, capsys):
+    """D26: a run paused on an agent's spec question waits silently for Dan's answer, like
+    a verification wait (`awaiting_dan_questions`)."""
+    _write_state(box, {"awaiting_dan_questions": {
+        "T1": {"run_id": "run_1", "request_ids": ["dq-T1-abc"], "sent": True}}})
+    env.alive = True
+    assert _run(wd, env, ticks=5, step=STALL) == RUNNING
+    capsys.readouterr()
+    assert env.notices == []
+    assert "stall_restart" not in _event_names(box)
+    assert "watchdog_halt_stall" not in _event_names(box)
+
+
+def _write_control_db(wd, *statuses: str) -> Path:
+    """A control DB with one `task_runs` row per status (only the columns the watchdog reads)."""
+    import sqlite3
+    wd.CONTROL_DB.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(wd.CONTROL_DB)
+    conn.execute("CREATE TABLE task_runs (run_id TEXT PRIMARY KEY, status TEXT NOT NULL)")
+    conn.executemany("INSERT INTO task_runs VALUES (?, ?)",
+                     [(f"run_{i}", status) for i, status in enumerate(statuses)])
+    conn.commit()
+    conn.close()
+    return wd.CONTROL_DB
+
+
+def test_main_a_running_graph_run_is_not_a_stall(wd, box, env, capsys, runs):
+    """D9: the graph runner never fills `in_flight` and journals only at run open/settle,
+    so a `running` row in the control DB is its in-flight guard — an attempt longer than
+    the stall window is not killed."""
+    _write_control_db(wd, "succeeded", "running")
+    env.alive = True
+    assert _run(wd, env, ticks=5, step=STALL) == RUNNING
+    capsys.readouterr()
+    assert runs.of("pkill") == []
+    assert "stall_restart" not in _event_names(box)
+    assert env.launches == 0
+
+
+def test_main_a_settled_graph_run_starts_a_fresh_stall_window(wd, box, env, capsys, runs):
+    """D9: the silence timer is kept fresh while the run is live, so the poll after it
+    settles does not trip on the silence that accrued during the run."""
+    db = _write_control_db(wd, "running")
+    env.alive = True
+    assert _run(wd, env, ticks=3, step=STALL) == RUNNING
+    import sqlite3
+    conn = sqlite3.connect(db)
+    conn.execute("UPDATE task_runs SET status = 'succeeded'")
+    conn.commit()
+    conn.close()
+    assert _run(wd, env, ticks=1, step=19 * 60) == RUNNING
+    capsys.readouterr()
+    assert runs.of("pkill") == []
+
+
+def test_main_a_running_graph_run_with_a_dead_orchestrator_relaunches(wd, box, env, capsys):
+    _write_control_db(wd, "running")
+    env.alive = False
+    assert _run(wd, env) == RUNNING
+    capsys.readouterr()
+    assert env.launches == 1
+
+
+@pytest.mark.parametrize("statuses", [(), ("succeeded", "failed", "paused", "canceled")])
+def test_main_no_running_graph_run_still_stalls(wd, box, env, capsys, runs, statuses):
+    _write_control_db(wd, *statuses)
+    env.alive = True
+    assert _run(wd, env, ticks=3, step=STALL) == RUNNING
+    capsys.readouterr()
+    assert _detail(box, "stall_restart") == "restart=1 silence=21min"
+
+
+@pytest.mark.parametrize("db", ["missing", "no_table", "corrupt", "locked"])
+def test_main_an_unreadable_control_db_keeps_the_stall_behaviour(
+        wd, box, env, capsys, runs, db):
+    """D9: no DB (a legacy project), no table, a corrupt or locked file — the watchdog
+    cannot tell, so it does not suppress the stall check."""
+    import sqlite3
+    wd.CONTROL_DB.parent.mkdir(parents=True, exist_ok=True)
+    holder = None
+    if db == "no_table":
+        wd.CONTROL_DB.write_bytes(b"")  # an empty file is a valid, table-less database
+    elif db == "corrupt":
+        wd.CONTROL_DB.write_bytes(b"not a sqlite database" * 100)
+    elif db == "locked":
+        _write_control_db(wd, "running")
+        holder = sqlite3.connect(wd.CONTROL_DB, isolation_level=None)
+        holder.execute("BEGIN EXCLUSIVE")
+    try:
+        assert wd.graph_run_live() is False
+        env.alive = True
+        assert _run(wd, env, ticks=3, step=STALL) == RUNNING
+    finally:
+        if holder is not None:
+            holder.execute("ROLLBACK")
+            holder.close()
+    capsys.readouterr()
+    assert _detail(box, "stall_restart") == "restart=1 silence=21min"
+
+
 def test_main_relaunches_a_dead_orchestrator_every_poll(wd, box, env, capsys):
     env.alive = False
     assert _run(wd, env, ticks=3) == RUNNING
@@ -1319,7 +1486,7 @@ def test_main_first_stall_kills_and_relaunches(wd, box, env, capsys, runs):
     assert "[watchdog] Stall #1 (21 min) — killing orchestrator." in out
     assert _detail(box, "stall_restart") == "restart=1 silence=21min"
     kill = runs.one("pkill")
-    assert kill.argv == ["pkill", "-f", wd.ORCHESTRATOR_PATTERN]
+    assert kill.argv == ["pkill", "-f", wd.controller_pattern()]
     assert kill.kwargs == {"capture_output": True}
     assert env.clock.sleeps[:2] == [wd.POLL_INTERVAL, 2]
     assert env.launches == 1
@@ -1502,3 +1669,10 @@ def test_main_sleeps_the_poll_interval_on_every_path(wd, box, env, capsys):
     assert _run(wd, env, ticks=3) == RUNNING
     capsys.readouterr()
     assert env.clock.sleeps == [wd.POLL_INTERVAL] * 3
+
+
+def test_the_orchestrator_window_is_named_per_project(wd):
+    """The `agents` session is shared by every project on the host; one project's controller
+    window must not satisfy another project's "already launched" check (P12 itv pilot)."""
+    assert wd.TMUX_WINDOW == f"orchestrator-{wd.PROJECT_NAME}"
+    assert wd.TMUX_WINDOW != "orchestrator"

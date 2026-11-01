@@ -59,12 +59,14 @@ import subprocess
 import sys
 import tempfile
 import time
+import tomllib
 from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping, Optional, Sequence
 
 from maestro.backends import registry
+from maestro.backends import codex_app_server, codex_auth, codex_runtime, control_files, native_ownership
 from maestro.backends.base import (
     Capabilities,
     Completion,
@@ -142,6 +144,15 @@ LAUNCHER_TAIL_CHARS = 8000
 #: Codex's own wording for exhaustion. Deliberately *not* `quota._LIMIT_RE`, which encodes
 #: the other CLI's phrasing and would both miss this one and fire on unrelated text.
 _RATE_LIMIT_REACHED_RE = re.compile(r"rate[_\s-]?limit[_\s-]?reached", re.I)
+#: D11 (P12 pilot): the CLI's own plain-text error when the plan's allowance is spent —
+#: "ERROR: You’ve hit your usage limit. Upgrade to Pro (…) or try again at 2:02 PM." Kept
+#: to Codex's exact phrasing (curly or straight apostrophe), not the other CLI's wording.
+_USAGE_LIMIT_RE = re.compile(r"you[’']ve hit your usage limit", re.I)
+#: Its reset, in the machine's local time: "try again at 2:02 PM", or with a date,
+#: "try again at Aug 15th, 2026 9:00 AM".
+_TRY_AGAIN_RE = re.compile(
+    r"try again at\s+(?:([A-Z][a-z]{2})[a-z]*\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(\d{4})\s+)?"
+    r"(\d{1,2}):(\d{2})\s*([AP]M)", re.I)
 _RATE_LIMIT_REACHED_KEYS = ("rate_limit_reached_type", "rateLimitReachedType")
 
 _ISO_Z = "%Y-%m-%dT%H:%M:%SZ"
@@ -216,6 +227,25 @@ def _walk(node: Any, depth: int = 6) -> Iterator[Mapping]:
 
 
 # ── argv construction ──
+
+
+def selected_effort(spec: LaunchSpec | CompletionSpec) -> str | None:
+    """Decode only the register's verified effort control, never arbitrary overrides."""
+    if spec.effort_args or len(spec.effort_config) > 1:
+        raise ValueError('unsupported Codex launch controls')
+    if not spec.effort_config:
+        return None
+    key, value = spec.effort_config[0]
+    if key != 'model_reasoning_effort':
+        raise ValueError('unsupported Codex launch controls')
+    try:
+        effort = value if value in ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max') else (
+            tomllib.loads('effort = ' + value)['effort'])
+    except (ValueError, TypeError) as exc:
+        raise ValueError('unsupported Codex launch controls') from exc
+    if effort not in ('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'):
+        raise ValueError('unsupported Codex launch controls')
+    return effort
 
 
 def sandbox_mode(value: Optional[str]) -> str:
@@ -366,6 +396,9 @@ def completion_argv(
     for extra in spec.add_dirs:
         argv += ["--add-dir", str(extra)]
     argv += ["-o", str(last_message_file)]
+    for key, value in spec.effort_config:
+        argv += ["-c", f"{key}={value}"]
+    argv += [str(arg) for arg in spec.effort_args]
     if not spec.resume_id and not spec.writable:
         argv.append("--ephemeral")
     if spec.resume_id:
@@ -399,6 +432,23 @@ def thread_id_from_text(text: str) -> Optional[str]:
         if found:
             return found
     return None
+
+
+_SESSION_HEADER_RE = re.compile(r"^session id:\s*([0-9a-fA-F-]{8,})\s*$", re.M)
+
+
+def _completion_thread_id(workspace: Path | str) -> Optional[str]:
+    """The thread id from the `session id:` header of a completion's `impl.log`.
+
+    `complete()` runs `codex exec` without `--json`, so its log carries the human header
+    rather than a `thread.started` event; the first header is the run's own.
+    """
+    try:
+        text = (Path(workspace) / LOG_FILE).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    match = _SESSION_HEADER_RE.search(text[:20000])
+    return match.group(1) if match else None
 
 
 def is_dead_thread(rc: int, output: str) -> bool:
@@ -529,8 +579,18 @@ def exhaustion_signal(log_tail: str) -> Optional[dict]:
     `quota._LIMIT_RE` is deliberately not reused: it encodes the other CLI's phrasing.
     """
     text = log_tail or ""
+    diagnostics = []
     for event in _iter_json_lines(text):
-        for node in _walk(event):
+        kind = event.get("type")
+        item = event.get("item")
+        diagnostic = (
+            kind is None or kind in ("error", "turn.failed")
+            or (kind in ("item.started", "item.updated", "item.completed")
+                and isinstance(item, Mapping) and item.get("type") == "error")
+        )
+        if diagnostic:
+            diagnostics.append(event)
+        for node in _walk(event) if diagnostic else ():
             for key in _RATE_LIMIT_REACHED_KEYS:
                 if node.get(key):
                     return {
@@ -557,6 +617,22 @@ def exhaustion_signal(log_tail: str) -> Optional[dict]:
                     "evidence": json.dumps(limits)[:200],
                 }
 
+    # JSONL items may quote error wording while doing ordinary work. Only diagnostic
+    # events and non-JSON stderr lines can carry an explicit provider error.
+    plain_lines = [line for line in text.splitlines() if not any(_iter_json_lines(line))]
+    text = "\n".join(plain_lines + [json.dumps(event) for event in diagnostics])
+    match = _USAGE_LIMIT_RE.search(text)
+    if match:
+        line = next((ln for ln in text.splitlines() if _USAGE_LIMIT_RE.search(ln)), "")
+        again = _TRY_AGAIN_RE.search(line)
+        return {
+            "explicit": True,
+            "reason": match.group(0),
+            "resets_at": None,
+            "try_again": again.group(0) if again else None,
+            "evidence": line.strip()[:200],
+        }
+
     match = _RATE_LIMIT_REACHED_RE.search(text)
     if match:
         line = next(
@@ -569,6 +645,31 @@ def exhaustion_signal(log_tail: str) -> Optional[dict]:
             "evidence": line.strip()[:200],
         }
     return None
+
+
+def _try_again_epoch(text: str, now: datetime) -> Optional[int]:
+    """The epoch of a "try again at [<date>] H:MM AM|PM" phrase, read in local time.
+
+    Without a date it is the next such moment after `now`. `None` when it does not parse.
+    """
+    m = _TRY_AGAIN_RE.search(text or "")
+    if not m:
+        return None
+    mon, day, year, hh, mm, ap = m.groups()
+    hour = int(hh) % 12 + (12 if ap.upper() == "PM" else 0)
+    local_now = now.astimezone()
+    try:
+        if mon:
+            moment = datetime.strptime(
+                f"{mon.title()} {int(day)} {year} {hour}:{mm}", "%b %d %Y %H:%M"
+            ).astimezone()
+        else:
+            moment = local_now.replace(hour=hour, minute=int(mm), second=0, microsecond=0)
+            if moment <= local_now:
+                moment += timedelta(days=1)
+    except ValueError:
+        return None
+    return int(moment.timestamp())
 
 
 def _resets_at_of(event: Mapping) -> Optional[int]:
@@ -781,6 +882,7 @@ class CodexBackend:
 
     # ── launching (plan step 2) ──
 
+    @native_ownership.driver
     def launch(self, spec: LaunchSpec) -> Handle:
         """Start a fresh briefed run in its own tmux window.
 
@@ -791,18 +893,25 @@ class CodexBackend:
         `launch` itself returns as soon as the window exists, so the thread id does not
         exist yet and the returned handle carries `None` for it.
         """
-        workspace = Path(spec.workspace)
-        worktree = Path(spec.worktree)
-        workspace.mkdir(parents=True, exist_ok=True)
-        (workspace / BRIEF_FILE).write_text(spec.brief, encoding="utf-8")
+        workspace = control_files.workspace(spec.workspace)
+        worktree = control_files.directory(spec.worktree)
+        control_files.mkdir(workspace, parents=True, exist_ok=True)
+        control_files.write(workspace / BRIEF_FILE, spec.brief)
         # A thread id left by an earlier run in this workspace is not ours. Clearing it
         # means "no handle yet" instead of a handle that resumes the wrong conversation.
         self._forget_thread_id(workspace)
+        # Pollers also recover handles from impl.log. Clear the previous fresh
+        # run synchronously, before publishing a launcher or starting its window.
+        # Resume keeps its append-only log so quota/error evidence survives.
+        control_files.write(workspace / LOG_FILE, '')
         self._write_launch_meta(spec)
 
-        argv = self.launch_argv(spec)
-        self._write_launcher(workspace, primary=argv, fallback=None)
-        self._new_window(spec.task_id, worktree, workspace)
+        prepared = self._write_app_server_launcher(spec, prompt=spec.brief)
+        try:
+            self._new_window(spec.task_id, worktree, workspace)
+        except BaseException:
+            prepared.cleanup()
+            raise
 
         self._spec = spec
         self._thread_id = None
@@ -858,6 +967,7 @@ class CodexBackend:
 
     # ── resuming (plan step 3) ──
 
+    @native_ownership.driver
     def resume(
         self, handle: Handle, prompt: str, *, spec: Optional[LaunchSpec] = None
     ) -> Handle:
@@ -874,24 +984,32 @@ class CodexBackend:
         that discovery costs no model call, which is why it is done by attempting rather
         than by probing.
         """
+        control_files.workspace(handle.workspace)
+        if spec is not None:
+            control_files.workspace(spec.workspace)
+            control_files.directory(spec.worktree)
         resolved = self._resolve_spec(handle, prompt, spec)
+        native_ownership.reserve_tree(resolved.worktree)
         thread_id = handle.native_id or self.thread_id_for(handle.workspace)
 
-        workspace = Path(resolved.workspace)
-        workspace.mkdir(parents=True, exist_ok=True)
-        (workspace / RESUME_PROMPT_FILE).write_text(prompt, encoding="utf-8")
-        (workspace / BRIEF_FILE).write_text(resolved.brief, encoding="utf-8")
+        workspace = control_files.workspace(resolved.workspace)
+        control_files.directory(resolved.worktree)
+        control_files.mkdir(workspace, parents=True, exist_ok=True)
+        control_files.write(workspace / RESUME_PROMPT_FILE, prompt)
+        control_files.write(workspace / BRIEF_FILE, resolved.brief)
         self._write_launch_meta(resolved)
 
-        fresh = self.launch_argv(resolved)
-        if thread_id:
-            primary, fallback = self.resume_argv(resolved, thread_id, prompt), fresh
-        else:
-            primary, fallback = fresh, None
+        if not thread_id:
             self._forget_thread_id(workspace)
 
-        self._write_launcher(workspace, primary=primary, fallback=fallback, mode="a")
-        self._new_window(resolved.task_id, Path(resolved.worktree), workspace)
+        prepared = self._write_app_server_launcher(resolved, prompt=prompt, resume_id=thread_id or '',
+                                        fallback_prompt=resolved.brief if thread_id else None,
+                                        mode='a')
+        try:
+            self._new_window(resolved.task_id, Path(resolved.worktree), workspace)
+        except BaseException:
+            prepared.cleanup()
+            raise
 
         self._spec = resolved
         self._thread_id = thread_id
@@ -918,6 +1036,8 @@ class CodexBackend:
                 workspace=Path(handle.workspace),
                 worktree=Path(str(meta.get("worktree") or "")),
                 sandbox=meta.get("sandbox"),
+                effort_args=tuple(meta.get('effort_args', ())),
+                effort_config=tuple(tuple(item) for item in meta.get('effort_config', ())),
             )
         if self._spec is not None:
             remembered = self._spec
@@ -930,6 +1050,8 @@ class CodexBackend:
                 worktree=remembered.worktree,
                 system_prompt_file=remembered.system_prompt_file,
                 sandbox=remembered.sandbox,
+                effort_args=remembered.effort_args,
+                effort_config=remembered.effort_config,
             )
         raise ValueError(
             "cannot resume: no launch spec was given and none was recorded in "
@@ -947,14 +1069,14 @@ class CodexBackend:
         """
         workspace = Path(workspace)
         try:
-            recorded = (workspace / THREAD_ID_FILE).read_text(encoding="utf-8").strip()
-        except OSError:
+            recorded = control_files.read(workspace / THREAD_ID_FILE).decode('utf-8').strip()
+        except (OSError, ValueError):
             recorded = ""
         if recorded:
             return recorded
         try:
-            log = (workspace / LOG_FILE).read_text(encoding="utf-8", errors="replace")
-        except OSError:
+            log = control_files.read(workspace / LOG_FILE).decode('utf-8', errors='replace')
+        except (OSError, ValueError):
             return None
         return thread_id_from_text(log)
 
@@ -974,14 +1096,14 @@ class CodexBackend:
             "sandbox": sandbox_mode(spec.sandbox),
             "worktree": str(spec.worktree),
             "workspace": str(spec.workspace),
+            "effort_args": list(spec.effort_args),
+            "effort_config": list(spec.effort_config),
         }
-        (Path(spec.workspace) / LAUNCH_META_FILE).write_text(
-            json.dumps(meta, indent=2), encoding="utf-8"
-        )
+        control_files.write(Path(spec.workspace) / LAUNCH_META_FILE, json.dumps(meta, indent=2))
 
     def read_launch_meta(self, workspace: Path | str) -> Optional[dict]:
         try:
-            raw = (Path(workspace) / LAUNCH_META_FILE).read_text(encoding="utf-8")
+            raw = control_files.read(Path(workspace) / LAUNCH_META_FILE)
             meta = json.loads(raw)
         except Exception:
             return None
@@ -1022,60 +1144,110 @@ class CodexBackend:
             self._journal("codex_binary_warning", f"{task_id} {warning}")
         return window
 
+    def _write_app_server_launcher(self, spec: LaunchSpec, *, prompt: str,
+                                   resume_id: str = '', fallback_prompt: str | None = None,
+                                   mode: str = 'w') -> codex_runtime.PreparedRun:
+        workspace = Path(spec.workspace)
+        worktree = control_files.directory(spec.worktree)
+        requested = sandbox_mode(spec.sandbox)
+        if requested not in ('read-only', 'workspace-write'):
+            raise ValueError('Codex worker refuses an unrestricted sandbox')
+        roots = (worktree, *map(Path, self._launch_dirs(spec))) if requested == 'workspace-write' else ()
+        prepared = codex_runtime.prepare(cwd=worktree, workspace=workspace,
+            model=spec.model, effort=selected_effort(spec), write_roots=roots,
+            native_home=self.codex_home())
+        script = workspace / LAUNCH_SCRIPT
+        try:
+            control_files.write(script, prepared.launcher(binary=self.binary_path(), prompt=prompt,
+                resume_id=resume_id, fallback_prompt=fallback_prompt, mode=mode))
+            control_files.chmod(script, 0o755)
+        except BaseException:
+            prepared.cleanup()
+            raise
+        return prepared
+
     # ── complete ──
 
+    @native_ownership.driver
     def complete(self, spec: CompletionSpec) -> Completion:
-        """Run one bounded call and hand back the agent's final message.
+        """One bounded stock app-server turn, on the sealed per-call policy.
 
-        Never raises: a non-zero exit, a timeout and a crash all come back as an empty
-        `text`, because every caller is best-effort.
-
-        The reply is read from the `-o` file rather than stdout. Stdout here is Codex's
-        progress rendering — reasoning, tool calls, token counts — and scraping an answer
-        out of it would be guesswork. `-o` is the CLI's own name for "the last message the
-        agent produced", which is exactly what a completion means. The file goes in a temp
-        directory, not `cwd`: a read-only call cannot write to `cwd` by construction, and a
-        writable one must not have a stray artefact turn up in the commit it is about to
-        make.
-
-        A dead thread id (G3) is not an error to report — it means the session being
-        resumed is gone. Callers already handle that by re-asking with a full brief, so it
-        comes back as an ordinary empty completion.
+        A missing resume thread remains an empty failure: the caller owns the
+        fresh-vs-resume decision and its full-brief fallback. No exec invocation or
+        weaker approval route is retried after a transport or policy failure.
         """
-        with tempfile.TemporaryDirectory(prefix="maestro-completion-") as tmp:
-            last_message = Path(tmp) / "last-message.txt"
-            argv = completion_argv(
-                self.binary_path(), spec, last_message_file=last_message
-            )
-            cwd = str(spec.cwd) if spec.cwd else None
-            try:
-                result = self._run(
-                    argv, cwd=cwd, capture_output=True, text=True, timeout=spec.timeout,
-                )
-            except subprocess.TimeoutExpired:
-                _write_completion_log(spec.log_file, f"(timed out after {spec.timeout}s)")
-                return Completion(text="", returncode=124, timed_out=True)
-            except Exception as exc:
-                _write_completion_log(spec.log_file, f"(failed to run: {exc})")
-                return Completion(text="", returncode=1)
+        validated = False
+        deadline = time.monotonic() + spec.timeout
 
-            stdout = getattr(result, "stdout", "") or ""
-            stderr = getattr(result, "stderr", "") or ""
-            rc = int(getattr(result, "returncode", 0) or 0)
-            _write_completion_log(spec.log_file, stdout + stderr)
+        def emit(event):
+            if spec.log_file is not None:
+                with control_files.open_file(spec.log_file, 'a') as log:
+                    log.write(json.dumps(event) + '\n')
+            if event.get('type') == 'thread.started':
+                control_files.write(workspace / THREAD_ID_FILE, event['thread_id'])
 
-            if DEAD_THREAD_MARKER in (stdout + stderr).lower():
-                return Completion(text="", returncode=rc)
-            if rc != 0:
-                return Completion(text="", returncode=rc)
-            try:
-                return Completion(
-                    text=last_message.read_text(encoding="utf-8").strip(), returncode=rc
-                )
-            except Exception:
-                # Exit 0 but no reply file: the run produced nothing to say. Same answer
-                # as any other empty completion.
-                return Completion(text="", returncode=rc)
+        def error(exc):
+            # Failure reporting must neither follow a rejected alias nor turn a
+            # failed completion into an exception when logging is unavailable.
+            if validated:
+                try:
+                    emit({'type': 'maestro.error', 'message': str(exc),
+                          'notes': list(getattr(exc, '__notes__', ()))})
+                except Exception:
+                    pass
+
+        try:
+            with tempfile.TemporaryDirectory(prefix="maestro-completion-") as tmp:
+                workspace = Path(spec.log_file).absolute().parent if spec.log_file else Path(tmp)
+                control_files.workspace(workspace, (spec.log_file,) if spec.log_file else ())
+                cwd = control_files.directory(spec.cwd or Path.cwd())
+                for root in spec.add_dirs:
+                    control_files.directory(root)
+                control_files.mkdir(workspace, parents=True, exist_ok=True)
+                validated = True
+                if spec.log_file is not None:
+                    control_files.write(spec.log_file, '')
+                effort = selected_effort(spec)
+                if not spec.model:
+                    raise ValueError('Codex app-server needs an explicitly selected model')
+                roots = (cwd, *map(Path, spec.add_dirs)) if spec.writable else ()
+                prepared = codex_runtime.prepare(cwd=cwd, workspace=workspace,
+                    model=spec.model, effort=effort, write_roots=roots,
+                    native_home=self.codex_home(),
+                    protected_paths=(spec.log_file,) if spec.log_file else ())
+                cleanup_started = False
+                try:
+                    argv = prepared.wrap([self.binary_path(), 'app-server'])
+                    with codex_auth.Lifetime(prepared.auth_identity, deadline=deadline) as lifetime:
+                        try:
+                            if prepared.transaction is not None:
+                                prepared.transaction.start()
+                            result = codex_app_server.run_turn(
+                                argv=argv, cwd=cwd, model=spec.model, prompt=spec.prompt, effort=effort,
+                                policy=prepared.policy, timeout=lifetime.remaining(), resume_id=spec.resume_id,
+                                env=prepared.environment(), popen=self._popen, emit=emit,
+                                verify_config=prepared.verify_config, health=lifetime.verify, lifetime=lifetime)
+                            lifetime.remaining()
+                            if prepared.transaction is not None:
+                                if not result.text:
+                                    raise ValueError('native Git completion has no successful final response')
+                                def before_promotion():
+                                    lifetime.verify()
+                                    lifetime.remaining()
+                                prepared.transaction.finish(success=True, verify=before_promotion)
+                        finally:
+                            cleanup_started = True
+                            prepared.cleanup()
+                finally:
+                    if not cleanup_started:
+                        prepared.cleanup()
+                return Completion(text=result.text)
+        except TimeoutError as exc:
+            error(exc)
+            return Completion(text="", returncode=124, timed_out=True)
+        except Exception as exc:
+            error(exc)
+            return Completion(text="", returncode=1)
 
     # ── exit classification (plan step 6) ──
 
@@ -1093,9 +1265,12 @@ class CodexBackend:
         """
         signal = exhaustion_signal(log_tail)
         if signal is not None and (signal["explicit"] or rc != 0):
+            resets_at = signal.get("resets_at")
+            if resets_at is None and signal.get("try_again"):
+                resets_at = _try_again_epoch(signal["try_again"], self._clock())
             return ExitVerdict(
                 kind="quota_exhausted",
-                reset_at=self._reset_iso(signal.get("resets_at")),
+                reset_at=self._reset_iso(resets_at),
                 evidence=signal.get("evidence", "")[:200],
             )
         if rc == 0:
@@ -1158,10 +1333,10 @@ class CodexBackend:
                     f"no thread id for session {handle.session_id!r}"
                 )
                 return None
-            sample = self.usage_from_rollout(thread_id)
+            sample = self.usage_from_rollout(thread_id, workspace=handle.workspace)
             if sample is None:
                 return None
-            path = self.rollout_path(thread_id)
+            path = self.rollout_path(thread_id, workspace=handle.workspace)
             if path is None:
                 return None
             try:
@@ -1171,34 +1346,50 @@ class CodexBackend:
                 return None
             return replace(sample, updated_at=taken, session_id=handle.session_id)
         if self._thread_id:
-            sample = self.usage_from_rollout(self._thread_id)
+            sample = self.usage_from_rollout(self._thread_id,
+                workspace=self._spec.workspace if self._spec is not None else None)
             if sample is not None:
                 return sample
         return self.usage_from_app_server()
 
-    def rollout_path(self, thread_id: str) -> Optional[Path]:
-        """The session file for a thread, newest first. The uuid in the name *is* the
-        thread id, and a resumed thread appends to the same file (F1)."""
-        if not thread_id:
+    def rollout_path(self, thread_id: str, *, workspace: Path | str | None = None) -> Optional[Path]:
+        """Find this thread in its workspace's state, retaining legacy home recovery.
+
+        Presence of a private runtime permanently selects that state. Missing or
+        invalid private evidence never falls through to a shared/other workspace
+        session. Bare thread lookups remain available for historical exec callers.
+        """
+        if not isinstance(thread_id, str) or re.fullmatch(r'[A-Za-z0-9_-]{1,128}', thread_id) is None:
             return None
         try:
+            sessions = self.sessions_dir()
+            if workspace is not None:
+                root = control_files.directory(workspace) / codex_runtime.RUNTIME_DIR
+                if root.exists() or root.is_symlink():
+                    sessions = control_files.directory(root / 'state' / 'sessions')
+            matches = []
+            for path in sessions.glob(f"*/*/*/rollout-*-{thread_id}.jsonl"):
+                # A writable state database must not introduce a second route to
+                # shared state through symlinks, ancestors or hardlinked files.
+                control_files.file(path)
+                matches.append(path)
             matches = sorted(
-                self.sessions_dir().glob(f"*/*/*/rollout-*-{thread_id}.jsonl"),
+                matches,
                 key=lambda p: p.stat().st_mtime,
                 reverse=True,
             )
-        except OSError:
+        except (OSError, ValueError):
             return None
         return matches[0] if matches else None
 
-    def usage_from_rollout(self, thread_id: str) -> Optional[Usage]:
+    def usage_from_rollout(self, thread_id: str, *, workspace: Path | str | None = None) -> Optional[Usage]:
         """The last `token_count` snapshot in a thread's rollout, or `None`.
 
         The last event *carrying rate limits* wins, not simply the last event: a turn can
         report token counts without a fresh limit snapshot, and falling back to the newest
         event with limits keeps a real reading rather than dropping to no reading at all.
         """
-        path = self.rollout_path(thread_id)
+        path = self.rollout_path(thread_id, workspace=workspace)
         if path is None:
             self.last_telemetry_error = f"no rollout file for thread {thread_id}"
             return None
@@ -1238,7 +1429,57 @@ class CodexBackend:
                       "input_tokens", "inputTokens")
             )
             or 0,
+            source="codex_rollout",
         )
+
+    def attempt_token_usage(self, workspace: Path | str) -> Optional[dict]:
+        """Cumulative tokens of the run whose thread `workspace` recorded, or `None`.
+
+        The thread id comes from the workspace's sidecar or its `impl.log` (`thread_id_for`,
+        then the `session id:` header a non-`--json` `codex exec` prints); the totals are the rollout's last `token_count.info.
+        total_token_usage`. Codex's `input_tokens` *includes* the cached part, so the
+        fresh input is the difference; `output_tokens` already includes reasoning, which
+        is reported beside it rather than added again. A completion run `--ephemeral`
+        leaves no rollout and so has no count (G6).
+        """
+        thread_id = self.thread_id_for(workspace) or _completion_thread_id(workspace)
+        path = self.rollout_path(thread_id, workspace=workspace) if thread_id else None
+        if path is None:
+            return None
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        total = None
+        models: set[str] = set()
+        for event in _iter_json_lines(text):
+            payload = _token_count_payload(event)
+            info = payload.get("info") if payload is not None else None
+            found = _pick(info, "total_token_usage", "totalTokenUsage") if isinstance(
+                info, Mapping) else None
+            if isinstance(found, Mapping):
+                total = found
+            model = _model_of(event)
+            if model:
+                models.add(model)
+        if total is None:
+            return None
+
+        def count(*keys: str) -> Optional[int]:
+            return _as_int(_pick(total, *keys))
+
+        fresh, cached = count("input_tokens", "inputTokens"), count(
+            "cached_input_tokens", "cachedInputTokens")
+        return {
+            "fresh_input": None if fresh is None else fresh - (cached or 0),
+            "cache_read": cached,
+            "cache_write": count("cache_write_input_tokens", "cacheWriteInputTokens"),
+            "output": count("output_tokens", "outputTokens"),
+            "reasoning_output": count("reasoning_output_tokens", "reasoningOutputTokens"),
+            "cost_usd": None,
+            "models": sorted(models),
+            "source": "codex_rollout",
+        }
 
     def usage_from_app_server(
         self, *, timeout_sec: float = APP_SERVER_TIMEOUT_SEC
@@ -1259,12 +1500,13 @@ class CodexBackend:
             windows=windows_from_rate_limits(limits, now=now),
             model=None,
             updated_at=_zulu(now),
+            source="codex_app_server",
         )
 
     def _read_rate_limits_via_app_server(
         self, *, timeout_sec: float = APP_SERVER_TIMEOUT_SEC
     ) -> Optional[Mapping]:
-        """The G4 dance: a FIFO holds stdin open until the answer has arrived.
+        """Read account telemetry under the same isolated login lifetime as workers.
 
         `codex app-server` tears its stdout writer down on stdin EOF *before* flushing,
         so a request written to a pipe that is then closed comes back as exit 0 with zero
@@ -1273,48 +1515,74 @@ class CodexBackend:
         FIFO is closed in the `finally` so the server always gets its EOF and exits.
         """
         directory = tempfile.mkdtemp(prefix="maestro-codex-")
+        deadline = time.monotonic() + timeout_sec
         fifo = os.path.join(directory, "app-server-stdin")
         reader_fd: Optional[int] = None
         writer_fd: Optional[int] = None
         proc = None
         try:
-            os.mkfifo(fifo, 0o600)
-            # Open the read end non-blocking first: opening a FIFO for reading otherwise
-            # blocks until a writer appears, and the writer is us.
-            reader_fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
-            _clear_nonblocking(reader_fd)
-            writer_fd = os.open(fifo, os.O_WRONLY)
-            proc = self._popen(
-                [self.binary_path(), "app-server"],
-                stdin=reader_fd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL,
-            )
-            os.close(reader_fd)  # the child holds its own copy
-            reader_fd = None
-            for request in app_server_requests():
-                os.write(writer_fd, (json.dumps(request) + "\n").encode("utf-8"))
-            return self._await_rate_limits(proc, timeout_sec)
+            identity = codex_auth.capture(self.codex_home() / 'auth.json')
+            with codex_auth.Lifetime(identity, deadline=deadline) as lifetime:
+                prepared = None
+                try:
+                    root = Path(directory)
+                    prepared = codex_runtime.prepare(cwd=root, workspace=root,
+                        native_home=self.codex_home(), model=None, effort=None, write_roots=())
+                    lifetime.verify()
+                    if prepared.auth_identity != identity:
+                        raise ValueError('Codex telemetry auth identity changed during preparation')
+                    argv = prepared.wrap([self.binary_path(), 'app-server'])
+                    os.mkfifo(fifo, 0o600)
+                    # Keep a writer open until the answer; native EOF can discard
+                    # an otherwise successful reply before stdout is flushed.
+                    reader_fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+                    _clear_nonblocking(reader_fd)
+                    writer_fd = os.open(fifo, os.O_WRONLY)
+                    with control_files.pinned_mounts(argv) as (pinned, fds):
+                        command, fds = lifetime.child_arguments(pinned, fds)
+                        proc = self._popen(command, cwd=directory, env=prepared.environment(),
+                            stdin=reader_fd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                            start_new_session=True, pass_fds=fds)
+                    os.close(reader_fd)
+                    reader_fd = None
+                    for request in app_server_requests():
+                        lifetime.verify()
+                        lifetime.remaining()
+                        os.write(writer_fd, (json.dumps(request) + "\n").encode("utf-8"))
+                    result = self._await_rate_limits(proc, lifetime.remaining(), health=lifetime.verify)
+                    if result is not None:
+                        lifetime.verify()
+                        lifetime.remaining()
+                    return result
+                finally:
+                    # Teardown and cleanup must precede releasing the login.
+                    for fd in (reader_fd, writer_fd):
+                        if fd is not None:
+                            os.close(fd)
+                    reader_fd = writer_fd = None
+                    try:
+                        try:
+                            self._reap(proc)
+                        finally:
+                            if proc is not None:
+                                lifetime.finish_child()
+                    finally:
+                        if prepared is not None:
+                            prepared.cleanup()
         except Exception as exc:
             self.last_telemetry_error = f"codex app-server sample failed: {exc}"
             return None
         finally:
-            for fd in (reader_fd, writer_fd):
-                if fd is not None:
-                    try:
-                        os.close(fd)
-                    except OSError:
-                        pass
-            self._reap(proc)
             shutil.rmtree(directory, ignore_errors=True)
 
-    def _await_rate_limits(self, proc, timeout_sec: float) -> Optional[Mapping]:
+    def _await_rate_limits(self, proc, timeout_sec: float, *, health=lambda: None) -> Optional[Mapping]:
         """Read replies until one carries rate limits, the server exits, or time runs out."""
         stream = proc.stdout
         deadline = time.monotonic() + timeout_sec
         buffered = b""
         total = 0
         while True:
+            health()
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 self.last_telemetry_error = (
@@ -1332,6 +1600,8 @@ class CodexBackend:
                 break
             total += len(chunk)
             buffered += chunk
+            if total > codex_app_server.OUTPUT_LIMIT:
+                raise RuntimeError('Codex telemetry output exceeds 16 MiB')
             while b"\n" in buffered:
                 line, buffered = buffered.split(b"\n", 1)
                 limits = self._rate_limits_of_reply(line)
@@ -1378,9 +1648,13 @@ class CodexBackend:
         except Exception:
             try:
                 proc.kill()
+                proc.wait(timeout=5)
             except Exception:
                 pass
             return getattr(proc, "returncode", None)
+        finally:
+            if getattr(proc, 'stdout', None) is not None:
+                proc.stdout.close()
 
 
 def _model_of(event: Mapping) -> Optional[str]:

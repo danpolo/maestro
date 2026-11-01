@@ -1,0 +1,333 @@
+{
+  "exported_at": "2026-09-25T06:11:37Z",
+  "project": "/home/dan/projects/duetflow",
+  "since": "2026-09-24T12:57:00Z",
+  "summary": {
+    "tasks_attempted": 1,
+    "tasks_accepted": 1,
+    "runs": 1,
+    "attempts": 5,
+    "rework_attempts": 0,
+    "human_interventions": 1
+  },
+  "tasks": {
+    "02-collector-schema": {
+      "status": "accepted",
+      "runs": [
+        {
+          "run_id": "run_H7HzeJWRxx6kagb4",
+          "workflow": "wf_02-collector-schema@1",
+          "status": "succeeded",
+          "started_at": "2026-09-24T12:57:45Z",
+          "finished_at": "2026-09-24T13:04:54Z",
+          "attempts": [
+            {
+              "attempt_id": "att_run_H7HzeJWRxx6kagb4_gate_01",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null
+            },
+            {
+              "attempt_id": "att_run_H7HzeJWRxx6kagb4_merge_01",
+              "node_id": "merge",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null
+            },
+            {
+              "attempt_id": "att_run_H7HzeJWRxx6kagb4_accept_01",
+              "node_id": "accept",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null
+            },
+            {
+              "attempt_id": "att_run_H7HzeJWRxx6kagb4_implementer_01",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-24T12:58:16Z",
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.281 (Claude Code)",
+              "session_id": "att_run_H7HzeJWRxx6kagb4_implementer_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 106451,
+                "context_used_pct": 11.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-24T12:57:18Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 4.0
+                  },
+                  "300": {
+                    "resets_at": 1790265600,
+                    "used_pct": 30.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 114010,
+                "context_used_pct": 11.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-24T12:58:27Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 4.0
+                  },
+                  "300": {
+                    "resets_at": 1790265600,
+                    "used_pct": 36.0
+                  }
+                }
+              },
+              "wall_time_sec": 61.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_H7HzeJWRxx6kagb4_implementer_01/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-02-collector-schema/b4148f40-e001-4917-9300-591ffb69e2fd.jsonl",
+                "bytes": 288622,
+                "models": [
+                  "claude-sonnet-5"
+                ],
+                "assistant_turns": 6,
+                "first_at": "2026-09-24T12:57:47.582Z",
+                "last_at": "2026-09-24T12:58:35.119Z",
+                "token_split": {
+                  "fresh_input": 12,
+                  "cache_read": 206099,
+                  "cache_write": 36139,
+                  "output": 5541
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_H7HzeJWRxx6kagb4_proof_review_01",
+              "node_id": "proof_review",
+              "status": "succeeded",
+              "started_at": "2026-09-24T12:59:49Z",
+              "backend_id": "codex",
+              "model_id": "gpt-5.6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.154.0",
+              "session_id": "att_run_H7HzeJWRxx6kagb4_proof_review_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-24T12:59:19Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 22.0
+                  },
+                  "300": {
+                    "resets_at": 1790262785,
+                    "used_pct": 78.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-24T13:04:22Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 24.0
+                  },
+                  "300": {
+                    "resets_at": 1790262785,
+                    "used_pct": 89.0
+                  }
+                }
+              },
+              "wall_time_sec": 304.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_H7HzeJWRxx6kagb4_proof_review_01/impl.log",
+              "transcript": null
+            }
+          ]
+        }
+      ],
+      "rework_attempts": 0,
+      "reopens": 0,
+      "verification_evidence": [
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_H7HzeJWRxx6kagb4_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T12:58:46Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_H7HzeJWRxx6kagb4_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T12:58:48Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_H7HzeJWRxx6kagb4_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T12:58:49Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_H7HzeJWRxx6kagb4_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T12:58:49Z"
+        },
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_H7HzeJWRxx6kagb4_merge_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T13:04:22Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_H7HzeJWRxx6kagb4_merge_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T13:04:23Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_H7HzeJWRxx6kagb4_merge_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T13:04:23Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_H7HzeJWRxx6kagb4_merge_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T13:04:24Z"
+        }
+      ],
+      "acceptance_decisions": [
+        {
+          "run_id": "run_H7HzeJWRxx6kagb4",
+          "decision": "accepted",
+          "reason": "4 required check(s) passed on 416e970a1ecb; 4 criterion(s) discharged; 0 effect receipt(s) present",
+          "integrated_source_snapshot": "416e970a1ecb3a09f5eb7bf8e5f0c4575e69ffc8",
+          "decided_at": "2026-09-24T13:04:24Z"
+        },
+        {
+          "run_id": "run_H7HzeJWRxx6kagb4",
+          "decision": "accepted",
+          "reason": "4 required check(s) passed on 416e970a1ecb; 4 criterion(s) discharged; 0 effect receipt(s) present",
+          "integrated_source_snapshot": "416e970a1ecb3a09f5eb7bf8e5f0c4575e69ffc8",
+          "decided_at": "2026-09-24T13:04:54Z"
+        }
+      ],
+      "human_interventions": [],
+      "attempt_wall_time_sec_sum": 365.0,
+      "tokens_sum": {
+        "fresh_input": 12,
+        "cache_read": 206099,
+        "cache_write": 36139,
+        "output": 5541
+      }
+    }
+  },
+  "project_human_interventions": [
+    {
+      "ts": "2026-09-24T13:06:46Z",
+      "event": "control_halt",
+      "agent": "B5.1-orchestrator",
+      "session_id": "",
+      "detail": "halted via `maestro ctl halt`"
+    }
+  ]
+}

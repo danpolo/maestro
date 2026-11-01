@@ -76,9 +76,25 @@ class LimitsResult:
 # exactly as the tables spell them (their own convention, DESIGN.md §8) — `roles.py`
 # derives its project.yaml-shaped slug from them via `model_slug`, below, rather than
 # hardcoding a second copy, and `_SHIPPED_DEFAULTS` keys directly off them.
-DEFAULT_IMPLEMENTER_MODEL_NAME = "Claude Sonnet 5"
-DEFAULT_JUDGE_MODEL_NAME = "Claude Sonnet 5"
-DEFAULT_DIAGNOSER_MODEL_NAME = "Claude Opus 5"
+DEFAULT_IMPLEMENTER_MODEL_NAME = "Claude Sonnet 5.5"
+DEFAULT_JUDGE_MODEL_NAME = "Claude Opus 5.5"
+DEFAULT_DIAGNOSER_MODEL_NAME = "Claude Opus 5.5"
+# The Codex column of the same defaults. Dan (2026-09-30): `maestro init` projects inherit
+# role models instead of pinning them, and keep the table the template used to pin — Opus
+# judge above, and these Codex models — so inheriting never downgrades a role.
+DEFAULT_CODEX_IMPLEMENTER_MODEL_NAME = "GPT-6 Luna"
+# 2026-10-01: GPT-6.1 Sol replaces GPT-6 Sol (still served for explicit pins, see
+# `catalog.PIN_ONLY_MODELS`).
+DEFAULT_CODEX_REVIEW_MODEL_NAME = "GPT-6.1 Sol"
+#: backend -> {role: default model name} for backends other than the default one. Kept here
+#: (the tables' owner) so `roles.py` still writes down no backend name.
+DEFAULT_OTHER_BACKEND_MODEL_NAMES: dict = {
+    "codex": {
+        "implementer": DEFAULT_CODEX_IMPLEMENTER_MODEL_NAME,
+        "judge": DEFAULT_CODEX_REVIEW_MODEL_NAME,
+        "diagnoser": DEFAULT_CODEX_REVIEW_MODEL_NAME,
+    },
+}
 
 # Best-effort fallback for a machine that has neither table file — the tables are the
 # single source of truth *when either is readable*; this is only what is left over when
@@ -126,9 +142,12 @@ def _to_tokens(raw: str) -> int:
 
 
 def _parse_range(cell: str) -> tuple:
+    """A `90-100K` range, or a single `100K` read as a range of one (the tables' own
+    "Model unknown" row states single values)."""
     m = _RANGE_RE.match(cell.strip())
     if not m:
-        raise ValueError(f"not a token range: {cell!r}")
+        single = _parse_single(cell)
+        return single, single
     return _to_tokens(m.group(1)), _to_tokens(m.group(2))
 
 
@@ -183,11 +202,35 @@ def parse_limits_table(text: str) -> dict:
 
 # ── path resolution ──
 
+#: The config directory (under `$HOME`) where each agent CLI keeps its own
+#: `model_context_limits.md`. Antigravity (`agy`) keeps its config under `~/.gemini/`.
+#: An agent added here is picked up by `default_table_paths()` with no other change.
+AGENT_TABLE_DIRS = {"claude": ".claude", "codex": ".codex", "antigravity": ".gemini"}
+TABLE_FILENAME = "model_context_limits.md"
+
+#: The harness prefix every row in that agent's table carries. Antigravity serves
+#: third-party models (Claude, GPT-OSS) under its own limits, so an unprefixed
+#: `Claude Opus 4.6` row there would answer a claude CLI lookup of the same model.
+#: The claude and codex tables list only their own vendor's models and stay unprefixed.
+AGENT_MODEL_PREFIX = {"antigravity": "agy/"}
+
+
+def scoped_model_name(model: str, backend=None) -> str:
+    """`model` as that backend's table spells it: `agy/Gemini 3.8 Flash` for
+    antigravity, unchanged for a backend without a prefix or an already-prefixed name."""
+    prefix = AGENT_MODEL_PREFIX.get(backend or "", "")
+    return model if not prefix or model.startswith(prefix) else prefix + model
+
+
+def _agent_default_paths() -> list:
+    return [Path.home() / d / TABLE_FILENAME for d in AGENT_TABLE_DIRS.values()]
+
+
 def default_table_paths() -> list:
-    """`~/.claude/model_context_limits.md` and `~/.codex/model_context_limits.md`, unless
-    `project.yaml` sets `model_limits: {<backend>: <path>, ...}` (DESIGN.md §5, §8,
+    """Every agent's table (`AGENT_TABLE_DIRS`: `~/.claude/`, `~/.codex/`, `~/.gemini/`),
+    unless `project.yaml` sets `model_limits: {<backend>: <path>, ...}` (DESIGN.md §5, §8,
     `project.yaml.tmpl`) — a mapping, not a flat list — in which case its values
-    (`~`-expanded, in declaration order) replace the two defaults entirely.
+    (`~`-expanded, in declaration order) replace the defaults entirely.
 
     `model_limits_paths: [...]` — an earlier, flat-list spelling that predates the
     documented mapping shape — is no longer read. A project.yaml that still carries it
@@ -203,13 +246,20 @@ def default_table_paths() -> list:
     wants the defaults simply omits the key, so an explicit-but-empty mapping is far more
     likely a mistake (an accidentally cleared value) than an intentional opt-in.
     """
+    return _configured_table_paths()[0]
+
+
+def _configured_table_paths():
+    """`(paths, explicit)` — `explicit` is True only when `project.yaml`'s `model_limits`
+    supplied the paths, so `load_limits` can tell an operator-named file that is missing
+    (always worth a warning) from an agent default that simply isn't installed."""
     cfg = _config.load_project_yaml()
     if "model_limits_paths" in cfg:
         warnings.warn(
             "project.yaml sets 'model_limits_paths' (a flat list), which maestro no "
             "longer reads and has no effect — rename it to "
             "'model_limits: {<backend>: <path>, ...}' (DESIGN.md §5, §8)",
-            stacklevel=2,
+            stacklevel=3,
         )
     if "model_limits" in cfg:
         override = cfg.get("model_limits")
@@ -219,17 +269,14 @@ def default_table_paths() -> list:
             else []
         )
         if paths:
-            return paths
+            return paths, True
         warnings.warn(
             "project.yaml's 'model_limits' is not a usable "
             f"'{{<backend>: <path>, ...}}' mapping (got {override!r}) and has no "
             "effect — see 'model_limits: {<backend>: <path>, ...}' (DESIGN.md §5, §8)",
-            stacklevel=2,
+            stacklevel=3,
         )
-    return [
-        Path.home() / ".claude" / "model_context_limits.md",
-        Path.home() / ".codex" / "model_context_limits.md",
-    ]
+    return _agent_default_paths(), False
 
 
 # ── load + cache ──
@@ -256,9 +303,16 @@ def load_limits(paths=None) -> LimitsResult:
     any path the shipped defaults are used instead. Always writes the merged result to
     `.orchestrator/model_limits.json` (cache write only — this function always re-parses
     from source; the cache is for other consumers that don't want to import this
-    module)."""
+    module).
+
+    With `paths` omitted and no `project.yaml` override, a default table whose agent is
+    not installed (its config directory does not exist) is skipped silently; an installed
+    agent with no table, or any path passed in or named in `project.yaml`, still warns."""
+    uninstalled: set = set()
     if paths is None:
-        paths = default_table_paths()
+        paths, explicit = _configured_table_paths()
+        if not explicit:
+            uninstalled = {p for p in paths if not p.parent.is_dir()}
 
     models: dict = {}
     warns: list = []
@@ -267,7 +321,8 @@ def load_limits(paths=None) -> LimitsResult:
     for raw_path in paths:
         path = Path(raw_path)
         if not path.is_file():
-            warns.append(f"model limits file missing: {path}")
+            if path not in uninstalled:
+                warns.append(f"model limits file missing: {path}")
             continue
         any_existing = True
         try:
@@ -353,6 +408,18 @@ def model_slug(name: str) -> str:
     return _normalise_model_key(name)
 
 
+#: Last-resort fold for a harness-prefixed name only. The `agy/` table keys by family
+#: display name (`agy/Gemini 3.8 Flash`, `agy/Claude Opus 4.6 (Thinking)`), while agy
+#: reports and accepts variant ids (`gemini-3.8-flash-high`, `claude-opus-4-6-thinking`)
+#: or a display form carrying the variant in parens (`Gemini 3.8 Flash (High)`). One
+#: trailing variant word names the effort tier, not a different model.
+_VARIANT_SUFFIX_RE = re.compile(r"-(high|medium|low|thinking)$")
+
+
+def _harness_family_key(name: str) -> str:
+    return _VARIANT_SUFFIX_RE.sub("", _normalise_model_key(re.sub(r"[()]", " ", name)))
+
+
 def _lookup(models: dict, name: str):
     """`models[name]`, tolerant of display-name/slug spelling, or `None`.
 
@@ -367,18 +434,28 @@ def _lookup(models: dict, name: str):
     for key, value in models.items():
         if _normalise_model_key(key) == wanted:
             return value
+    # Only a harness-prefixed name gets the variant fold, so it can only ever reach that
+    # harness's own rows; an unprefixed (claude/codex) lookup keeps its exact semantics.
+    if any(name.startswith(prefix) for prefix in AGENT_MODEL_PREFIX.values()):
+        family = _harness_family_key(name)
+        for key, value in models.items():
+            if key.startswith(name[: name.index("/") + 1]) and _harness_family_key(key) == family:
+                return value
     return None
 
 
 # ── per-model resolution ──
 
-def resolve(model: str, paths=None):
+def resolve(model: str, paths=None, *, backend=None):
     """The `doctor`-style per-model lookup DESIGN.md §8 describes: `None` when `model`
     is in neither table and has no shipped default, with a `UserWarning` raised (via
     the stdlib `warnings` module — this function's own return type has no room for a
     warnings list) so a caller that isn't checking for `None` still gets a visible
     signal. `model` may be spelled either as the tables' display name or as a
-    `project.yaml` slug (see `_normalise_model_key`)."""
+    `project.yaml` slug (see `_normalise_model_key`). `backend` applies that harness's
+    row prefix (`scoped_model_name`), so `resolve("Gemini 3.8 Flash", backend="antigravity")`
+    finds the `agy/` row and a backend-less lookup never does."""
+    model = scoped_model_name(model, backend)
     result = load_limits(paths)
     entry = _lookup(result.models, model)
     if entry is None:

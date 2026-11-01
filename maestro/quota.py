@@ -26,9 +26,11 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
+from collections.abc import Mapping
 from zoneinfo import ZoneInfo
 
 from maestro.backends import registry
+from maestro import state as state_module
 from maestro.config import threshold
 from maestro.paths import Paths
 from maestro.pending import deferred
@@ -60,7 +62,10 @@ notify_telegram = deferred("notify_telegram", "maestro.hitl.telegram")
 
 _LIMIT_RE = re.compile(
     r"(hit (?:your|the) (?:usage )?limit|usage limit reached|rate[\s-]?limit"
-    r"|too many requests|overloaded_error)", re.I)
+    r"|too many requests|overloaded_error"
+    # D11 (P12 pilot): "You've hit your monthly spend limit · … resets 2pm (Tz)". The CLI
+    # prints it for the ordinary 5h/weekly caps too, not only a real billing cap.
+    r"|hit your monthly spend limit)", re.I)
 _RESET_RE = re.compile(
     r"resets?\s+(\d{1,2})(?::(\d{2}))?\s*([ap]m)?(?:\s*\(([\w/]+)\))?", re.I)
 
@@ -227,6 +232,20 @@ def record_backend_exhausted(backend: str, reset_at: str | None) -> None:
     write_state(state)
 
 
+def clear_backend_exhausted(backend: str, *, expected_reset_at: str) -> bool:
+    """Controller-only compare-and-clear after a fresh account recovery sample."""
+    name = registry.normalise_name(backend)
+    state = read_state()
+    table = state.get(EXHAUSTED_KEY)
+    if not isinstance(table, dict) or table.get(name) != expected_reset_at:
+        return False
+    table = dict(table)
+    del table[name]
+    state[EXHAUSTED_KEY] = table
+    write_state(state)
+    return True
+
+
 def exhausted_backends() -> frozenset[str]:
     """Backends whose recorded exhaustion has not reset yet, right now.
 
@@ -237,17 +256,26 @@ def exhausted_backends() -> frozenset[str]:
     nothing", the direction the binding constraint requires; the opposite failure would
     strand every future launch onto a backend that can never look cleared again.
     """
-    try:
-        table = read_state().get(EXHAUSTED_KEY)
-    except Exception:
-        return frozenset()
+    return frozenset(exhausted_backend_resets())
+
+
+def exhausted_backend_resets() -> dict[str, str]:
+    """`exhausted_backends`, with each backend's recorded `reset_at` (P12B F4).
+
+    Same filtering, same fail-toward-empty rule; the graph loop needs the reset time,
+    not just the name, to pause the matching catalog pools until then.
+    """
+    # Workers are clients of the graph controller. read_state() tries to claim the
+    # controller's writer lease, so a worker must read this exported snapshot directly.
+    snapshot = read_json(state_module.STATE_JSON)
+    table = snapshot.get(EXHAUSTED_KEY) if isinstance(snapshot, Mapping) else None
     if not isinstance(table, dict):
-        return frozenset()
+        return {}
     now = datetime.now(timezone.utc).timestamp()
-    return frozenset(
-        name for name, reset_at in table.items()
+    return {
+        name: reset_at for name, reset_at in table.items()
         if isinstance(name, str) and _exhaustion_epoch(reset_at) > now
-    )
+    }
 
 
 # ── Concurrency ──

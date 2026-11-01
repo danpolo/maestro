@@ -119,3 +119,74 @@ def remove_action(task_id: str, path: Path | None = None) -> bool:
         raise
 
     return True
+
+
+# ── `[P3]`: the human action receipt ──
+#
+# A `dispatch: manual` task's whole point is that one step needs a person. The compiled
+# manual lane makes that a `human` node with no success path (`workflows/handlers.py`), and
+# this is what discharges it: an explicit record that the operator did the thing, written
+# when they say so and never inferred.
+#
+# Why a receipt rather than a flag: P3's acceptance criterion is "manual prep tasks cannot
+# graduate without explicit human action receipt", and a boolean that some later code path
+# can set has no author. A receipt names who acted, when, and against which prepared
+# action, so a graduation can be traced back to a person rather than to a default.
+#
+# It lives in the prepared-actions sidecar because that is where the action it discharges
+# was recorded, and because a receipt whose prepared action has been removed is not a
+# receipt for anything.
+
+RECEIPT_KEY = "human_receipt"
+
+
+def record_human_receipt(
+    task_id: str,
+    *,
+    dan_id: int | None = None,
+    detail: str = "",
+    path: Path | None = None,
+) -> dict | None:
+    """Record that the operator performed `task_id`'s prepared step.
+
+    Returns the stored receipt, or None when there is no prepared action to discharge —
+    fail closed: a receipt for an action nobody prepared would graduate a task whose
+    manual step was never even described.
+    """
+    p = _resolve(path)
+    actions = load_actions(p)
+    entry = actions.get(task_id)
+    if entry is None:
+        return None
+    receipt = {
+        "acted_at": datetime.now(timezone.utc).isoformat(),
+        "dan_id": dan_id if dan_id is not None else entry.get("dan_id"),
+        "detail": detail,
+        "action": entry.get("action", ""),
+    }
+    entry[RECEIPT_KEY] = receipt
+    actions[task_id] = entry
+
+    p.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=p.parent, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(actions, fh, indent=2)
+        os.replace(tmp, p)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+    return receipt
+
+
+def human_receipt(task_id: str, path: Path | None = None) -> dict | None:
+    """The recorded receipt for `task_id`, or None. Absence blocks graduation."""
+    entry = get_action(task_id, path)
+    return (entry or {}).get(RECEIPT_KEY)
+
+
+def has_human_receipt(task_id: str, path: Path | None = None) -> bool:
+    return human_receipt(task_id, path) is not None

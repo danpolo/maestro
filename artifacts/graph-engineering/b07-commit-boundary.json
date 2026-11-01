@@ -1,0 +1,76 @@
+{
+  "answer": "Yes, with exactly three additional writable paths \u2014 and only if the implementer's branch lives in its own ref namespace.",
+  "blind_spot_id": "B07",
+  "boundaries_still_enforced_under_the_working_profile": [
+    {
+      "attempt": "git update-ref refs/heads/main HEAD",
+      "evidence": "cannot lock ref 'refs/heads/main': Read-only file system; host main unchanged 4edacab before and after",
+      "outcome": "refused"
+    },
+    {
+      "attempt": "write a file outside the worktree",
+      "evidence": "Read-only file system; no escaped.txt on the host",
+      "outcome": "refused"
+    },
+    {
+      "attempt": "read a tmpfs-masked credential directory",
+      "evidence": "No such file or directory",
+      "outcome": "refused"
+    }
+  ],
+  "consequences_for_maestro": [
+    "Enforcement granularity is a DIRECTORY. A flat branch name forces refs/heads/ to be writable, which grants the implementer every branch including the integration target. Maestro currently names implementer branches flat (orchestrator.py:1470 'impl-<task>-<ts>', selfheal 'selffix-<id>', 'redo-<id>'); they must become namespaced ('impl/<task>-<ts>') before enforced confinement is possible.",
+    "The shared object store must be writable by every confined implementer, so two concurrent implementers share one writable object directory. Git's object writes are content-addressed and additive, so this does not corrupt, but it is not isolation: one implementer can observe another's loose objects.",
+    "The parent directory of the branch namespace must exist before the sandbox starts, or there is nothing to bind.",
+    "A profile that masks a parent and binds a child gives the sandbox WRITABLE tmpfs intermediates: a forbidden write then silently succeeds and vanishes, which an agent reports as success. Mask leaves, or verify the mount plan; a silent no-op is worse than an error."
+  ],
+  "failure_ladder": [
+    {
+      "error": "Unable to create .git/worktrees/wt/index.lock: Read-only file system",
+      "note": "reproduces the original audit observation",
+      "profile": "worktree writable only",
+      "result": "fail"
+    },
+    {
+      "error": "unable to create temporary file: Read-only file system (object write)",
+      "profile": "+ .git/worktrees/<name>",
+      "result": "fail"
+    },
+    {
+      "error": "cannot lock ref 'HEAD': Unable to create .git/refs/heads/agent/task-1.lock: Read-only file system",
+      "profile": "+ .git/objects",
+      "result": "fail"
+    },
+    {
+      "commit": "7eaee64",
+      "note": "reachable on the host on the worktree's own branch",
+      "profile": "+ .git/refs/heads/<ns> and .git/logs/refs/heads/<ns>",
+      "result": "commit succeeded"
+    }
+  ],
+  "generated_at": "2026-09-08T12:53:54Z",
+  "host": {
+    "bwrap": "bubblewrap 0.8.0",
+    "method": "unprivileged user namespace, no sudo, scratch repo outside the tmpfs-masked /tmp"
+  },
+  "limits": [
+    "One repository, one worktree, one branch namespace, on this host. Not a multi-implementer concurrency test and not a test of backend CLIs running inside the profile.",
+    "Says nothing about whether the agent CLIs themselves function inside the profile \u2014 their own config, cache and credential paths were not granted here (B06/B07 interaction).",
+    "Does not establish confidential-read isolation: everything outside the masked directories is still readable."
+  ],
+  "minimal_profile": [
+    "--ro-bind / /",
+    "--dev /dev",
+    "--proc /proc",
+    "--tmpfs /tmp",
+    "--bind <worktree> <worktree>",
+    "--bind <main>/.git/worktrees/<name> <same>",
+    "--bind <main>/.git/objects <same>",
+    "--bind <main>/.git/refs/heads/<namespace> <same>",
+    "--bind <main>/.git/logs/refs/heads/<namespace> <same>",
+    "--tmpfs <each credential directory to mask>"
+  ],
+  "question": "The 2026-09-08 audit proved an unprivileged bwrap profile confines an implementer to one linked worktree, but git commit failed at the shared index.lock. Can an enforced profile permit the commit an implementer must make while still refusing every boundary the architecture requires?",
+  "reproduce": "bash scripts/graph_b07_commit_boundary.sh",
+  "schema_version": 1
+}

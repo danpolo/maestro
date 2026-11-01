@@ -35,6 +35,7 @@ import sys
 from pathlib import Path
 
 from maestro import agentcall
+from maestro.model_policy import task_model_context
 from maestro.hitl.telegram import notify_telegram
 from maestro.paths import Paths
 from maestro.roles import ROLE_IMPLEMENTER
@@ -50,7 +51,23 @@ ASK_TIMEOUT = 300
 LIMIT_HINT = ("hit your limit", "usage limit", "rate limit", "too many requests")
 
 
+def _load_project_env() -> None:
+    """Load `<repo>/.env` over anything inherited (P12 D33, 2026-10-08).
+
+    `_handle_ask` starts this module with `tmux new-window`, which inherits the tmux
+    server's environment, not the controller's, so the bot token `maestro run` loaded
+    never arrives and `notify_telegram` silently skipped every reply. Same rule as
+    `cli._load_project_env`: the project's own value wins over a stale server one."""
+    import dotenv
+    env_path = REPO / ".env"
+    if env_path.is_file():
+        dotenv.load_dotenv(env_path, override=True)
+    from maestro.hitl.shared_bot import load_shared_env
+    load_shared_env()
+
+
 def main() -> int:
+    _load_project_env()
     ap = argparse.ArgumentParser()
     ap.add_argument("request", help="path to the JSON request file")
     req = json.loads(Path(ap.parse_args().request).read_text(encoding="utf-8"))
@@ -78,6 +95,26 @@ def main() -> int:
         f"files or push anything."
     )
 
+    graph_request = req.get("graph_request")
+    if graph_request:
+        # The controller renders graph requests from frozen task checks. There may be
+        # no agent session that authored that text; describe the fresh context honestly.
+        framed = (
+            f"You are Maestro's operator support agent for task {task}. "
+            "Read the waiting graph request and the run's implementer context below. "
+            "Inspect the actual implementation before recommending commands; do not "
+            "assume the request's instructions are correct.\n\n"
+            f"WAITING REQUEST: {json.dumps(graph_request)}\n"
+            f"ACTION DAN WAS GIVEN:\n{action}\n\n"
+            f"RUN CONTEXT:\n{req.get('graph_context') or '(no saved implementer context)'}\n\n"
+            f"DAN'S MESSAGE:\n{question}\n\n"
+            "Give concrete, concise advice for Telegram, including expected output. "
+            "Advice only: do NOT modify files, run Refresh or other mutating commands, "
+            "push, answer the verification, or approve on Dan's behalf. "
+            "If the guidance is wrong, explain why and provide the correct read-only check."
+        )
+        uuid = ""  # Never hand a graph session token to a different backend.
+
     def _run(resume_id: str, prompt: str) -> tuple[str, int]:
         """One bounded ask of the implementer role. Returns `(output, returncode)`.
 
@@ -88,11 +125,12 @@ def main() -> int:
         run's combined stdout+stderr is recovered from the log the driver writes, which is
         the same file `/ask` already keeps for Dan.
         """
-        answer = agentcall.ask(
-            ROLE_IMPLEMENTER, prompt,
-            timeout=ASK_TIMEOUT, cwd=Path(worktree),
-            resume_id=resume_id, log_file=ask_log,
-        )
+        with task_model_context(REPO, task):
+            answer = agentcall.ask(
+                ROLE_IMPLEMENTER, prompt,
+                timeout=ASK_TIMEOUT, cwd=Path(worktree),
+                resume_id=resume_id, log_file=ask_log,
+            )
         if answer.timed_out:
             return "(Maestro timed out after 5 min answering — try /ask again.)", 124
         if answer.text:
@@ -142,6 +180,20 @@ def main() -> int:
 
     answer = out[:3500] or "(no answer produced)"
     again = dan_id or task
+    if graph_request:
+        kind = graph_request.get("type")
+        if kind == "verification":
+            footer = (f"✅ Verified → /verify {task} approve   ·   "
+                      f"❌ Failed → /verify {task} reject <reason>")
+        elif kind == "manual-action":
+            footer = f"✅ Done → /verify {task} done   ·   ↩ Rework → /verify {task} redo <reason>"
+        else:
+            footer = "Answer the original request when you are ready."
+        notify_telegram(
+            f"💬 *Maestro* — re: `{task}` (your question)\n\n{answer}\n\n"
+            f"{footer}\n❓ Ask again → /ask {task} <message>"
+        )
+        return 0
     notify_telegram(
         f"💬 *Maestro* — re: `{task}` (your question)\n\n{answer}\n\n"
         f"✅ Worked → /approve {dan_id}   ·   ❓ Ask again → /ask {again} <message>"

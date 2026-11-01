@@ -1,0 +1,69 @@
+{
+  "acquisition_paths": {
+    "claude": {
+      "consequence": "Maestro cannot obtain a fresh Claude quota reading on demand",
+      "freshness": "not controlled by Maestro; the file only advances when some interactive Claude session renders in a directory that has an .orchestrator/",
+      "kind": "push",
+      "source": ".orchestrator/usage.json, written by the operator's Claude Code statusLine command as a side effect of rendering a status line (maestro/backends/claude.py:711 reads only this file)"
+    },
+    "codex": {
+      "consequence": "Maestro can ask for a reading when it wants one",
+      "freshness": "controlled by Maestro; the handled form is dated by the rollout, not by the wall clock",
+      "kind": "pull",
+      "source": "the run's own rollout file, with app-server as the fallback for when no run is active (maestro/backends/codex.py:1120, :1194)"
+    }
+  },
+  "answer": "Not a vendor limitation. Maestro has no pull path for Claude quota at all: it reads a document that an interactive Claude Code statusline render leaves behind as a side effect. Codex, by contrast, is pulled by Maestro on demand.",
+  "blind_spot_id": "B02",
+  "consequences_for_maestro": [
+    "QuotaObservation needs an observed_at distinct from written_at, and a staleness bound. A sample older than the bound is censored, not a measurement.",
+    "A carried-forward field must be marked as carried forward. An unchanged underlying reading across a pair is 'no new observation', never a zero delta.",
+    "Attribution needs an explicit isolation contract before a delta means anything: same unchanged reset epoch across the pair, a non-negative delta, a fresh observation at both ends, and no other session on the pool. The external research also proposed a zero-work control run to measure the probe sequence's own apparent cost; that is worth adopting and is currently in neither the plan nor the review.",
+    "Either give Claude a pull path or state in the plan that Claude quota is a push signal Maestro does not control. The current plan implies a symmetry between the backends that does not exist."
+  ],
+  "findings": [
+    "The external research was RIGHT that Claude exposes structured five-hour and seven-day percentages with reset timestamps; the sampler reads all four fields. The audit's nulls were a stale/partially-populated document, not an absent vendor surface. The plan's current wording grades the CLI where it should grade Maestro's acquisition path.",
+    "The 'post-run sample named Opus 5 rather than the Sonnet review' anomaly is fully explained: the sampler writes the display name of whichever session rendered last. The model field in usage.json is the last renderer's model and must never be used to attribute a reading to an invocation.",
+    "The sampler carry-forward merges five_hour/seven_day from the previous file when a render lacks rate limits (a deliberate fix so a parallel session cannot erase a good value). So updated_at is the WRITE time, not the observation time: a percentage can be arbitrarily older than the timestamp beside it.",
+    "That makes the proposed before/after delta unsafe in a way that is worse than noise. Two writes can both carry forward the same underlying reading, producing delta = 0 that reads as 'this task consumed nothing' rather than as 'no new observation'."
+  ],
+  "generated_at": "2026-09-08T12:54:22Z",
+  "limits": [
+    "Source and single-document inspection on this host. No paired experiment was re-run, and the Codex 84 to 89 per cent movement with zero Codex tasks remains explained only as concurrent account use.",
+    "Whether the installed claude CLI offers any non-interactive quota surface of its own was not tested; the driver does not use one."
+  ],
+  "method": "Read the acquisition path in source and compared it against the live document. No backend turn.",
+  "observed": {
+    "audit_sample_2026_09_08_11_05": {
+      "five_hour": {
+        "resets_at": null,
+        "used_pct": 10
+      },
+      "model": null,
+      "seven_day": null,
+      "updated_at": ""
+    },
+    "live_document_2026_09_08_12_46": {
+      "five_hour": {
+        "resets_at": 1788880800,
+        "used_pct": 54
+      },
+      "model": "Opus 5",
+      "seven_day": {
+        "resets_at": 1788872400,
+        "used_pct": 64
+      }
+    },
+    "statusline_exposes": [
+      "rate_limits.five_hour.used_percentage",
+      "rate_limits.five_hour.resets_at",
+      "rate_limits.seven_day.used_percentage",
+      "rate_limits.seven_day.resets_at",
+      "model.display_name",
+      "context_window.used_percentage",
+      "context_window.total_input_tokens"
+    ]
+  },
+  "question": "Why did the paired quota sample show Claude with a null reset epoch, a null weekly window and a model name that did not match the run being measured?",
+  "schema_version": 1
+}

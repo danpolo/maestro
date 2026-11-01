@@ -115,6 +115,44 @@ def test_a_glob_secret_matches_by_basename():
     assert c.path_ok(["docs/notes.md"], kind=c.SELF_FIX, config=config)[0] is True
 
 
+@pytest.mark.parametrize("path, pattern, denied", [
+    # A glob with a directory part denies what is under that directory, at any depth...
+    ("secrets/key.txt", "secrets/*", True),
+    ("config/secrets/key.txt", "secrets/*", True),
+    ("config/secrets/deep/key.txt", "secrets/**", True),
+    ("src/pay/charge.py", "src/pay/*.py", True),
+    # ...and nothing else: its last segment alone is not the pattern.
+    ("src/app.py", "secrets/*", False),
+    ("src/app.py", "secrets/**", False),
+    ("other/charge.py", "src/pay/*.py", False),
+    # A name glob, bare or behind `**/`, still matches at the root and at any depth.
+    ("key.pem", "**/*.pem", True),
+    ("deploy/key.pem", "**/*.pem", True),
+    ("deploy/key.pem", "*.pem", True),
+    ("deploy/key.pem.txt", "**/*.pem", False),
+    # `**/` is zero or more directories wherever it stands (W8 review F3).
+    ("config/a.pem", "config/**/*.pem", True),
+    ("config/tls/live/a.pem", "config/**/*.pem", True),
+    ("src/secrets.yaml", "src/**/secrets.yaml", True),
+    ("keys/a.pem", "**/keys/**/*.pem", True),
+    ("vendor/keys/old/a.pem", "**/keys/**/*.pem", True),
+    ("config/a.txt", "config/**/*.pem", False),
+    ("other/a.pem", "config/**/*.pem", False),
+    # A glob spelled from the root, or as a directory, names the same files.
+    ("secrets/a", "/secrets/*", True),
+    ("secrets/a", "./secrets/*", True),
+    ("secrets/a", "secrets/*/", True),
+    ("src/app.py", "/secrets/*", False),
+    # `*/.env` is one directory down: a glob says what it says.
+    ("deploy/.env", "*/.env", True),
+    (".env", "*/.env", False),
+])
+def test_a_glob_entry_denies_what_it_names_and_nothing_else(path, pattern, denied):
+    """P12 finding D10, edge 4: `secrets`, `prod_stores` and `risky_set` globs are globs.
+    A directory glob used to be reduced to its last segment (`*`), which named every file."""
+    assert c._denied_by(path, pattern) is denied
+
+
 def test_a_pattern_without_metacharacters_is_a_plain_substring():
     """`.env` denies `config/.env`; `data/prod.db` denies itself. This is the behaviour
     every caller already expected of a deny entry."""
@@ -244,3 +282,237 @@ def test_available_false_for_a_directory():
     """`.is_file()`, not `.exists()` — a directory shadowing the script's name must not
     read as "the script is here"."""
     assert c.available(pathlib.Path(__file__).parent) is False
+
+
+# ── [P7] §4: branch namespacing and the git commit boundary ──────────────────────────
+#
+# A different question from everything above. `path_ok` asks which *files in the diff* an
+# autonomous change may rewrite; these ask which *paths on the filesystem* a confined
+# implementer process may write at all. The tests are together in one file because the
+# module is one module, and deliberately separated by this banner because conflating the
+# two questions is the mistake the second half exists to prevent.
+
+
+def _boundary(tmp_path, **kwargs):
+    return c.CommitBoundary.for_task(tmp_path / "repo", "T-001", **kwargs)
+
+
+def test_every_namespace_produces_a_hierarchical_name():
+    assert c.branch_name("impl", "T-001") == "impl/T-001"
+    assert c.branch_name("selffix", "T-001", attempt_id="a7") == "selffix/T-001_a7"
+    assert c.branch_name("redo", "T-001", attempt_id="a7") == "redo/T-001_a7"
+    assert c.branch_name("impl", "T-001", candidate="c2") == "impl/T-001/c2"
+
+
+def test_a_flat_branch_name_is_not_one_of_ours():
+    """`[INV-A08]`'s negative half. A flat name puts a task's ref in the same directory as
+    `refs/heads/main`, which collapses "may write its own ref" and "may write the target
+    branch" into one filesystem permission."""
+    for flat in ("task-01", "T-001", "main", "feature/x"):
+        assert c.is_namespaced(flat) is False
+    assert c.parse_branch("task-01") is None
+
+
+def test_a_flat_branch_cannot_be_given_a_boundary_at_all(tmp_path):
+    with pytest.raises(c.BranchNameError):
+        c.CommitBoundary(repo=tmp_path, branch="task-01", worktree=tmp_path / "wt")
+
+
+def test_a_selffix_branch_is_per_attempt_and_an_impl_branch_is_not():
+    """Two attempts sharing a self-fix branch would make the second one's history the
+    first one's."""
+    with pytest.raises(c.BranchNameError):
+        c.branch_name("selffix", "T-001")
+    with pytest.raises(c.BranchNameError):
+        c.branch_name("impl", "T-001", attempt_id="a7")
+
+
+def test_a_task_id_that_could_escape_the_namespace_is_refused():
+    for hostile in ("../main", "a/b", "-force", ".hidden", "x.lock"):
+        with pytest.raises(c.BranchNameError):
+            c.branch_name("impl", hostile)
+
+
+def test_an_unknown_namespace_is_refused():
+    with pytest.raises(c.BranchNameError):
+        c.branch_name("wip", "T-001")
+
+
+def test_parsing_round_trips_every_namespace():
+    for name in ("impl/T-001", "impl/T-001/c2", "selffix/T-001_a7", "redo/T-001_a7"):
+        assert str(c.parse_branch(name)) == name
+        assert str(c.parse_branch(f"refs/heads/{name}")) == name
+
+
+# ── §4.2: the four writable paths, and nothing else ──────────────────────────────────
+
+
+def test_the_boundary_is_exactly_the_four_paths_the_spec_enumerates(tmp_path):
+    boundary = _boundary(tmp_path)
+    repo = tmp_path / "repo"
+    assert boundary.writable_roots() == (
+        repo / ".orchestrator" / "worktrees" / "T-001",
+        repo / ".orchestrator" / "worktrees" / "T-001" / ".git",
+        repo / ".git" / "objects",
+        repo / ".git" / "refs" / "heads" / "impl" / "T-001",
+    )
+
+
+def test_the_worktree_its_git_dir_and_the_shared_object_store_are_writable(tmp_path):
+    boundary = _boundary(tmp_path)
+    repo = tmp_path / "repo"
+    for path in (
+        repo / ".orchestrator" / "worktrees" / "T-001" / "src" / "a.py",
+        repo / ".orchestrator" / "worktrees" / "T-001" / ".git" / "index",
+        repo / ".git" / "objects" / "ab" / "cdef",
+    ):
+        assert boundary.permits(path)[0] is True, path
+
+
+def test_the_agent_may_advance_its_own_ref_and_its_own_reflog(tmp_path):
+    boundary = _boundary(tmp_path)
+    repo = tmp_path / "repo"
+    assert boundary.permits(repo / ".git" / "refs" / "heads" / "impl" / "T-001")[0] is True
+    assert boundary.permits(
+        repo / ".git" / "logs" / "refs" / "heads" / "impl" / "T-001"
+    )[0] is True
+
+
+def test_the_target_branch_is_physically_blocked_and_says_which_rule_fired(tmp_path):
+    ok, reason = _boundary(tmp_path).permits(
+        tmp_path / "repo" / ".git" / "refs" / "heads" / "main"
+    )
+    assert ok is False
+    assert "INV-05" in reason
+
+
+def test_another_tasks_ref_is_blocked_even_though_it_is_namespaced(tmp_path):
+    ok, reason = _boundary(tmp_path).permits(
+        tmp_path / "repo" / ".git" / "refs" / "heads" / "impl" / "T-002"
+    )
+    assert ok is False
+    assert "outside this task's namespace" in reason
+
+
+def test_packed_refs_is_blocked_because_it_is_the_other_way_to_move_main(tmp_path):
+    """A loose ref file is not the only writable representation of a branch head."""
+    for name in ("packed-refs", "HEAD", "config", "hooks/pre-commit"):
+        ok, reason = _boundary(tmp_path).permits(tmp_path / "repo" / ".git" / name)
+        assert ok is False, name
+
+
+def test_anything_outside_the_worktree_fails_closed(tmp_path):
+    boundary = _boundary(tmp_path)
+    for path in ("/etc/passwd", tmp_path / "repo" / "src" / "a.py", "../../elsewhere"):
+        assert boundary.permits(path)[0] is False, path
+
+
+def test_a_traversal_is_refused_rather_than_normalised(tmp_path):
+    ok, reason = _boundary(tmp_path).permits(".orchestrator/worktrees/T-001/../../../etc/x")
+    assert ok is False
+    assert "escapes its sandbox" in reason
+
+
+def test_candidates_get_sibling_directories_under_one_task_root(tmp_path):
+    """`[INV-06]` as a filesystem fact: one bind mount of the task directory grants
+    exactly that task's candidates and nothing else."""
+    first = _boundary(tmp_path, candidate="c1")
+    second = _boundary(tmp_path, candidate="c2")
+    assert first.worktree != second.worktree
+    assert first.worktree.parent == second.worktree.parent
+    assert first.permits(second.worktree / "a.py")[0] is False
+    assert first.permits(
+        tmp_path / "repo" / ".git" / "refs" / "heads" / "impl" / "T-001" / "c2"
+    )[0] is False
+
+
+# ── §4.2: the mount hazard ───────────────────────────────────────────────────────────
+
+
+def test_a_write_that_vanished_on_unmount_is_an_execution_failure(tmp_path):
+    """Masking a parent while binding a child leaves a writable tmpfs between them: the
+    write succeeds, the process sees its own file, and the bytes are gone at unmount.
+    Indistinguishable from success at the time, so it is checked afterwards."""
+    boundary = _boundary(tmp_path)
+    boundary.worktree.mkdir(parents=True)
+    survived = boundary.worktree / "kept.py"
+    survived.write_text("x = 1\n")
+
+    assert boundary.confirm_persisted([survived]) == (True, "ok")
+
+    ok, reason = boundary.confirm_persisted([survived, boundary.worktree / "vanished.py"])
+    assert ok is False
+    assert "did not survive the sandbox" in reason
+
+
+def test_confirming_a_write_outside_the_boundary_is_its_own_failure(tmp_path):
+    ok, reason = _boundary(tmp_path).confirm_persisted(["/etc/passwd"])
+    assert ok is False
+    assert "outside the boundary" in reason
+
+
+# ── P12B F6: restoring a retry's worktree to the SHA its previous attempt started from ─
+
+
+def _worktree_repo(path):
+    import subprocess
+
+    path.mkdir(parents=True, exist_ok=True)
+    for args in (["init", "-q"], ["config", "user.email", "t@example.invalid"],
+                 ["config", "user.name", "t"]):
+        subprocess.run(["git", *args], cwd=path, check=True)
+    (path / "README").write_text("seed\n", encoding="utf-8")
+    subprocess.run(["git", "add", "README"], cwd=path, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "seed"], cwd=path, check=True)
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, check=True,
+                          capture_output=True, text=True).stdout.strip()
+    return head
+
+
+def _head(path):
+    import subprocess
+
+    return subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, check=True,
+                          capture_output=True, text=True).stdout.strip()
+
+
+def test_a_retry_starts_from_the_sha_its_predecessor_claimed_at(tmp_path):
+    import subprocess
+
+    boundary = _boundary(tmp_path)
+    start = _worktree_repo(boundary.worktree)
+    (boundary.worktree / "junk.py").write_text("half an answer\n", encoding="utf-8")
+    subprocess.run(["git", "add", "junk.py"], cwd=boundary.worktree, check=True)
+    subprocess.run(["git", "commit", "-q", "-m", "junk"], cwd=boundary.worktree, check=True)
+    (boundary.worktree / "stray.txt").write_text("untracked\n", encoding="utf-8")
+    assert _head(boundary.worktree) != start
+
+    boundary.restore(start)
+
+    assert _head(boundary.worktree) == start
+    assert not (boundary.worktree / "junk.py").exists()
+    assert not (boundary.worktree / "stray.txt").exists()
+
+
+def test_a_restore_refuses_anything_that_is_not_this_boundarys_own_worktree(tmp_path):
+    import dataclasses
+
+    boundary = _boundary(tmp_path)
+    _worktree_repo(boundary.worktree)
+    calls = []
+    outside = dataclasses.replace(boundary, worktree=boundary.repo)
+    with pytest.raises(c.ConfinementError, match="repository root"):
+        outside.restore("HEAD", runner=calls.append)
+    stray = dataclasses.replace(boundary, worktree=tmp_path / "elsewhere")
+    with pytest.raises(c.ConfinementError, match="worktrees"):
+        stray.restore("HEAD", runner=calls.append)
+    with pytest.raises(c.ConfinementError, match="sha"):
+        boundary.restore("", runner=calls.append)
+    assert calls == [], "nothing is ever run before the target is confirmed"
+
+
+def test_a_restore_that_git_refuses_is_raised_not_swallowed(tmp_path):
+    boundary = _boundary(tmp_path)
+    _worktree_repo(boundary.worktree)
+    with pytest.raises(c.ConfinementError, match="deadbee"):
+        boundary.restore("deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")

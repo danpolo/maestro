@@ -49,3 +49,21 @@ class Paths:
     @property
     def model_limits(self) -> Path:
         return self.orch_dir / "model_limits.json"
+
+    # --- [P1] the transactional control plane ---------------------------------------
+    #
+    # `state.json` and `journal.ndjson` above keep their locations, but once
+    # `control_db` exists they are exported projections rather than authority: see
+    # `maestro.control.store` and the shadowing block in `maestro.state`.
+
+    @property
+    def control_db(self) -> Path:
+        return self.orch_dir / "control.sqlite3"
+
+    @property
+    def artifacts(self) -> Path:
+        return self.orch_dir / "artifacts"
+
+    @property
+    def artifacts_tmp(self) -> Path:
+        return self.artifacts / "tmp"

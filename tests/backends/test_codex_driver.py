@@ -20,6 +20,7 @@ import json
 import os
 import stat
 import subprocess
+import sys
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -27,7 +28,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from maestro.backends import codex, registry
+from maestro.backends import codex, codex_auth, registry
 from maestro.backends.base import (
     AgentBackend,
     Completion,
@@ -37,6 +38,8 @@ from maestro.backends.base import (
     Usage,
 )
 from maestro.backends.codex import CodexBackend
+from tests.codex_host_isolation import skip_real_home_inventory
+from tests.hang_bound import HANG_SECONDS
 
 BINARY = "/opt/tools/bin/codex"
 THREAD_ID = "019ff499-deaf-77d1-acd4-e2135c856fa8"
@@ -47,10 +50,14 @@ NOW_ISO = "2026-08-12T10:00:00Z"
 WEEKLY = {"used_percent": 98, "window_minutes": 10080, "resets_at": 1787036664}
 # The same instant as WEEKLY["resets_at"], spelled the way ExitVerdict.reset_at spells it.
 WEEKLY_RESET_ISO = "2026-08-18T07:04:24Z"
+# The app-server budget in cases that assert an answered (or silent) sample is the
+# shared HANG_SECONDS (tests/hang_bound.py). It only stops a hung case: these fake
+# servers answer at once, so a tight budget measured suite load, not the driver. The
+# no-answer case drives its own clock instead.
 
 
 @pytest.fixture(autouse=True)
-def _no_real_execution(monkeypatch):
+def _no_real_execution(monkeypatch, tmp_path):
     """No test may run a binary. Anything that tries fails loudly instead of quietly."""
 
     def forbidden(*_args, **_kwargs):
@@ -72,6 +79,20 @@ def _no_real_execution(monkeypatch):
         ),
     )
     monkeypatch.setattr(registry, "_probe_version", forbidden)
+    # Real ownership fences reject overlapping calls on the same Git tree.
+    # Give each synthetic case its own default cwd, including parallel workers.
+    monkeypatch.chdir(tmp_path)
+    real_prepare = codex.codex_runtime.prepare
+    def prepare(**kwargs):
+        kwargs.setdefault('host_home', tmp_path)
+        return real_prepare(**kwargs)
+    monkeypatch.setattr(codex.codex_runtime, 'prepare', prepare)
+    # host_home alone does not isolate preparation: cwd ancestors reach the real home.
+    skip_real_home_inventory(monkeypatch)
+    home = tmp_path / 'native-default'
+    home.mkdir()
+    (home / 'auth.json').write_text('synthetic')
+    monkeypatch.setenv('CODEX_HOME', str(home))
     registry.clear_binary_cache()
     yield
     registry.clear_binary_cache()
@@ -105,6 +126,9 @@ def journal():
 
 @pytest.fixture
 def driver(tmp_path, runner, journal):
+    home = tmp_path / 'codex-home'
+    home.mkdir()
+    (home / 'auth.json').write_text('synthetic')
     return CodexBackend(
         binary=BINARY,
         python="/opt/venv/bin/python3",
@@ -118,6 +142,7 @@ def driver(tmp_path, runner, journal):
 
 @pytest.fixture
 def spec(tmp_path):
+    (tmp_path / 'wt').mkdir()
     return LaunchSpec(
         task_id="T-1",
         session_id="sess-1",
@@ -131,27 +156,19 @@ def spec(tmp_path):
 # ── helpers ──
 
 
-def _launcher_value(source: str, name: str):
-    """Read a constant out of a generated `launch.py` by parsing it — never by running it.
+def _job(workspace, launcher='launch.py'):
+    """Read the exact sealed job referenced by this launcher without executing it."""
+    source = (Path(workspace) / launcher).read_text()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == 'main':
+            return json.loads(Path(ast.literal_eval(node.args[0])).read_text())
+    raise AssertionError('launcher does not reference a sealed job')
 
-    Mirrors how the reference implementer's argv is pinned: the launcher is a program that
-    starts an agent, so a test reads it, it does not execute it.
-    """
-    for node in ast.parse(source).body:
-        if not isinstance(node, ast.Assign):
-            continue
-        targets = [t.id for t in node.targets if isinstance(t, ast.Name)]
-        if name not in targets:
-            continue
-        value = node.value
-        if isinstance(value, ast.Call):
-            inner = ast.literal_eval(value.args[0])
-            func = value.func
-            if isinstance(func, ast.Attribute) and func.attr == "loads":
-                return json.loads(inner)
-            return inner
-        return ast.literal_eval(value)
-    raise AssertionError(f"{name} is not assigned in the generated launcher")
+
+def _settle_mocked_worker(workspace, launcher='launch.py'):
+    """Cancel an unstarted mocked window before the fixture makes its next call."""
+    from maestro.backends.native_ownership import Reservation
+    Reservation.load(_job(workspace, launcher)['reservation']).cleanup()
 
 
 def _token_count_event(
@@ -270,6 +287,8 @@ def test_a_second_codex_on_path_is_a_journalled_warning_not_a_failure(
     plain = CodexBackend(
         runner=runner, journal=journal.record, codex_home=tmp_path / "home", clock=lambda: NOW
     )
+    (tmp_path / 'home').mkdir()
+    (tmp_path / 'home' / 'auth.json').write_text('synthetic')
 
     plain.launch(spec)
 
@@ -400,45 +419,40 @@ def test_launch_clears_a_thread_id_left_by_an_earlier_run(driver, spec):
 
     driver.launch(spec)
 
-    assert not (workspace / "codex_thread_id.txt").exists()
+    assert (workspace / "codex_thread_id.txt").read_text() == ''
     assert driver.thread_id_for(workspace) is None
 
 
 # ── the generated launcher ──
 
 
-def test_the_launcher_compiles_and_carries_the_argv(driver, spec):
+def test_the_launcher_compiles_and_references_the_sealed_app_server_job(driver, spec):
     driver.launch(spec)
     source = (Path(spec.workspace) / "launch.py").read_text()
     compile(source, "launch.py", "exec")   # parsed and compiled, never executed
 
-    assert _launcher_value(source, "ARGV") == driver.launch_argv(spec)
-    assert _launcher_value(source, "FALLBACK_ARGV") is None
-    assert _launcher_value(source, "LOG") == str(Path(spec.workspace) / "impl.log")
-    assert _launcher_value(source, "THREAD_FILE") == str(
-        Path(spec.workspace) / "codex_thread_id.txt"
-    )
+    job = _job(spec.workspace)
+    assert job['argv'][-2:] == [BINARY, 'app-server']
+    assert job['cwd'] == str(spec.worktree)
+    assert job['workspace'] == str(spec.workspace)
+    assert job['model'] == spec.model
+    assert job['resume_id'] == '' and job['fallback_prompt'] is None
 
 
-def test_the_launcher_merges_stderr_into_one_log(driver, spec):
-    """The reference merges the streams, so every captured sample is stream-agnostic."""
+def test_the_launcher_uses_frozen_controller_source(driver, spec):
     driver.launch(spec)
-    source = (Path(spec.workspace) / "launch.py").read_text()
-    assert "stderr=subprocess.STDOUT" in source
-
-
-def test_the_launcher_captures_the_thread_id_from_the_first_event(driver, spec):
-    driver.launch(spec)
-    source = (Path(spec.workspace) / "launch.py").read_text()
-    assert "thread.started" in source
-    assert "THREAD_FILE.write_text" in source
+    job = _job(spec.workspace)
+    control = Path(job['env']['TMPDIR']).parent
+    for name in ('codex_worker.py', 'codex_app_server.py', 'control_files.py'):
+        original = Path(codex.__file__).parent / name
+        assert (control / 'maestro' / 'backends' / name).read_bytes() == original.read_bytes()
 
 
 def test_a_fresh_launch_opens_impl_log_in_write_mode(driver, spec):
     """A fresh launch has no prior `impl.log` to protect, so it truncates as before."""
     driver.launch(spec)
     source = (Path(spec.workspace) / "launch.py").read_text()
-    assert _launcher_value(source, "LOG_MODE") == "w"
+    assert _job(spec.workspace)['mode'] == "w"
 
 
 def test_a_brief_full_of_quotes_and_newlines_survives_into_the_launcher(driver, spec):
@@ -446,7 +460,7 @@ def test_a_brief_full_of_quotes_and_newlines_survives_into_the_launcher(driver, 
     driver.launch(LaunchSpec(**{**spec.__dict__, "brief": nasty}))
     source = (Path(spec.workspace) / "launch.py").read_text()
     compile(source, "launch.py", "exec")
-    assert _launcher_value(source, "ARGV")[-1] == nasty
+    assert _job(spec.workspace)['prompt'] == nasty
 
 
 # ── resume (plan step 3, findings G1/G2/G3) ──
@@ -491,58 +505,58 @@ def test_resume_argv_requires_an_explicit_thread_id(driver, spec):
 
 def test_resume_uses_the_thread_id_recorded_by_the_launcher(driver, spec):
     handle = driver.launch(spec)
+    _settle_mocked_worker(spec.workspace)
     (Path(spec.workspace) / "codex_thread_id.txt").write_text(THREAD_ID)
 
     resumed = driver.resume(handle, "carry on")
 
     assert resumed.native_id == THREAD_ID
     source = (Path(spec.workspace) / "launch.py").read_text()
-    argv = _launcher_value(source, "ARGV")
-    assert argv[argv.index("resume") + 1 : argv.index("resume") + 3] == [
-        THREAD_ID,
-        "carry on",
-    ]
+    job = _job(spec.workspace)
+    assert job['resume_id'] == THREAD_ID
+    assert job['prompt'] == 'carry on'
 
 
 def test_resume_falls_back_to_a_fresh_brief_when_the_handle_is_dead(driver, spec):
     """G3: a bogus thread id fails in milliseconds with no model call, so attempting the
     resume *is* the probe — the launcher relaunches with a brief when it sees that."""
     handle = driver.launch(spec)
+    _settle_mocked_worker(spec.workspace)
     (Path(spec.workspace) / "codex_thread_id.txt").write_text(THREAD_ID)
 
     driver.resume(handle, "carry on with the handoff")
 
     source = (Path(spec.workspace) / "launch.py").read_text()
     compile(source, "launch.py", "exec")
-    fallback = _launcher_value(source, "FALLBACK_ARGV")
-    assert "resume" not in fallback
-    assert fallback[-1] == "carry on with the handoff"
-    assert codex.DEAD_THREAD_MARKER in source
-    assert codex.DEAD_THREAD_MARKER == "no rollout found for thread id"
+    job = _job(spec.workspace)
+    assert job['resume_id'] == THREAD_ID
+    assert job['fallback_prompt'] == 'carry on with the handoff'
 
 
 def test_resume_without_any_thread_id_just_launches_a_fresh_brief(driver, spec):
     handle = driver.launch(spec)
+    _settle_mocked_worker(spec.workspace)
 
     resumed = driver.resume(handle, "start again")
 
     assert resumed.native_id is None
     source = (Path(spec.workspace) / "launch.py").read_text()
-    assert "resume" not in _launcher_value(source, "ARGV")
-    assert _launcher_value(source, "FALLBACK_ARGV") is None
+    assert _job(spec.workspace)['resume_id'] == ''
+    assert _job(spec.workspace)['fallback_prompt'] is None
 
 
 def test_resume_reads_the_launch_parameters_a_handle_does_not_carry(driver, spec, runner):
     """A restarted orchestrator holds a handle but not the spec that produced it."""
     handle = driver.launch(spec)
+    _settle_mocked_worker(spec.workspace)
     (Path(spec.workspace) / "codex_thread_id.txt").write_text(THREAD_ID)
 
     fresh_driver = CodexBackend(binary=BINARY, runner=runner, clock=lambda: NOW)
     fresh_driver.resume(handle, "carry on")
 
-    argv = _launcher_value((Path(spec.workspace) / "launch.py").read_text(), "ARGV")
-    assert argv[argv.index("-m") + 1] == "a-model"
-    assert argv[argv.index("-C") + 1] == str(spec.worktree)
+    job = _job(spec.workspace)
+    assert job['model'] == 'a-model'
+    assert job['cwd'] == str(spec.worktree)
 
 
 def test_resume_says_so_when_it_cannot_reconstruct_a_spec(driver, tmp_path):
@@ -566,17 +580,18 @@ def test_resume_opens_impl_log_in_append_mode(driver, spec):
     would destroy everything a prior run (or runs) already wrote to the log.
     """
     handle = driver.launch(spec)
+    _settle_mocked_worker(spec.workspace)
     (Path(spec.workspace) / "codex_thread_id.txt").write_text(THREAD_ID)
 
     driver.resume(handle, "carry on")
 
     source = (Path(spec.workspace) / "launch.py").read_text()
-    assert _launcher_value(source, "LOG_MODE") == "a"
-    assert _launcher_value(source, "LOG_MODE") != "w"
+    assert _job(spec.workspace)['mode'] == 'a'
 
 
 def test_resume_records_the_prompt_it_handed_over(driver, spec):
     handle = driver.launch(spec)
+    _settle_mocked_worker(spec.workspace)
     driver.resume(handle, "the handoff brief")
     assert (Path(spec.workspace) / "resume_prompt.txt").read_text() == "the handoff brief"
 
@@ -836,11 +851,12 @@ class _FakeAppServer:
     was written, i.e. whether the driver forgot to hold it open.
     """
 
-    def __init__(self, *, reply=None, answer=True, hang=False, exit_code=0):
+    def __init__(self, *, reply=None, answer=True, hang=False, exit_code=0, completion=b'1'):
         self.reply = reply
         self.answer = answer
         self.hang = hang
         self.exit_code = exit_code
+        self.completion = completion
         self.argv = None
         self.requests: list[str] = []
         self.saw_eof_before_reply = False
@@ -850,6 +866,15 @@ class _FakeAppServer:
 
     def __call__(self, argv, stdin=None, stdout=None, stderr=None, **kwargs):
         self.argv = list(argv)
+        assert self.argv[:4] == [sys.executable, '-I', '-c', codex_auth._LIFETIME_EXEC]
+        lock_fd, completion_fd = map(int, self.argv[4:6])
+        assert lock_fd in kwargs['pass_fds'] and completion_fd in kwargs['pass_fds']
+        assert self.argv[6] == str(os.getpid())
+        assert Path(self.argv[7]).name == 'bwrap'
+        assert self.argv[8:10] == ['--sync-fd', str(lock_fd)]
+        # Model the trusted observer's child copies, held until native teardown.
+        self._child_lock = os.dup(lock_fd)
+        self._completion_fd = os.dup(completion_fd)
         read_fd, write_fd = os.pipe()
         self.stdout = os.fdopen(read_fd, "rb", 0)
         child_stdin = os.dup(stdin)   # as a real child would: its own copy
@@ -876,6 +901,11 @@ class _FakeAppServer:
         finally:
             os.close(stdin_fd)
             os.close(write_fd)
+            os.close(self._child_lock)
+            try:
+                os.write(self._completion_fd, self.completion)
+            finally:
+                os.close(self._completion_fd)
             self.returncode = self.exit_code
 
     # the parts of a Popen the driver actually uses
@@ -907,6 +937,9 @@ _APP_SERVER_REPLY = {
 
 
 def _with_server(tmp_path, server, **kwargs):
+    native = tmp_path / 'codex-home'
+    native.mkdir(exist_ok=True)
+    (native / 'auth.json').write_text('synthetic')
     return CodexBackend(
         binary=BINARY,
         codex_home=tmp_path / "codex-home",
@@ -918,20 +951,23 @@ def _with_server(tmp_path, server, **kwargs):
 
 def test_app_server_answers_a_rate_limit_sample(tmp_path):
     server = _FakeAppServer(reply=_APP_SERVER_REPLY)
-    usage = _with_server(tmp_path, server).usage_from_app_server(timeout_sec=5)
+    usage = _with_server(tmp_path, server).usage_from_app_server(timeout_sec=HANG_SECONDS)
 
     assert usage == Usage(
         context_used_pct=None,
         windows={10080: codex.WindowUsage(used_pct=98.0, resets_at=1787036664)},
         model=None,
         updated_at=NOW_ISO,
+        source="codex_app_server",
     )
-    assert server.argv == [BINARY, "app-server"]
+    assert server.argv[-2:] == [BINARY, "app-server"]
+    assert server.argv[:4] == [sys.executable, '-I', '-c', codex_auth._LIFETIME_EXEC]
+    assert '--sync-fd' in server.argv
 
 
 def test_app_server_asks_the_documented_method(tmp_path):
     server = _FakeAppServer(reply=_APP_SERVER_REPLY)
-    _with_server(tmp_path, server).usage_from_app_server(timeout_sec=5)
+    _with_server(tmp_path, server).usage_from_app_server(timeout_sec=HANG_SECONDS)
 
     methods = [json.loads(line)["method"] for line in server.requests]
     assert methods[0] == "initialize"
@@ -939,11 +975,18 @@ def test_app_server_asks_the_documented_method(tmp_path):
     assert codex.APP_SERVER_METHOD == "account/rateLimits/read"
 
 
+def test_app_server_refuses_a_reply_when_observer_teardown_fails(tmp_path):
+    server = _FakeAppServer(reply=_APP_SERVER_REPLY, completion=b'0')
+    driver_ = _with_server(tmp_path, server)
+    assert driver_.usage_from_app_server(timeout_sec=HANG_SECONDS) is None
+    assert 'Codex login lifetime observer failed' in driver_.last_telemetry_error
+
+
 def test_app_server_stdin_stays_open_until_the_reply_arrives(tmp_path):
     """G4: on EOF the server tears down its stdout writer before flushing. Closing stdin
     after writing the request would lose the answer every time."""
     server = _FakeAppServer(reply=_APP_SERVER_REPLY)
-    usage = _with_server(tmp_path, server).usage_from_app_server(timeout_sec=5)
+    usage = _with_server(tmp_path, server).usage_from_app_server(timeout_sec=HANG_SECONDS)
 
     assert server.saw_eof_before_reply is False
     assert usage is not None
@@ -953,28 +996,42 @@ def test_exit_zero_with_no_output_is_a_failed_sample_not_an_absence_of_limits(tm
     """G4's trap: the silent no-answer looks exactly like "this feature does not exist"."""
     driver_ = _with_server(tmp_path, _FakeAppServer(answer=False, exit_code=0))
 
-    assert driver_.usage_from_app_server(timeout_sec=5) is None
+    assert driver_.usage_from_app_server(timeout_sec=HANG_SECONDS) is None
     assert driver_.usage() is None            # and never Usage(windows={})
     assert "silent" in driver_.last_telemetry_error
 
 
-def test_a_server_that_never_answers_times_out_into_a_failed_sample(tmp_path):
-    driver_ = _with_server(tmp_path, _FakeAppServer(hang=True))
+def test_a_server_that_never_answers_times_out_into_a_failed_sample(tmp_path, monkeypatch):
+    server = _FakeAppServer(hang=True)
+    driver_ = _with_server(tmp_path, server)
+    # This case tests the native no-answer, rather than preparation cost. Start
+    # its clock when the scripted server starts; real queue/preparation budget
+    # accounting has separate public-API lifetime regressions.
+    real_clock = codex.time.monotonic
+    start = real_clock()
+    native_started = []
+    def popen(*args, **kwargs):
+        native_started.append(real_clock())
+        return server(*args, **kwargs)
+    driver_._popen = popen
+    monkeypatch.setattr(codex.time, 'monotonic', lambda:
+        start + real_clock() - native_started[0] if native_started else start)
     assert driver_.usage_from_app_server(timeout_sec=0.3) is None
+    assert server.argv is not None
     assert "did not answer" in driver_.last_telemetry_error
 
 
 def test_an_answer_without_rate_limits_is_a_failed_sample(tmp_path):
     reply = {"jsonrpc": "2.0", "id": 2, "error": {"code": -32601, "message": "unknown"}}
     driver_ = _with_server(tmp_path, _FakeAppServer(reply=reply))
-    assert driver_.usage_from_app_server(timeout_sec=5) is None
+    assert driver_.usage_from_app_server(timeout_sec=HANG_SECONDS) is None
     assert driver_.last_telemetry_error
 
 
 def test_a_snapshot_reporting_no_windows_is_a_reading_not_a_failure(tmp_path):
     """The distinction G4 turns on: an answered sample with nothing in it is a `Usage`."""
     reply = {"jsonrpc": "2.0", "id": 2, "result": {"rateLimits": {"secondary": None}}}
-    usage = _with_server(tmp_path, _FakeAppServer(reply=reply)).usage_from_app_server(timeout_sec=5)
+    usage = _with_server(tmp_path, _FakeAppServer(reply=reply)).usage_from_app_server(timeout_sec=HANG_SECONDS)
     assert usage is not None
     assert usage.windows == {}
     assert usage.max_used_pct() is None
@@ -1001,7 +1058,9 @@ def test_usage_prefers_the_rollout_and_starts_no_app_server(driver, spec, tmp_pa
 
 def test_usage_falls_back_to_the_app_server_when_no_run_is_active(tmp_path):
     server = _FakeAppServer(reply=_APP_SERVER_REPLY)
-    usage = _with_server(tmp_path, server).usage()
+    driver_ = _with_server(tmp_path, server)
+    usage = driver_.usage()
+    assert usage is not None, driver_.last_telemetry_error
     assert usage.seven_day.used_pct == 98.0
 
 
@@ -1220,12 +1279,8 @@ def test_parse_exit_runs_nothing(driver, runner):
 MODEL = "gpt-5.6-sol"
 
 
-class _CompletionRunner:
-    """Stands in for `subprocess.run` on the `complete()` path.
-
-    `reply` is what the agent "wrote" — the runner drops it into the `-o` file the argv
-    names, which is how the real CLI delivers a final message.
-    """
+class _CompletionTurn:
+    """Only the native turn boundary is scripted; runtime preparation stays real."""
 
     def __init__(self, *, reply=None, stdout="", stderr="", returncode=0, raises=None):
         self.calls: list[tuple[tuple, dict]] = []
@@ -1233,24 +1288,26 @@ class _CompletionRunner:
         self._stdout, self._stderr = stdout, stderr
         self._rc, self._raises = returncode, raises
 
-    def __call__(self, *args, **kwargs):
-        self.calls.append((args, kwargs))
+    def __call__(self, **kwargs):
+        self.calls.append(kwargs)
+        self.prepared = kwargs['verify_config'].__self__
         if self._raises is not None:
             raise self._raises
-        argv = list(args[0])
-        if self._reply is not None and "-o" in argv:
-            Path(argv[argv.index("-o") + 1]).write_text(self._reply, encoding="utf-8")
-        return subprocess.CompletedProcess(
-            args=argv, returncode=self._rc, stdout=self._stdout, stderr=self._stderr
-        )
+        if self._stdout:
+            kwargs['emit']({'method': 'item/completed', 'params': {
+                'item': {'type': 'agentMessage', 'phase': 'commentary', 'text': self._stdout}}})
+        if self._stderr:
+            kwargs['emit']({'type': 'maestro.native_stderr', 'message': self._stderr})
+        if self._rc:
+            if codex.DEAD_THREAD_MARKER in self._stderr.lower():
+                raise codex.codex_app_server.DeadThread(self._stderr)
+            raise RuntimeError(f'native turn failed: {self._rc}')
+        return codex.codex_app_server.TurnResult((self._reply or '').strip(), THREAD_ID)
 
-    @property
-    def argv(self) -> list[str]:
-        return list(self.calls[0][0][0])
 
-
-def _completion_driver(**kwargs):
-    runner = _CompletionRunner(**kwargs)
+def _completion_driver(monkeypatch, **kwargs):
+    runner = _CompletionTurn(**kwargs)
+    monkeypatch.setattr(codex.codex_app_server, 'run_turn', runner)
     return CodexBackend(binary=BINARY, runner=runner), runner
 
 
@@ -1311,67 +1368,143 @@ def test_completion_argv_omits_the_model_when_the_caller_has_none():
     assert "-m" not in _argv(CompletionSpec(prompt="q"))
 
 
-def test_complete_returns_the_last_message_file_contents():
-    driver, _ = _completion_driver(reply="  the answer\n", stdout="noisy progress output")
+def test_complete_returns_the_native_final_message(monkeypatch):
+    driver, _ = _completion_driver(monkeypatch, reply="  the answer\n", stdout="noisy progress output")
     assert driver.complete(CompletionSpec(prompt="q", model=MODEL)).text == "the answer"
 
 
-def test_complete_ignores_stdout_because_it_is_progress_rendering():
-    """Codex prints reasoning and tool calls to stdout; only `-o` holds the reply."""
-    driver, _ = _completion_driver(reply="real answer", stdout="thinking… ran a command…")
+def test_complete_keeps_progress_out_of_the_final_answer(monkeypatch):
+    driver, _ = _completion_driver(monkeypatch, reply="real answer", stdout="thinking… ran a command…")
     assert driver.complete(CompletionSpec(prompt="q", model=MODEL)).text == "real answer"
 
 
-def test_complete_writes_the_reply_file_outside_the_working_directory(tmp_path):
+def test_complete_keeps_transient_runtime_outside_the_working_directory(tmp_path, monkeypatch):
     """A read-only call could not write into `cwd` anyway, and a writable one must not
     leave a stray artefact in the commit it is about to make."""
-    driver, runner = _completion_driver(reply="ok")
-    driver.complete(CompletionSpec(prompt="q", model=MODEL, cwd=tmp_path, writable=True))
-    out_path = Path(runner.argv[runner.argv.index("-o") + 1])
-    assert tmp_path not in out_path.parents
-    assert list(tmp_path.iterdir()) == []
+    driver, runner = _completion_driver(monkeypatch, reply="ok")
+    tree = tmp_path / 'tree'
+    tree.mkdir()
+    driver.complete(CompletionSpec(prompt="q", model=MODEL, cwd=tree, writable=True))
+    assert tree not in runner.prepared.workspace.parents
+    assert {path.name for path in tree.iterdir()} == {
+        '.codex', '.agents', '.agent', '_agents', '_agent', '.claude'}
+    assert all(path.is_dir() and not list(path.iterdir()) for path in tree.iterdir())
 
 
-def test_complete_cleans_up_the_reply_file(tmp_path):
-    driver, runner = _completion_driver(reply="ok")
+def test_complete_cleans_up_the_transient_runtime(tmp_path, monkeypatch):
+    driver, runner = _completion_driver(monkeypatch, reply="ok")
     driver.complete(CompletionSpec(prompt="q", model=MODEL))
-    assert not Path(runner.argv[runner.argv.index("-o") + 1]).exists()
+    assert not runner.prepared.workspace.exists()
 
 
-def test_complete_returns_empty_on_a_non_zero_exit():
-    driver, _ = _completion_driver(reply="half an answer", returncode=2)
+def test_complete_returns_empty_on_a_native_failure(monkeypatch):
+    driver, _ = _completion_driver(monkeypatch, reply="half an answer", returncode=2)
     result = driver.complete(CompletionSpec(prompt="q", model=MODEL))
-    assert (result.text, result.returncode) == ("", 2)
+    assert (result.text, result.returncode) == ("", 1)
 
 
-def test_complete_treats_a_dead_thread_as_an_ordinary_empty_answer():
+def test_complete_treats_a_dead_thread_as_an_ordinary_empty_answer(monkeypatch):
     """G3: the session being resumed is gone. Callers already re-ask with a full brief."""
-    driver, _ = _completion_driver(stderr=codex.DEAD_THREAD_MARKER.upper(), returncode=1)
+    driver, _ = _completion_driver(monkeypatch, stderr=codex.DEAD_THREAD_MARKER.upper(), returncode=1)
     assert driver.complete(
         CompletionSpec(prompt="q", model=MODEL, resume_id=THREAD_ID)
     ).text == ""
 
 
-def test_complete_returns_empty_when_the_run_wrote_no_reply_file():
-    driver, _ = _completion_driver(reply=None, stdout="said nothing")
+def test_complete_returns_empty_when_the_native_turn_had_no_final_message(monkeypatch):
+    driver, _ = _completion_driver(monkeypatch, reply=None, stdout="said nothing")
     result = driver.complete(CompletionSpec(prompt="q", model=MODEL))
     assert (result.text, result.returncode) == ("", 0)
 
 
-def test_complete_reports_a_timeout_without_raising():
-    driver, _ = _completion_driver(raises=subprocess.TimeoutExpired(cmd="codex", timeout=5))
+def test_complete_reports_a_timeout_without_raising(monkeypatch):
+    driver, _ = _completion_driver(monkeypatch, raises=TimeoutError('deadline exceeded'))
     result = driver.complete(CompletionSpec(prompt="q", model=MODEL, timeout=5))
     assert (result.text, result.returncode, result.timed_out) == ("", 124, True)
 
 
-def test_complete_swallows_an_unexpected_failure():
-    driver, _ = _completion_driver(raises=FileNotFoundError("no codex on PATH"))
+def test_complete_swallows_an_unexpected_failure(monkeypatch):
+    driver, _ = _completion_driver(monkeypatch, raises=FileNotFoundError("no codex on PATH"))
     result = driver.complete(CompletionSpec(prompt="q", model=MODEL))
     assert (result.text, result.returncode) == ("", 1)
 
 
-def test_complete_tees_stdout_and_stderr_to_the_log_file(tmp_path):
+def test_complete_retains_native_events_and_stderr_in_the_log_file(tmp_path, monkeypatch):
     log = tmp_path / "nested" / "run.log"
-    driver, _ = _completion_driver(reply="ok", stdout="out", stderr="err")
+    driver, _ = _completion_driver(monkeypatch, reply="ok", stdout="out", stderr="err")
     driver.complete(CompletionSpec(prompt="q", model=MODEL, log_file=log))
-    assert log.read_text(encoding="utf-8") == "outerr"
+    events = [json.loads(line) for line in log.read_text().splitlines()]
+    assert events[0]['params']['item']['text'] == 'out'
+    assert events[1] == {'type': 'maestro.native_stderr', 'message': 'err'}
+
+
+# P12 pilot finding D11: the codex CLI's own usage-limit error, verbatim from run 4 of
+# DuetFlow 02 (2026-09-25), was classified `crashed`, so every retry burned the budget.
+CODEX_USAGE_LIMIT = (
+    "ERROR: You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), "
+    "visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 2:02 PM."
+)
+
+
+@pytest.fixture
+def jerusalem(monkeypatch):
+    import time
+
+    monkeypatch.setenv("TZ", "Asia/Jerusalem")
+    time.tzset()
+    yield
+    monkeypatch.undo()
+    time.tzset()
+
+
+def test_the_codex_usage_limit_error_is_quota_exhausted(driver, jerusalem):
+    verdict = driver.parse_exit(1, f"working\n{CODEX_USAGE_LIMIT}\n")
+    assert verdict.kind == "quota_exhausted"
+    assert "usage limit" in verdict.evidence
+    # 2:02 PM local (UTC+3 in August) after NOW (10:00Z = 13:00 local) is 11:02Z today.
+    assert verdict.reset_at == "2026-08-12T11:02:00Z"
+
+
+def test_a_try_again_time_already_past_today_means_tomorrow(driver, jerusalem):
+    verdict = driver.parse_exit(1, CODEX_USAGE_LIMIT.replace("2:02 PM", "9:15 AM"))
+    assert verdict.reset_at == "2026-08-13T06:15:00Z"
+
+
+def test_a_dated_try_again_time_is_used_as_given(driver, jerusalem):
+    tail = CODEX_USAGE_LIMIT.replace("2:02 PM", "Aug 15th, 2026 9:00 AM")
+    assert driver.parse_exit(1, tail).reset_at == "2026-08-15T06:00:00Z"
+
+
+def test_the_codex_usage_limit_error_without_a_time_falls_back_to_an_hour(driver):
+    tail = "ERROR: You’ve hit your usage limit. Upgrade to Pro."
+    verdict = driver.parse_exit(1, tail)
+    assert verdict.kind == "quota_exhausted"
+    assert verdict.reset_at == "2026-08-12T11:00:00Z"
+
+
+def test_the_codex_usage_limit_error_classifies_as_blocked(driver, jerusalem):
+    from maestro.workflows.failures import classify_exit
+
+    record = classify_exit(driver.parse_exit(1, CODEX_USAGE_LIMIT))
+    assert record.kind == "quota_exhausted"
+    assert record.is_blocked
+    assert record.reset_at == "2026-08-12T11:02:00Z"
+
+
+@pytest.mark.parametrize("item_type", ["agent_message", "reasoning", "command_execution", "mcp_tool_call"])
+@pytest.mark.parametrize("rc, expected", [(0, "ok"), (1, "crashed")])
+def test_quota_words_in_normal_items_are_not_provider_errors(driver, item_type, rc, expected):
+    line = json.dumps({"type": "item.completed", "item": {
+        "type": item_type, "text": "Fixed rate_limit_reached and You've hit your usage limit handling",
+        "result": {"rate_limit_reached_type": "weekly"},
+    }})
+    assert driver.parse_exit(rc, line).kind == expected
+
+
+@pytest.mark.parametrize("event", [
+    {"type": "error", "message": "You've hit your usage limit"},
+    {"type": "turn.failed", "error": {"message": "rate_limit_reached"}},
+    {"type": "item.completed", "item": {"type": "error", "message": "rate_limit_reached"}},
+])
+def test_provider_quota_error_events_remain_exhaustion(driver, event):
+    assert driver.parse_exit(1, json.dumps(event)).kind == "quota_exhausted"

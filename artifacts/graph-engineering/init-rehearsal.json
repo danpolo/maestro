@@ -1,0 +1,32 @@
+{
+  "backend_calls_started": 0,
+  "generated_at": "2026-09-08T11:05:33Z",
+  "projects": [
+    {
+      "adapter_output_tail": "{\"pass\": true, \"summary\": \".                                                                        [100%]\\n1 passed in 0.01s\"}\n",
+      "detected_test_command": "[init] detected test command: /tmp/maestro-init-rehearsal-sdtmifub/python/.venv/bin/python3 -m pytest -q (pip)",
+      "halt_respected": true,
+      "init_exit_code": 0,
+      "init_output_tail": "[init] project='python' repo=/tmp/maestro-init-rehearsal-sdtmifub/python branch='master' remote=(none)\n[init] detected test command: /tmp/maestro-init-rehearsal-sdtmifub/python/.venv/bin/python3 -m pytest -q (pip)\n[init] scaffold: 19 created, 0 unchanged, 0 written as .new (nothing already present was overwritten)\n[init] Telegram setup: skipped (ERROR: no token file at /tmp/maestro-init-rehearsal-sdtmifub/python/absent-telegram-token)\n[init] mermaid-cli (dependency-map PNG rendering): [ensure_mermaid] already installed (global): /home/dan/.local/bin/mmdc\n\n[init] dry-run `maestro status`:\nPhase: ? (?)\nIn-flight: 0  (none)\nHalted: False   Paused: False\n\n[init] no-op supervised loop check (empty roadmap, zero runnable tasks)...\n[init] no-op supervised loop completed cleanly (returncode 0).\n\n[init] done. To install the systemd unit for real (requires root \u2014 this tool never runs sudo itself):\n    sudo cp /tmp/maestro-init-rehearsal-sdtmifub/python/systemd/python-watchdog.service /etc/systemd/system/\n    sudo systemctl daemon-reload\n    sudo systemctl enable --now python-watchdog.service\n",
+      "kind": "python",
+      "queue_exhausted": true,
+      "service_direct_tmux": true,
+      "service_type_forking": true,
+      "test_adapter_exit_code": 0
+    },
+    {
+      "adapter_output_tail": "{\"pass\": true, \"summary\": \"> test\\n> node --test\\n\\nTAP version 13\\n# Subtest: ok\\nok 1 - ok\\n  ---\\n  duration_ms: 1.067931\\n  type: 'test'\\n  ...\\n1..1\\n# tests 1\\n# suites 0\\n# pass 1\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n# duration_ms 97.551006\"}\n",
+      "detected_test_command": "[init] detected test command: npm test (npm)",
+      "halt_respected": true,
+      "init_exit_code": 0,
+      "init_output_tail": "[init] project='node' repo=/tmp/maestro-init-rehearsal-sdtmifub/node branch='master' remote=(none)\n[init] detected test command: npm test (npm)\n[init] scaffold: 19 created, 0 unchanged, 0 written as .new (nothing already present was overwritten)\n[init] Telegram setup: skipped (ERROR: no token file at /tmp/maestro-init-rehearsal-sdtmifub/node/absent-telegram-token)\n[init] mermaid-cli (dependency-map PNG rendering): [ensure_mermaid] already installed (global): /home/dan/.local/bin/mmdc\n\n[init] dry-run `maestro status`:\nPhase: ? (?)\nIn-flight: 0  (none)\nHalted: False   Paused: False\n\n[init] no-op supervised loop check (empty roadmap, zero runnable tasks)...\n[init] no-op supervised loop completed cleanly (returncode 0).\n\n[init] done. To install the systemd unit for real (requires root \u2014 this tool never runs sudo itself):\n    sudo cp /tmp/maestro-init-rehearsal-sdtmifub/node/systemd/node-watchdog.service /etc/systemd/system/\n    sudo systemctl daemon-reload\n    sudo systemctl enable --now node-watchdog.service\n",
+      "kind": "node",
+      "queue_exhausted": true,
+      "service_direct_tmux": true,
+      "service_type_forking": true,
+      "test_adapter_exit_code": 0
+    }
+  ],
+  "schema_version": 1,
+  "scope": "disposable-local-projects"
+}

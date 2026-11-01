@@ -8,10 +8,9 @@ exits 0; a non-zero exit here means "the adapter could not determine a result",
 which is exactly what a missing `tests/` directory means for a fresh, un-wired
 project — reported as `nonzero_exit`, never silently treated as a pass.
 
-This is a placeholder. Replace the body with whatever this project actually uses
-to run its test suite (a Makefile target, `npm test`, `go test ./...`, ...) —
-just keep printing `{"pass": ..., "summary": ...}` to stdout and exiting 0 once
-you have a real result.
+`maestro init` renders the root-level command it can verify from project metadata.
+An empty command means no supported root test signal was found; in that case this
+adapter fails closed until the setup adviser or operator supplies the project policy.
 """
 import json
 import subprocess
@@ -19,25 +18,22 @@ import sys
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-TESTS_DIR = PROJECT_ROOT / "tests"
+TEST_COMMAND = {{ test_command_argv_json }}
 
 
 def main() -> int:
     sys.stdin.read()  # drain the JSON payload; this stub takes no input fields
 
-    if not TESTS_DIR.is_dir():
-        # A fresh `maestro init` scaffold has no tests yet. Never fabricate a pass —
-        # exit 1 so `run_adapter` reports `nonzero_exit` and the gate stays shut
-        # until a real test command is wired up here.
+    if not TEST_COMMAND:
         print(
-            "TODO: no tests/ directory found — replace this stub with a real test "
-            "command (see the module docstring in this file).",
+            "TODO: no test command was detected — replace this stub with the project's "
+            "real required checks (see the module docstring in this file).",
             file=sys.stderr,
         )
         return 1
 
     proc = subprocess.run(
-        [sys.executable, "-m", "pytest", "-q"],
+        TEST_COMMAND,
         cwd=str(PROJECT_ROOT),
         capture_output=True,
         text=True,

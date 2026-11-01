@@ -6,7 +6,9 @@ from pathlib import Path
 
 import pytest
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
+from tests.hang_bound import HANG_SECONDS
+
+REPO_ROOT =Path(__file__).resolve().parents[2]
 LIB = REPO_ROOT / "scripts" / "lib_maestro_ops.sh"
 SCRIPT = REPO_ROOT / "scripts" / "watchdog_selffix.sh"
 
@@ -54,7 +56,7 @@ def _run_watchdog(repo, env_overrides):
     }
     return subprocess.run(
         ["bash", str(repo / "scripts" / "watchdog_selffix.sh")],
-        capture_output=True, text=True, timeout=30, env=env,
+        capture_output=True, text=True, timeout=HANG_SECONDS, env=env,
     )
 
 

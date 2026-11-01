@@ -150,3 +150,24 @@ def test_the_setup_interview_covers_every_knob_a_project_must_choose():
     for knob in ("confinement.redo_allow", "gate.primary_metric", "gate.chain",
                  "confinement.self_fix_allow", "bot_files"):
         assert knob in text, f"the setup interview never mentions {knob}"
+
+
+def test_install_skills_never_writes_through_a_symlinked_skill_dir(tmp_path, capsys):
+    """GDT-13: `~/.claude/skills/maestro-setup` is a symlink into `~/agent-skills`, the
+    canonical skill. Copying the repo's mirror through it would silently revert the canonical
+    text, so `install-skills` leaves a symlinked skill alone and says so."""
+    from maestro import cli
+
+    canonical = tmp_path / "agent-skills" / "skills" / "maestro-setup"
+    canonical.mkdir(parents=True)
+    (canonical / "SKILL.md").write_text("canonical\n", encoding="utf-8")
+    home = tmp_path / "home"
+    linked = home / ".claude" / "skills" / "maestro-setup"
+    linked.parent.mkdir(parents=True)
+    linked.symlink_to(canonical, target_is_directory=True)
+
+    assert cli.cmd_install_skills(home=home) == 0
+    assert (canonical / "SKILL.md").read_text(encoding="utf-8") == "canonical\n"
+    out = capsys.readouterr().out
+    assert "symlink" in out and str(linked) in out
+    assert (home / ".codex" / "prompts" / "maestro-setup.md").is_file()

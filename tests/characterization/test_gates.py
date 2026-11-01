@@ -437,19 +437,32 @@ def test_review_treats_a_missing_pass_key_as_a_failure(subject, monkeypatch):
     assert msg == "proof review failed:\n  ✗ V1: "
 
 
-def test_review_judges_ids_the_agent_invented_and_ignores_ids_it_dropped(subject, monkeypatch):
-    """FOUND_BUGS: the verdict map is never reconciled with the ids that were sent."""
+def test_review_now_refuses_a_verdict_map_that_does_not_cover_what_was_sent(subject, monkeypatch):
+    """FOUND_BUGS, CLOSED BY `[P4]`: the map is reconciled with the ids that were sent.
+
+    The bug this test used to pin was one-directional. A verdict for an id nobody asked
+    about was (correctly) treated as a failure, but an id that was asked about and came
+    back with no verdict was silently dropped — so `{}` read as "all pass", and a judge
+    that reviewed three of five proofs approved all five. `[INV-04]` is explicit that a
+    missing key fails closed, so the missing-id branch now answers first and names what
+    was not reviewed. The invented-id half is unchanged.
+    """
     out = '{"V9": {"pass": false, "reason": "hallucinated"}}'
     _fake_review(monkeypatch, subject, lambda: _reply(stdout=out))
     ok, msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
     )
-    assert (ok, msg) == (False, "proof review failed:\n  ✗ V9: hallucinated")
+    assert ok is False
+    assert msg == (
+        "proof review returned no verdict for V1 — an unreviewed proof is not an "
+        "approved proof"
+    )
 
     _fake_review(monkeypatch, subject, lambda: _reply(stdout="{}"))
-    assert subject.sonnet_review_proofs(
+    empty_ok, empty_msg = subject.sonnet_review_proofs(
         "T1", [{"id": "V1", "kind": "manual"}], {"V1": {"proof": "a detailed proof here"}}
-    ) == (True, "")
+    )
+    assert empty_ok is False and "no verdict for V1" in empty_msg
 
 
 def test_review_extracts_json_greedily_from_surrounding_prose(subject, monkeypatch):

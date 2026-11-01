@@ -306,7 +306,7 @@ def _scan_file(path: Path, *, maestro_only: bool) -> list[tuple[int, str, str]]:
     # The docstring exemption protects real provenance prose, and every real site of
     # that is in maestro/ — so it applies only there, never when scanning tests/.
     doc_ids = _docstring_ids(tree) if maestro_only else set()
-    parents = _parent_map(tree)
+    parents = None
 
     tracker = _GuardTracker()
     tracker.visit(tree)
@@ -319,8 +319,12 @@ def _scan_file(path: Path, *, maestro_only: bool) -> list[tuple[int, str, str]]:
         snippet = text.strip().replace("\n", " ")[:70]
 
         for name, pattern in EVERYWHERE_PATTERNS.items():
-            if pattern.search(text) and not _is_proof_of_absence(node, parents):
-                violations.append((node.lineno, name, snippet))
+            if pattern.search(text):
+                # Most files have no matching literal needing an exemption check.
+                if parents is None:
+                    parents = _parent_map(tree)
+                if not _is_proof_of_absence(node, parents):
+                    violations.append((node.lineno, name, snippet))
 
         if maestro_only:
             for name, pattern in MAESTRO_ONLY_PATTERNS.items():

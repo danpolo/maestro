@@ -15,20 +15,47 @@ project:
   remote: origin
   main_branch: "{{ main_branch }}"
 
-# These `models:` are defaults, not the last word: a ROADMAP task's own `model:` field
-# overrides them for that one task (implementer only). `model: opus` (a size keyword —
+# A role states only how strong its model must be (DESIGN.md §17.2). `strength` is a floor
+# on the class of the route that runs the role (light < balanced < strong), and
+# `independent_of` names roles whose model family this role should not share. Role names
+# are the graph's role ids; the legacy loop's `judge` reads `reviewer`. The values below
+# are the shipped defaults, written out so they can be seen and changed.
+#
+# Which backend runs a role, and under which model, is derived from the model policy this
+# project adopted (`maestro models status`), or the shipped one when none is published.
+# Intelligence and effort requirements filter pairs globally; costs and effort preference
+# rank inside quota pools, and fresh weekly pace ranks pools (DESIGN.md §17.5). A role states
+# no `backend`, `model`, `models` or `effort`, and there is no `fallback_chain` —
+# `maestro doctor` fails on any of them.
+#
+# The derived model is a default, not the last word: a ROADMAP task's own `model:` field
+# overrides it for that one task (implementer only). `model: opus` (a size keyword —
 # haiku/sonnet/opus) resolves through whichever backend actually runs the task, using
 # that backend's own keyword map — today only `claude` has one, so the same keyword on
-# `codex` has nowhere to resolve, is ignored with a warning logged, and the row below
-# applies instead. A `model:` that is not one of those three keywords is taken as a
+# `codex` has nowhere to resolve, is ignored with a warning logged, and the role's derived
+# model applies instead. A `model:` that is not one of those three keywords is taken as a
 # literal model id and passed straight through — pin one directly (e.g. `model:
-# gpt-5.6-sol`) and it is then implicitly specific to whichever backend the task runs on.
+# gpt-6.1-sol`) and it is then implicitly specific to whichever backend the task runs on.
 roles:
-  implementer:  {backend: claude, models: {claude: claude-sonnet-5, codex: gpt-5.6-terra}}
-  judge:        {backend: claude, models: {claude: claude-opus-5,   codex: gpt-5.6-sol}}
-  diagnoser:    {backend: claude, models: {claude: claude-opus-5,   codex: gpt-5.6-sol}}
+  implementer:  {strength: balanced}
+  reviewer:     {strength: strong, independent_of: [implementer]}
+  diagnoser:    {strength: strong}
+  planner:      {strength: strong}
 
-fallback_chain: [claude, codex]
+sprint:
+  enabled: true
+  window_hours: 24
+  behind_margin_pct: 5
+  forecast_p24: 70
+  forecast_confidence: high
+
+routing:
+  pace:
+    # Explicit estimates used before eligible measured history is available.
+    # Pool overrides use the same keys; costs are never compared across pools.
+    initial_burn_pct_per_cost: 1.0
+    initial_runtime_sec: 1800
+    pools: {}
 
 switch:
   on_quota_exhausted: true
@@ -44,12 +71,17 @@ switch:
 model_limits:                   # D4 — defaults shown
   claude: ~/.claude/model_context_limits.md
   codex:  ~/.codex/model_context_limits.md
+  antigravity: ~/.gemini/model_context_limits.md
 
 gate:                           # D8 — eval absent => test-only, journaled unevaluated
   chain: [test]
   primary_metric: null
   baseline_source: null
   bands: {claim: null, flat: null, block: null}
+
+retention:                      # B15 — checked against the P12 DuetFlow pilot (maestro/config.py RETENTION_BASIS)
+  prune: false                  # evidence is never pruned automatically (A03); only false is accepted
+  warn_bytes: 1073741824        # doctor warns when .orchestrator (task trees excluded) passes 1 GiB
 
 telegram:
   chat_id: <captured by init>
@@ -59,6 +91,7 @@ thresholds:
   five_h_pause_pct: 92
   concurrency_cap: 3
   switch_threshold_pct: 70  # Usage % at which to switch to a fallback backend; C3/G6b
+  goal_replan_misses: 2     # P13 GDT-8: accepted direct tasks with an unexpected goal miss before a replan
   # context ceilings come from model_limits, not from here
 
 risky_set: []

@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-09-08T12:37:02Z",
+  "limits": [
+    "This reads what the installed wheel declares about itself. It is not a legal review and does not inspect bundled third-party code or transitive dependencies.",
+    "A licence read here is a fact about this exact version only; a version change invalidates it (B17)."
+  ],
+  "method": "importlib.metadata over the interpreter that runs maestro (.venv/bin/python); no network access, no vendor page fetched",
+  "python": "3.11.2",
+  "records": [
+    {
+      "distribution": "pyyaml",
+      "license_classifiers": [
+        "License :: OSI Approved :: MIT License"
+      ],
+      "license_expression": null,
+      "license_field": "MIT",
+      "metadata_file": "pyyaml-6.0.3.dist-info/METADATA",
+      "version": "6.0.3"
+    },
+    {
+      "distribution": "python-dotenv",
+      "license_classifiers": [],
+      "license_expression": null,
+      "license_field": "BSD-3-Clause",
+      "metadata_file": "python_dotenv-1.2.2.dist-info/METADATA",
+      "version": "1.2.2"
+    },
+    {
+      "distribution": "requests",
+      "license_classifiers": [
+        "License :: OSI Approved :: Apache Software License"
+      ],
+      "license_expression": null,
+      "license_field": "Apache-2.0",
+      "metadata_file": "requests-2.34.2.dist-info/METADATA",
+      "version": "2.34.2"
+    },
+    {
+      "distribution": "pytest",
+      "license_classifiers": [],
+      "license_expression": "MIT",
+      "license_field": null,
+      "metadata_file": "pytest-9.1.1.dist-info/METADATA",
+      "version": "9.1.1"
+    },
+    {
+      "distribution": "pytest-xdist",
+      "license_classifiers": [],
+      "license_expression": "MIT",
+      "license_field": null,
+      "metadata_file": "pytest_xdist-3.8.0.dist-info/METADATA",
+      "version": "3.8.0"
+    }
+  ],
+  "schema_version": 1,
+  "scope": "installed-distribution-metadata-only"
+}

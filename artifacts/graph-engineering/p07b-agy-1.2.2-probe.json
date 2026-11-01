@@ -1,0 +1,70 @@
+{
+  "schema_version": 1,
+  "subject": "agy",
+  "cli_version": "1.2.2",
+  "binary": "/home/dan/.local/bin/agy",
+  "captured_at": "2026-09-15T10:10:00Z",
+  "captured_by": "P07B session 1 — headless probes run from a scratch git dir; each real turn cost ~20K input tokens of the gemini pool",
+  "models_listed": {
+    "command": "agy models",
+    "ids": [
+      "gemini-3.8-flash-high", "gemini-3.8-flash-medium", "gemini-3.8-flash-low",
+      "gemini-3.7-flash-high", "gemini-3.7-flash-medium", "gemini-3.7-flash-low",
+      "gemini-3.6-flash-high", "gemini-3.6-flash-medium", "gemini-3.6-flash-low",
+      "gemini-3.1-pro-high", "gemini-3.1-pro-low",
+      "claude-sonnet-4-6", "claude-opus-4-6-thinking", "gpt-oss-120b-medium"
+    ],
+    "display_names": {
+      "gemini-3.8-flash-high": "Gemini 3.8 Flash (High)",
+      "gemini-3.1-pro-low": "Gemini 3.1 Pro (Low)",
+      "claude-sonnet-4-6": "Claude Sonnet 4.6 (Thinking)",
+      "gpt-oss-120b-medium": "GPT-OSS 120B (Medium)"
+    },
+    "note": "The limits table keys by display family without the effort suffix (`agy/Gemini 3.8 Flash`), and its prose says that row covers the High/Medium/Low variants. Mapping an id to its limits row therefore needs id -> family display name, not the raw id."
+  },
+  "effort": {
+    "help_text": "--effort  Reasoning effort for the current CLI session (low|medium|high)",
+    "observed": [
+      {"argv": "--model gemini-3.8-flash-low --effort bogus", "rc": 1, "error": "invalid --effort \"bogus\" (valid: low, medium, high)"},
+      {"argv": "--model gemini-3.8-flash-low --effort high", "rc": 1, "error": "--model gemini-3.8-flash-low conflicts with --effort=high"},
+      {"argv": "--model gemini-3.8-flash --effort low", "rc": 0, "result": "SUCCESS; init event reports model gemini-3.8-flash"},
+      {"argv": "--model gemini-3.1-pro-low --effort medium", "rc": 1, "error": "--model gemini-3.1-pro-low conflicts with --effort=medium"},
+      {"argv": "--model claude-sonnet-4-6 --effort high", "rc": 1, "error": "--effort is not supported for model \"claude-sonnet-4-6\""},
+      {"argv": "--model gpt-oss-120b-medium --effort low", "rc": 1, "error": "--model gpt-oss-120b-medium conflicts with --effort=low"}
+    ],
+    "finding": "Effort is part of the model selection, and which values work depends on the model. A suffixed id already fixes the effort, and any other --effort conflicts with it. A base id (gemini-3.8-flash) accepts --effort low|medium|high. claude-* rejects --effort outright. Invalid selections fail client-side in about 1s, before any turn and at no quota cost. Maestro's EffortControls is per backend, so it cannot express this per-model vocabulary."
+  },
+  "headless_output": {
+    "json": {
+      "argv": "agy --output-format json --model gemini-3.8-flash-low -p 'Reply with exactly: OK'",
+      "note": "-p must come LAST: `agy -p --output-format json ...` fails rc=2 because -p takes the next token as its prompt",
+      "stdout": {"conversation_id": "dfd9c8ca-ed0f-441a-b1dc-8444b8e9d9f9", "status": "SUCCESS", "response": "OK\n", "duration_seconds": 19.7, "num_turns": 1, "usage": {"input_tokens": 20532, "output_tokens": 19, "thinking_tokens": 18, "cache_read_tokens": 0, "total_tokens": 20551}}
+    },
+    "stream_json": {
+      "argv": "agy --output-format stream-json --conversation <id> --model gemini-3.8-flash --effort low -p '...'",
+      "events": ["init{conversation_id, init.model, cwd, tools, permission_mode}", "step_update{step_index, state, step_type, text_delta?, usage?}", "result{conversation_id, status, response, error?, num_turns, usage}"],
+      "per_turn_usage": "agent_response step_update carries usage {input_tokens, output_tokens, thinking_tokens, cache_read_tokens, total_tokens}; result.usage is the SUM across turns (41288 after two ~20.6K turns)",
+      "exposed": ["fresh input (input_tokens)", "cache_read_tokens", "output_tokens", "thinking_tokens", "model id (init.model — the id as passed, not a resolved variant)"],
+      "not_exposed": ["cache write tokens", "CLI version", "quota / pool windows"]
+    },
+    "error_shape": "ERROR results keep rc=1 and set result.error, e.g. transient 'Eligibility check failed: UNAVAILABLE (code 503)'; a quota-exhaustion error string was NOT observed in this session"
+  },
+  "resume": {
+    "verified": true,
+    "evidence": "--conversation dfd9c8ca-... continued the same conversation (num_turns 2, step_index continued at 2); cli log: 'project: resuming conversation belonging to project ID: default-cli-project'"
+  },
+  "session_records": {
+    "transcript": "~/.gemini/antigravity-cli/brain/<conversation_id>/.system_generated/logs/transcript.jsonl — steps {step_index, source, type, status, created_at, content}; NO token counts, NO model id",
+    "conversation_db": "~/.gemini/antigravity-cli/conversations/<conversation_id>.db (sqlite: steps, gen_metadata, trajectory_meta, ... protobuf blobs; token usage not decoded)",
+    "implication": "A cheap per-session context reading for usage(handle) must come from the launcher's own stream-json log (impl.log): last agent_response step_update usage = input_tokens + cache_read_tokens. The transcript cannot supply it."
+  },
+  "quota": {
+    "headless": "not emitted by --print json or stream-json",
+    "push_surface": "~/.gemini/statusline_dump.json, written by the operator's interactive status-line script; a 1.2.2 capture (2026-09-15 13:02) confirms the four pools gemini-5h, gemini-weekly, 3p-5h, 3p-weekly, each {remaining_fraction, reset_time, reset_in_seconds}, plus model.id/display_name/effort, version and context_window",
+    "finding": "No headless pull path. The only quota surface is a push from an interactive render maestro does not control, the same pattern as Claude's usage.json."
+  },
+  "compaction_facts": {
+    "compact_command_or_hook": "not established — the changelog mentions /hooks, hooks.json and post-invocation hooks, but no compact or checkpoint command was exercised",
+    "auto_checkpoint": "per ~/.gemini/model_context_limits.md: 140K checkpoint threshold for the Gemini 3.x Flash family, 128K platform ceiling for 3.1 Pro, and 80K for GPT-OSS; not re-measured here"
+  }
+}

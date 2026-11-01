@@ -52,7 +52,9 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping, Optional, Sequence
@@ -77,12 +79,16 @@ __all__ = [
     "VENV_PYTHON",
     "BINARY",
     "TAIL_LINES",
+    "DEFAULT_MODE",
     "BRIEF_FILE",
     "SESSION_UUID_FILE",
     "LAUNCHER_FILE",
     "LOG_FILE",
     "RESUME_PROMPT_FILE",
     "RESUME_LAUNCHER_FILE",
+    "HOOKS_FILE",
+    "SETTINGS_FILE",
+    "MARKER_FILE",
     "window_name",
     "window_target",
     "task_id_from_window",
@@ -90,6 +96,12 @@ __all__ = [
     "launch_argv",
     "resume_argv",
     "launcher_source",
+    "interactive_launch_argv",
+    "interactive_resume_argv",
+    "interactive_launcher_source",
+    "interactive_completion_argv",
+    "ensure_workspace_trusted",
+    "setup_interactive_hooks",
     "tmux_command",
     "ClaudeBackend",
 ]
@@ -107,6 +119,9 @@ VENV_PYTHON = REPO / ".venv" / "bin" / "python3"
 #: `maestro.backends.registry`, which is the one module allowed to know backends by name.
 BINARY = "claude"
 
+#: Default execution mode for Claude driver. Can be overridden via MAESTRO_CLAUDE_MODE.
+DEFAULT_MODE = "interactive"
+
 #: The tmux window name the reference gives an implementer, and the role prefix it uses.
 WINDOW_PREFIX = "impl-"
 
@@ -123,6 +138,9 @@ LAUNCHER_FILE = "launch.py"
 LOG_FILE = "impl.log"
 RESUME_PROMPT_FILE = "resume_prompt.txt"
 RESUME_LAUNCHER_FILE = "resume.py"
+HOOKS_FILE = "claude_hooks.py"
+SETTINGS_FILE = "claude_settings.json"
+MARKER_FILE = "turn_marker.json"
 
 #: Mode the generated launcher is chmod'd to, as in the reference.
 LAUNCHER_MODE = 0o755
@@ -130,7 +148,7 @@ LAUNCHER_MODE = 0o755
 #: Flags whose value the generated launcher spells as a raw string literal. These are
 #: the ones carrying a filesystem path or a uuid; a raw literal is what keeps a Windows
 #: -style separator or a stray backslash from being re-interpreted as an escape.
-RAW_VALUE_FLAGS = frozenset({"--session-id", "--resume", "--system-prompt-file"})
+RAW_VALUE_FLAGS = frozenset({"--session-id", "--resume", "--system-prompt-file", "--settings"})
 
 
 # ── window naming ──
@@ -248,6 +266,76 @@ def context_reading(path: Path) -> Optional[tuple[int, str]]:
     return (tokens, model) if tokens > 0 else None
 
 
+_COST_STATE_KEYS = {
+    "fresh_input": "inputTokens",
+    "cache_read": "cacheReadInputTokens",
+    "cache_write": "cacheCreationInputTokens",
+    "output": "outputTokens",
+}
+_MESSAGE_KEYS = {
+    "fresh_input": "input_tokens",
+    "cache_read": "cache_read_input_tokens",
+    "cache_write": "cache_creation_input_tokens",
+    "output": "output_tokens",
+}
+
+
+def _json_records(path: Path):
+    try:
+        text = Path(path).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+    for line in text.splitlines():
+        try:
+            record = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(record, Mapping):
+            yield record
+
+
+def session_token_totals(path: Path) -> Optional[dict]:
+    """A finished session's cumulative token totals (see `attempt_token_usage`), or `None`."""
+    cost_state = None
+    by_message: dict[str, tuple[Mapping, str]] = {}
+    files = [Path(path)]
+    try:
+        files += sorted((Path(path).with_suffix("") / "subagents").glob("*.jsonl"))
+    except OSError:
+        pass
+    for index, file in enumerate(files):
+        for record in _json_records(file):
+            if index == 0 and record.get("type") == "cost-state":
+                cost_state = record
+            message = record.get("message")
+            if record.get("type") != "assistant" or not isinstance(message, Mapping):
+                continue
+            usage = message.get("usage")
+            if isinstance(usage, Mapping):
+                key = f"{index}:{message.get('id') or len(by_message)}"
+                by_message[key] = (usage, str(message.get("model") or ""))
+    per_model = cost_state.get("modelUsage") if cost_state else None
+    if isinstance(per_model, Mapping) and per_model:
+        totals = {
+            ours: sum(_as_token_count((row or {}).get(theirs)) for row in per_model.values()
+                      if isinstance(row, Mapping))
+            for ours, theirs in _COST_STATE_KEYS.items()
+        }
+        cost = cost_state.get("totalCostUSD")
+        return {**totals,
+                "cost_usd": float(cost) if isinstance(cost, (int, float)) else None,
+                "models": sorted(str(name) for name in per_model),
+                "source": "claude_cost_state"}
+    if not by_message:
+        return None
+    totals = {
+        ours: sum(_as_token_count(usage.get(theirs)) for usage, _ in by_message.values())
+        for ours, theirs in _MESSAGE_KEYS.items()
+    }
+    models = sorted({model for _, model in by_message.values() if model})
+    return {**totals, "cost_usd": None, "models": models, "source": "claude_transcript"}
+
+
 def _as_token_count(value: Any) -> int:
     """One field of the sum above. Anything that is not a count contributes nothing — it
     is a missing part of a total, not a reason to lose the whole reading."""
@@ -281,15 +369,16 @@ def _system_prompt_arg(path: Optional[Path]) -> list[str]:
     return ["--system-prompt-file", str(candidate)]
 
 
-def launch_argv(spec: LaunchSpec, session_uuid: str) -> list[str]:
+def launch_argv(spec: LaunchSpec, session_uuid: str, *, permission_args: Sequence[str] = ()) -> list[str]:
     """The F4 argv for a fresh session. The brief is positional and last."""
-    argv = [BINARY, "-p", "--model", spec.model, "--session-id", str(session_uuid)]
+    argv = [BINARY, "-p", *permission_args, "--model", spec.model, "--session-id", str(session_uuid)]
     argv += _system_prompt_arg(spec.system_prompt_file)
+    argv += [str(arg) for arg in spec.effort_args]
     argv.append(spec.brief)
     return argv
 
 
-def resume_argv(native_id: str, prompt: str, *, model: str = "") -> list[str]:
+def resume_argv(native_id: str, prompt: str, *, model: str = "", permission_args: Sequence[str] = ()) -> list[str]:
     """The argv for continuing an existing session.
 
     `--resume <uuid>` **replaces** `--session-id`; emitting both is the one combination
@@ -303,7 +392,7 @@ def resume_argv(native_id: str, prompt: str, *, model: str = "") -> list[str]:
     unverified flag to a resume is exactly the kind of guess this plan's research pass
     exists to prevent.
     """
-    argv = [BINARY, "-p"]
+    argv = [BINARY, "-p", *permission_args]
     if model:
         argv += ["--model", str(model)]
     argv += ["--resume", str(native_id), prompt]
@@ -322,24 +411,34 @@ def _write_log(path: Optional[Path], text: str) -> None:
         pass
 
 
-def completion_argv(spec: CompletionSpec) -> list[str]:
+def completion_argv(spec: CompletionSpec, *, permission_args: Sequence[str] = ()) -> list[str]:
     """The argv for one bounded call. The prompt is positional and last.
 
     Same shape the six ex-hardcoded call sites were already using by hand — `claude -p
     [--model M] [--resume ID] <prompt>` — so routing them through the driver changes which
     binary can be chosen, not what this one is asked to do.
 
-    `--resume` and `--session-id` are still mutually exclusive (F4), and a completion never
-    names a session it is *creating*, so only `--resume` can appear. `spec.writable` has no
-    spelling here: the Claude CLI has no sandbox-mode flag in the invocation F4 pins, which
-    is exactly what `capabilities().sandbox is False` already advertises — the caller gets
-    isolation from the directory it points the call at, not from a flag.
+    `--resume` and `--session-id` are still mutually exclusive (F4): a completion names a
+    session it is *creating* only when the caller asks (`spec.session_id`, the graph
+    worker's per-attempt token count), and never alongside `--resume`. The Claude CLI has no
+    sandbox-mode flag (`capabilities().sandbox is False`).
+
+    `permission_args` (P12 pilot finding D30, `maestro.permissions.cli_args`) go straight
+    after `-p`: `--permission-mode dontAsk` plus the allow and never-allow lists, so the
+    call never falls back to the auto-mode classifier a user's settings may default to.
+    `complete` always passes them; the bare shape stays for the callers that print it.
+    `spec.writable` is spelled there, as Edit/Write rules scoped to `cwd` and `add_dirs`.
     """
-    argv = [BINARY, "-p"]
+    argv = [BINARY, "-p", *permission_args]
     if spec.model:
         argv += ["--model", str(spec.model)]
     if spec.resume_id:
         argv += ["--resume", str(spec.resume_id)]
+    elif spec.session_id:
+        # A caller that wants to count this call's tokens names the fresh session, so its
+        # transcript can be found by uuid afterwards (`attempt_token_usage`).
+        argv += ["--session-id", str(spec.session_id)]
+    argv += [str(arg) for arg in spec.effort_args]
     argv.append(spec.prompt)
     return argv
 
@@ -348,7 +447,9 @@ def completion_argv(spec: CompletionSpec) -> list[str]:
 
 
 def _render_element(element: str, raw: bool) -> str:
-    return f"r'{element}'" if raw else f"'{element}'"
+    if raw and "'" not in element and not element.endswith("\\"):
+        return f"r'{element}'"
+    return repr(element)
 
 
 def _render_flags(argv: Sequence[str]) -> str:
@@ -398,6 +499,233 @@ def launcher_source(
     )
 
 
+# ── interactive helpers & launcher ──
+
+
+def ensure_workspace_trusted(
+    workspace: Path | str,
+    claude_json: Optional[Path | str] = None,
+) -> bool:
+    """Ensure `workspace` has `hasTrustDialogAccepted: True` in `~/.claude.json`.
+
+    Claude Code strictly validates workspace trust against `~/.claude.json`'s
+    `projects` table; a local `.claude.json` in the workspace is ignored. An ancestor
+    directory having trust accepted is inherited by any descendant directory.
+    Uses an exclusive file lock (`.claude.json.lock`) to avoid races with active CLI sessions.
+    Never raises.
+    """
+    try:
+        path = Path(workspace).resolve()
+        target_json = Path(claude_json).resolve() if claude_json else Path.home() / ".claude.json"
+
+        # Fast path without locking: check if path or an ancestor is already trusted
+        if target_json.exists():
+            try:
+                data = json.loads(target_json.read_text(encoding="utf-8"))
+                projects = data.get("projects", {}) if isinstance(data, dict) else {}
+                curr = path
+                while True:
+                    if projects.get(str(curr), {}).get("hasTrustDialogAccepted") is True:
+                        return True
+                    parent = curr.parent
+                    if parent == curr:
+                        break
+                    curr = parent
+            except Exception:
+                pass
+
+        # Slow path: acquire lock and update ~/.claude.json
+        import fcntl
+
+        lock_path = target_json.parent / f"{target_json.name}.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(lock_path, "w", encoding="utf-8") as lock_file:
+            fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX)
+            try:
+                if target_json.exists():
+                    try:
+                        data = json.loads(target_json.read_text(encoding="utf-8"))
+                    except Exception:
+                        data = {}
+                else:
+                    data = {}
+                if not isinstance(data, dict):
+                    data = {}
+                projects = data.setdefault("projects", {})
+                curr = path
+                already_trusted = False
+                while True:
+                    if projects.get(str(curr), {}).get("hasTrustDialogAccepted") is True:
+                        already_trusted = True
+                        break
+                    parent = curr.parent
+                    if parent == curr:
+                        break
+                    curr = parent
+                if not already_trusted:
+                    projects.setdefault(str(path), {})["hasTrustDialogAccepted"] = True
+                    tmp = target_json.with_suffix(".tmp")
+                    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                    tmp.replace(target_json)
+                return True
+            finally:
+                try:
+                    fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                except Exception:
+                    pass
+    except Exception:
+        return False
+
+
+def setup_interactive_hooks(workspace: Path) -> tuple[Path, Path, Path]:
+    """Create hook script, settings file, and return (hook_path, settings_path, marker_path)."""
+    workspace = Path(workspace)
+    workspace.mkdir(parents=True, exist_ok=True)
+    marker_file = workspace / MARKER_FILE
+    hook_file = workspace / HOOKS_FILE
+    settings_file = workspace / SETTINGS_FILE
+
+    hook_source = (
+        "#!/usr/bin/env python3\n"
+        "import sys, json\n"
+        "from pathlib import Path\n"
+        "try:\n"
+        "    data = json.loads(sys.stdin.read() or '{}')\n"
+        "except Exception as exc:\n"
+        "    data = {'error': str(exc)}\n"
+        f"Path(r'{marker_file}').write_text(json.dumps(data), encoding='utf-8')\n"
+    )
+    hook_file.write_text(hook_source, encoding="utf-8")
+    hook_file.chmod(LAUNCHER_MODE)
+
+    settings_content = {
+        "hooks": {
+            "Stop": [{"hooks": [{"type": "command", "command": str(hook_file)}]}],
+            "StopFailure": [{"hooks": [{"type": "command", "command": str(hook_file)}]}],
+        }
+    }
+    settings_file.write_text(json.dumps(settings_content, indent=2), encoding="utf-8")
+    return hook_file, settings_file, marker_file
+
+
+def interactive_launch_argv(spec: LaunchSpec, session_uuid: str, settings_file: Path,
+                            *, permission_args: Sequence[str] = ()) -> list[str]:
+    """The interactive argv for a fresh session. The brief is positional and last."""
+    argv = [
+        BINARY,
+        "--model", spec.model,
+        "--session-id", str(session_uuid),
+        "--settings", str(settings_file),
+        *(permission_args or ("--permission-mode", "dontAsk")),
+    ]
+    argv += _system_prompt_arg(spec.system_prompt_file)
+    argv += [str(arg) for arg in spec.effort_args]
+    argv.append(spec.brief)
+    return argv
+
+
+def interactive_resume_argv(
+    native_id: str,
+    prompt: str,
+    settings_file: Path,
+    *,
+    model: str = "",
+    permission_args: Sequence[str] = (),
+) -> list[str]:
+    """The interactive argv for continuing an existing session."""
+    argv = [
+        BINARY,
+        "--resume", str(native_id),
+        "--settings", str(settings_file),
+        *(permission_args or ("--permission-mode", "dontAsk")),
+    ]
+    if model:
+        argv += ["--model", str(model)]
+    argv.append(prompt)
+    return argv
+
+
+def interactive_completion_argv(
+    spec: CompletionSpec,
+    settings_file: Path,
+    *,
+    permission_args: Sequence[str] = (),
+) -> list[str]:
+    """The interactive argv for one bounded call."""
+    argv = [BINARY, *permission_args, "--settings", str(settings_file)]
+    if spec.model:
+        argv += ["--model", str(spec.model)]
+    if spec.resume_id:
+        argv += ["--resume", str(spec.resume_id)]
+    elif spec.session_id:
+        argv += ["--session-id", str(spec.session_id)]
+    argv += [str(arg) for arg in spec.effort_args]
+    argv.append(spec.prompt)
+    return argv
+
+
+def interactive_launcher_source(
+    argv: Sequence[str],
+    *,
+    prompt_file: Path,
+    log_file: Path,
+    marker_file: Path,
+    mode: str = "w",
+) -> str:
+    """The generated `launch.py` / `resume.py` for interactive mode.
+
+    Spawns interactive claude in the pane TTY (so stdout is a TTY and entrypoint is 'cli'),
+    supervises turn completion via the Stop/StopFailure hook marker, writes the assistant
+    reply or error to impl.log, and exits cleanly.
+    """
+    return (
+        "import subprocess\n"
+        "import sys\n"
+        "import time\n"
+        "import json\n"
+        "from pathlib import Path\n\n"
+        f"brief = Path(r'{prompt_file}').read_text()\n"
+        f"log = open(r'{log_file}', '{mode}', encoding='utf-8')\n"
+        f"marker = Path(r'{marker_file}')\n"
+        "if marker.exists():\n"
+        "    try:\n"
+        "        marker.unlink()\n"
+        "    except Exception:\n"
+        "        pass\n\n"
+        "argv = [\n"
+        f"{_render_flags(list(argv)[:-1])}"
+        "    brief,\n"
+        "]\n\n"
+        "# Launch interactive claude on pane TTY (inherits stdin/stdout/stderr)\n"
+        "proc = subprocess.Popen(argv)\n\n"
+        "while proc.poll() is None:\n"
+        "    if marker.exists():\n"
+        "        time.sleep(0.5)\n"
+        "        break\n"
+        "    time.sleep(0.3)\n\n"
+        "if marker.exists():\n"
+        "    try:\n"
+        "        data = json.loads(marker.read_text(encoding='utf-8'))\n"
+        "        msg = data.get('last_assistant_message') or ''\n"
+        "        if msg:\n"
+        "            log.write(msg + '\\n')\n"
+        "        err = data.get('error')\n"
+        "        if err:\n"
+        "            log.write(f'Error: {err}\\n')\n"
+        "    except Exception:\n"
+        "        pass\n\n"
+        "if proc.poll() is None:\n"
+        "    proc.terminate()\n"
+        "    try:\n"
+        "        proc.wait(timeout=5)\n"
+        "    except subprocess.TimeoutExpired:\n"
+        "        proc.kill()\n\n"
+        "log.flush()\n"
+        "log.close()\n"
+        "sys.exit(proc.returncode if proc.returncode is not None else 0)\n"
+    )
+
+
 def tmux_command(
     window: str,
     worktree: Path,
@@ -435,7 +763,13 @@ def _read_usage_document(path: Path) -> Optional[Mapping[str, Any]]:
 
 
 class ClaudeBackend:
-    """`claude -p` behind the `AgentBackend` protocol.
+    """`claude` driver supporting both interactive mode (default) and legacy headless mode (`claude -p`).
+
+    In interactive mode (`mode="interactive"`, default), commands run attached to a TTY (under tmux
+    or PTY) so Claude Code records `entrypoint: "cli"` rather than `entrypoint: "sdk-cli"`.
+    This yields standard subscription quota rates rather than headless multiplier surcharges.
+    A Stop/StopFailure hook harness captures the turn completion, records results/errors to `impl.log`,
+    and terminates the process cleanly.
 
     Constructed with no arguments by `maestro.backends.registry.get_backend`; every
     keyword exists so a test can inject a substitute instead of monkeypatching a global.
@@ -444,26 +778,50 @@ class ClaudeBackend:
     """
 
     name = "claude"
+    #: P12 pilot finding D30: `complete` runs the agent on the global allow list, so the
+    #: worker tells it how to ask Dan for a denied family (`permission_asks.BRIEF_RULE`).
+    permission_lists = True
 
     def __init__(
         self,
         *,
+        mode: Optional[str] = None,
         tmux_session: str = "",
         python: Optional[Path] = None,
         usage_path: Optional[Path] = None,
         claude_home: Optional[Path | str] = None,
+        claude_json: Optional[Path | str] = None,
         new_session_id: Optional[Callable[[], str]] = None,
         runner: Optional[Callable[..., Any]] = None,
     ) -> None:
+        self._mode = mode
         self._tmux_session = tmux_session
         self._python = python
         self._usage_path = usage_path
         self._claude_home = Path(claude_home) if claude_home else None
+        self._claude_json = Path(claude_json) if claude_json else None
         self._new_session_id = new_session_id or (lambda: str(uuid.uuid4()))
         #: The one seam that actually starts a process for `complete()`. Injectable for
         #: the same reason every other seam here is: the suite must be able to cover the
         #: whole driver without spending a token of quota.
         self._run = runner or subprocess.run
+        self._runner_injected = runner is not None
+
+    def mode(self) -> str:
+        """The active execution mode: 'interactive' (default) or 'headless'."""
+        if self._mode:
+            return self._mode
+        env_mode = os.environ.get("MAESTRO_CLAUDE_MODE", "").strip().lower()
+        if env_mode in ("interactive", "headless"):
+            return env_mode
+        try:
+            from maestro import config
+            proj_mode = config.threshold("claude_mode", None) or getattr(config, "claude_mode", lambda: None)()
+            if proj_mode in ("interactive", "headless"):
+                return proj_mode
+        except Exception:
+            pass
+        return DEFAULT_MODE
 
     # ── capabilities ──
 
@@ -484,14 +842,15 @@ class ClaudeBackend:
     # ── launch ──
 
     def launch(self, spec: LaunchSpec) -> Handle:
-        """Write the three workspace files and open the tmux window that runs them.
+        """Write the workspace files and open the tmux window that runs them.
 
-        Exactly three files are written — `brief.txt`, `session_uuid.txt`, `launch.py` —
-        and that count is pinned by the existing characterisation suite. `impl.log` is
-        created later, by the launcher itself, inside the tmux window.
+        Headless mode writes the brief, session UUID, launcher and durable launch parameters.
+        In interactive mode, hooks and settings files are also written and workspace trust is ensured.
         """
         workspace = Path(spec.workspace)
         workspace.mkdir(parents=True, exist_ok=True)
+        from maestro.backends import launch_state
+        launch_state.write(spec)
 
         native_id = str(self._new_session_id())
         brief_file = workspace / BRIEF_FILE
@@ -499,14 +858,30 @@ class ClaudeBackend:
         (workspace / SESSION_UUID_FILE).write_text(native_id, encoding="utf-8")
 
         launcher = workspace / LAUNCHER_FILE
-        launcher.write_text(
-            launcher_source(
-                launch_argv(spec, native_id),
+        from maestro import permissions
+
+        permission_args = permissions.cli_args(cwd=Path(spec.worktree), add_dirs=(workspace,), writable=True)
+        mode = self.mode()
+        if mode == "interactive":
+            ensure_workspace_trusted(spec.worktree, claude_json=self._claude_json)
+            ensure_workspace_trusted(workspace, claude_json=self._claude_json)
+            _, settings_file, marker_file = setup_interactive_hooks(workspace)
+            argv = interactive_launch_argv(spec, native_id, settings_file, permission_args=permission_args)
+            launcher_code = interactive_launcher_source(
+                argv,
                 prompt_file=brief_file,
                 log_file=workspace / LOG_FILE,
-            ),
-            encoding="utf-8",
-        )
+                marker_file=marker_file,
+            )
+        else:
+            argv = launch_argv(spec, native_id, permission_args=permission_args)
+            launcher_code = launcher_source(
+                argv,
+                prompt_file=brief_file,
+                log_file=workspace / LOG_FILE,
+            )
+
+        launcher.write_text(launcher_code, encoding="utf-8")
         launcher.chmod(LAUNCHER_MODE)
 
         self._open_window(window_name(spec.task_id), Path(spec.worktree), launcher)
@@ -525,6 +900,7 @@ class ClaudeBackend:
         *,
         model: str = "",
         worktree: Optional[Path] = None,
+        spec: Optional[LaunchSpec] = None,
     ) -> Handle:
         """Continue `handle`'s session with `prompt`, in the worktree it was built in.
 
@@ -540,6 +916,12 @@ class ClaudeBackend:
         `native_id`) is still resumable.
         """
         workspace = Path(handle.workspace)
+        from maestro.backends import launch_state
+        retained = spec if spec is not None else launch_state.read(workspace)
+        effort_args = tuple(retained.effort_args) if retained is not None else ()
+        if retained is not None:
+            model = model or retained.model
+            worktree = worktree if worktree is not None else retained.worktree
         native_id = handle.native_id or session_uuid_in(workspace)
         if not native_id:
             raise ValueError(
@@ -550,20 +932,44 @@ class ClaudeBackend:
         task_id = task_id_from_window(handle.window)
         prompt_file = workspace / RESUME_PROMPT_FILE
         prompt_file.write_text(prompt, encoding="utf-8")
+        cwd = Path(worktree) if worktree is not None else worktree_path_for(task_id)
+        if retained is not None:
+            from dataclasses import replace
+            launch_state.write(replace(retained, model=model, worktree=cwd,
+                                       workspace=workspace, session_id=handle.session_id,
+                                       brief=prompt))
 
         launcher = workspace / RESUME_LAUNCHER_FILE
-        launcher.write_text(
-            launcher_source(
-                resume_argv(native_id, prompt, model=model),
+        from maestro import permissions
+
+        permission_args = permissions.cli_args(cwd=cwd, add_dirs=(workspace,), writable=True)
+        mode = self.mode()
+        if mode == "interactive":
+            ensure_workspace_trusted(cwd, claude_json=self._claude_json)
+            ensure_workspace_trusted(workspace, claude_json=self._claude_json)
+            _, settings_file, marker_file = setup_interactive_hooks(workspace)
+            argv = interactive_resume_argv(native_id, prompt, settings_file, model=model, permission_args=permission_args)
+            argv = argv[:-1] + list(effort_args) + argv[-1:]
+            launcher_code = interactive_launcher_source(
+                argv,
+                prompt_file=prompt_file,
+                log_file=workspace / LOG_FILE,
+                marker_file=marker_file,
+                mode="a",
+            )
+        else:
+            argv = resume_argv(native_id, prompt, model=model, permission_args=permission_args)
+            argv = argv[:-1] + list(effort_args) + argv[-1:]
+            launcher_code = launcher_source(
+                argv,
                 prompt_file=prompt_file,
                 log_file=workspace / LOG_FILE,
                 mode="a",
-            ),
-            encoding="utf-8",
-        )
+            )
+
+        launcher.write_text(launcher_code, encoding="utf-8")
         launcher.chmod(LAUNCHER_MODE)
 
-        cwd = Path(worktree) if worktree is not None else worktree_path_for(task_id)
         self._open_window(window_name(task_id), cwd, launcher)
         return Handle(
             backend=self.name,
@@ -586,26 +992,153 @@ class ClaudeBackend:
         returned — `/redo` and self-fix keep that log inside the worktree they ran in, and
         it is the only record of a run that timed out.
         """
-        argv = completion_argv(spec)
+        from maestro import permissions
+
+        perm_args = permissions.cli_args(
+            cwd=spec.cwd, add_dirs=tuple(spec.add_dirs), writable=spec.writable,
+        )
         cwd = str(spec.cwd) if spec.cwd else None
+        mode = self.mode()
+
+        if spec.session_id and not spec.resume_id and spec.log_file is not None:
+            # The sidecar `session_uuid_in` reads, beside the log: how the controller finds
+            # this call's transcript at settle without being told the uuid.
+            try:
+                (Path(spec.log_file).parent / SESSION_UUID_FILE).write_text(
+                    f"{spec.session_id}\n", encoding="utf-8"
+                )
+            except OSError:
+                pass
+
+        if mode == "headless":
+            argv = completion_argv(spec, permission_args=perm_args)
+            try:
+                result = self._run(
+                    argv, cwd=cwd, capture_output=True, text=True, timeout=spec.timeout,
+                )
+            except subprocess.TimeoutExpired:
+                _write_log(spec.log_file, f"(timed out after {spec.timeout}s)")
+                return Completion(text="", returncode=124, timed_out=True)
+            except Exception as exc:
+                _write_log(spec.log_file, f"(failed to run: {exc})")
+                return Completion(text="", returncode=1)
+
+            stdout = getattr(result, "stdout", "") or ""
+            stderr = getattr(result, "stderr", "") or ""
+            rc = int(getattr(result, "returncode", 0) or 0)
+            _write_log(spec.log_file, stdout + stderr)
+            return Completion(text=stdout.strip() if rc == 0 else "", returncode=rc)
+
+        # ── Interactive mode ──
+        ensure_workspace_trusted(spec.cwd or Path.cwd(), claude_json=self._claude_json)
+
+        import tempfile
+
+        hook_dir = None
+        if spec.log_file is not None:
+            try:
+                candidate = Path(spec.log_file).parent
+                candidate.mkdir(parents=True, exist_ok=True)
+                hook_dir = candidate
+            except Exception:
+                hook_dir = None
+        # Never under `spec.cwd`: that is the task worktree, and files there are picked up
+        # by the gate's clean-tree check and by the agent's own commits (itv pilot).
+        if hook_dir is None:
+            hook_dir = Path(tempfile.mkdtemp(prefix="maestro-interactive-"))
+
+        _, settings_file, marker_file = setup_interactive_hooks(hook_dir)
+        argv = interactive_completion_argv(spec, settings_file, permission_args=perm_args)
+
+        if self._runner_injected:
+            # Custom test runner injected
+            try:
+                result = self._run(
+                    argv, cwd=cwd, capture_output=True, text=True, timeout=spec.timeout,
+                )
+            except subprocess.TimeoutExpired:
+                _write_log(spec.log_file, f"(timed out after {spec.timeout}s)")
+                return Completion(text="", returncode=124, timed_out=True)
+            except Exception as exc:
+                _write_log(spec.log_file, f"(failed to run: {exc})")
+                return Completion(text="", returncode=1)
+
+            stdout = getattr(result, "stdout", "") or ""
+            stderr = getattr(result, "stderr", "") or ""
+            rc = int(getattr(result, "returncode", 0) or 0)
+            _write_log(spec.log_file, stdout + stderr)
+            return Completion(text=stdout.strip() if rc == 0 else "", returncode=rc)
+
+        # Run with pseudo-terminal (PTY) to ensure process.stdout.isTTY is True
+        # which grants entrypoint "cli" instead of "sdk-cli"
+        import pty
+        master, slave = pty.openpty()
+        timed_out = False
+        text = ""
+        rc = 0
         try:
-            result = self._run(
-                argv, cwd=cwd, capture_output=True, text=True, timeout=spec.timeout,
+            proc = subprocess.Popen(
+                argv, stdin=slave, stdout=slave, stderr=slave, cwd=cwd, close_fds=True,
             )
+            os.close(slave)
+            slave = -1
+
+            start_time = time.time()
+            timeout = spec.timeout or 300
+            while proc.poll() is None:
+                if marker_file.exists():
+                    time.sleep(0.2)
+                    break
+                if time.time() - start_time > timeout:
+                    timed_out = True
+                    break
+                time.sleep(0.2)
+
+            if timed_out:
+                rc = 124
+                text = ""
+            elif marker_file.exists():
+                try:
+                    payload = json.loads(marker_file.read_text(encoding="utf-8"))
+                    text = payload.get("last_assistant_message", "") or ""
+                    err = payload.get("error")
+                    if err:
+                        rc = 1
+                except Exception:
+                    pass
+            else:
+                rc = proc.poll() or 1
+
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
         except subprocess.TimeoutExpired:
-            _write_log(spec.log_file, f"(timed out after {spec.timeout}s)")
-            return Completion(text="", returncode=124, timed_out=True)
+            timed_out = True
+            rc = 124
         except Exception as exc:
+            rc = 1
             _write_log(spec.log_file, f"(failed to run: {exc})")
             return Completion(text="", returncode=1)
+        finally:
+            if slave >= 0:
+                try:
+                    os.close(slave)
+                except OSError:
+                    pass
+            try:
+                os.close(master)
+            except OSError:
+                pass
 
-        stdout = getattr(result, "stdout", "") or ""
-        stderr = getattr(result, "stderr", "") or ""
-        rc = int(getattr(result, "returncode", 0) or 0)
-        _write_log(spec.log_file, stdout + stderr)
-        # A non-zero exit means the answer is not trustworthy even when something was
-        # printed, so the text is dropped rather than handed on as if it were a reply.
-        return Completion(text=stdout.strip() if rc == 0 else "", returncode=rc)
+        if timed_out:
+            _write_log(spec.log_file, f"(timed out after {spec.timeout}s)")
+            return Completion(text="", returncode=124, timed_out=True)
+
+        _write_log(spec.log_file, text)
+        return Completion(text=text.strip() if rc == 0 else "", returncode=rc)
 
     def _open_window(self, window: str, worktree: Path, launcher: Path) -> None:
         subprocess.run(
@@ -735,7 +1268,39 @@ class ClaudeBackend:
             return self._session_usage(handle)
         path = self._usage_path if self._usage_path is not None else USAGE_JSON
         document = _read_usage_document(path)
-        return None if document is None else from_usage_json(document)
+        if document is None:
+            return None
+        return replace(from_usage_json(document), source="statusline_usage_json")
+
+    def subscription_usage(self) -> Usage:
+        """The account's 5h/7d windows read fresh from the OAuth usage endpoint.
+
+        Unlike `usage()`, independent of the interactive statusline: this is what per-step
+        quota telemetry reads at claim and settle (`routing.driver_usage`). Throttled to
+        one fetch per minute across processes by a cache beside `usage.json`; a failed
+        read is empty windows plus `error`, never an exception.
+        """
+        from maestro.backends import claude_subscription
+
+        path = self._usage_path if self._usage_path is not None else USAGE_JSON
+        return claude_subscription.read_subscription_usage(
+            cache_path=Path(path).parent / claude_subscription.CACHE_FILE
+        )
+
+    def attempt_token_usage(self, workspace: Path) -> Optional[dict]:
+        """Cumulative tokens of the call whose session uuid `workspace` recorded, or `None`.
+
+        Prefers the CLI's own `cost-state` record (per-model totals, subagents included,
+        with its cost estimate — the best relative weight across models); falls back to
+        one count per assistant message id across the transcript and its subagent files
+        (a streamed message is written as several records repeating one usage). Missing
+        counts stay absent rather than being estimated (G6).
+        """
+        session_uuid = session_uuid_in(Path(workspace))
+        path = self.transcript_path(session_uuid) if session_uuid else None
+        if path is None:
+            return None
+        return session_token_totals(path)
 
     def _session_usage(self, handle: Handle) -> Optional[Usage]:
         """How full `handle`'s conversation is, from its own transcript, or `None`.

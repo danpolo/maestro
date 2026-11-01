@@ -126,6 +126,18 @@ def test_a_future_record_is_returned(monkeypatch, tmp_path):
     assert quota.exhausted_backends() == frozenset({CLAUDE})
 
 
+def test_a_worker_reads_exhaustion_without_claiming_the_controller_lock(monkeypatch, tmp_path):
+    """A graph worker must route its one-shot calls around a paused backend while the
+    controller holds the database writer lease."""
+    _state_file(monkeypatch, tmp_path, **{quota.EXHAUSTED_KEY: {CLAUDE: "2999-01-01T00:00:00Z"}})
+
+    def controller_only():
+        raise RuntimeError("controller lease is held by another process")
+
+    monkeypatch.setattr(quota, "read_state", controller_only)
+    assert quota.exhausted_backends() == frozenset({CLAUDE})
+
+
 def test_a_past_record_is_not_returned(monkeypatch, tmp_path):
     """Expiry is automatic: once `now >= reset_at` the record is inert, with no
     operator action and no second command to clear it."""

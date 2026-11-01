@@ -19,6 +19,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Optional, Sequence
+import logging
 
 from maestro import quota
 from maestro import roles
@@ -44,7 +45,45 @@ def _driver_for(backend: str):
     return registry.driver_class(backend)()
 
 
-def resolve_call(role: object, *, model: str = "") -> tuple[str, str]:
+def _independent_call(role, source_routes):
+    """Route a legacy judgment using actual authors and the task's frozen catalog."""
+    from maestro import config, model_policy, thirdparty
+    from maestro.backends import catalog
+    from maestro.backends.router import AgentBinding, dispatch_plan
+
+    _, policy, project = model_policy.runtime_model_inputs(
+        config.load_project_yaml(), config.PROJECT_YAML.parent)
+    key = model_policy.LEGACY_ROLE_NAMES.get(str(role), str(role))
+    sources = model_policy.role_independence(project).get(key, ())
+    if not any(source_routes.get(source) for source in sources):
+        return None
+    native = catalog.catalog_from_register(thirdparty.load_register(),
+        defaults=model_policy.graph_catalog_defaults(policy, project))
+    families = set()
+    for source in sources:
+        for driver, model in source_routes.get(source, ()):
+            try:
+                entry = native.entry(registry.driver_ref(driver).backend_id)
+                profiles = [p for m, p in entry.model_profiles.items()
+                            if m == model or model in (p.effort_variants or {}).values()]
+                family = profiles[0].model_family if len(profiles) == 1 else None
+            except (ValueError, KeyError):
+                family = None
+            families.add(family or '*')
+    exhausted = quota.exhausted_backends()
+    native = catalog.CapabilityCatalog({backend: entry for backend, entry in native.entries.items()
+        if registry.driver_name_for_backend_id(backend) in roles.default_chain()
+        and registry.driver_name_for_backend_id(backend) not in exhausted})
+    binding = model_policy.legacy_binding(project, policy, key, native_catalog=native,
+                                          independent_families=frozenset(families))
+    if not isinstance(binding, AgentBinding):
+        raise model_policy.PolicyError(f'no eligible {role} route: {binding.reason}')
+    logging.getLogger(__name__).info('legacy %s route %s/%s: %s', role,
+        binding.backend_id, binding.model_id, binding.selection_reason)
+    return registry.driver_name_for_backend_id(binding.backend_id), dispatch_plan(binding).model
+
+
+def resolve_call(role: object, *, model: str = "", source_routes=None) -> tuple[str, str]:
     """`(backend, model)` for `role`, before any process is started.
 
     Split out from `ask()` so a caller that wants to *name* what it is about to do — a
@@ -70,10 +109,25 @@ def resolve_call(role: object, *, model: str = "") -> tuple[str, str]:
     the model for *the backend that won*, not for the configured one, so a call that falls
     through the chain does not carry the wrong CLI's model id with it.
     """
+    if source_routes is not None and not model:
+        independent = _independent_call(role, source_routes)
+        if independent is not None:
+            return independent
     outcome = roles.resolve(
         role, preferred=operator_backend() or None, exhausted=quota.exhausted_backends()
     )
-    return outcome.backend, (model or outcome.model or "")
+    if not outcome.usable:
+        from maestro.model_policy import PolicyError
+        raise PolicyError(f'no eligible {role} route: {outcome.reason}')
+    if model:
+        # An explicit pin is served as written on the backend that won, or refused.
+        from maestro import config as _project_config
+        from maestro.model_policy import runtime_model_inputs, check_task_pin
+        _, shared, project = runtime_model_inputs(_project_config.load_project_yaml(), _project_config.PROJECT_YAML.parent)
+        if shared is not None:
+            model = check_task_pin(project, shared, outcome.backend, model)
+    delivered, _, _ = roles.launch_controls(role, outcome.backend, model or outcome.model or "")
+    return outcome.backend, delivered
 
 
 def ask(
@@ -87,6 +141,7 @@ def ask(
     log_file: Optional[Path] = None,
     writable: bool = False,
     add_dirs: Sequence[Path] = (),
+    source_routes=None,
 ) -> Completion:
     """Ask `role` one bounded question and return what came back.
 
@@ -95,7 +150,9 @@ def ask(
     return for a failed call, so callers have exactly one failure shape to handle.
     """
     try:
-        backend, resolved_model = resolve_call(role, model=model)
+        backend, resolved_model = resolve_call(role, model=model,
+            **({'source_routes': source_routes} if source_routes is not None else {}))
+        effort_args, effort_config = roles.effort_controls(role, backend, resolved_model)
         driver = _driver_for(backend)
     except Exception:
         return Completion(text="", returncode=1)
@@ -109,4 +166,6 @@ def ask(
         log_file=log_file,
         writable=writable,
         add_dirs=tuple(add_dirs),
+        effort_args=effort_args,
+        effort_config=effort_config,
     ))

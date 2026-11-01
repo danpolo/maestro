@@ -1,0 +1,316 @@
+{
+  "schema_version": 1,
+  "purpose": "Version-pinned verification of every third-party thing Maestro depends on: the agent CLIs it drives (B06) and the Python distributions it declares (B17). A row records what was checked, against which exact version, on what date, and where the raw observation is retained. maestro/thirdparty.py compares each row against what is installed; maestro doctor --thirdparty is the gate. See docs/DESIGN.md section 15.",
+  "records": [
+    {
+      "subject": "agy",
+      "kind": "backend",
+      "scope": "runtime",
+      "verified_version": "1.2.3",
+      "verified_on": "2026-09-15",
+      "verified_by": "P07B headless probe at 1.2.2 (agy models, --effort vocabulary, json/stream-json output, --conversation resume; ~20K input tokens of the gemini pool per real turn) plus a zero-quota re-check at 1.2.3: `agy --version`, `agy models`, and an --effort probe that fails client-side before any turn",
+      "evidence": [
+        "artifacts/graph-engineering/p07b-agy-1.2.2-probe.json",
+        "artifacts/graph-engineering/local-audit.json :: observations.backends.agy",
+        "GRAPH_ENGINEERING_RESEARCH_BLIND_SPOTS.md :: B06",
+        "artifacts/graph-engineering/b02-antigravity-quota-surface.json"
+      ],
+      "free_use": null,
+      "findings": {
+        "controls_observed": [
+          "--conversation",
+          "--effort",
+          "--model",
+          "--output-format",
+          "--sandbox"
+        ],
+        "maestro_driver": true,
+        "declared_capabilities": {
+          "native_resume": true,
+          "system_prompt_file": false,
+          "usage_telemetry": true,
+          "sandbox": false
+        },
+        "effort_control": {
+          "kind": "flag",
+          "observed": "--effort accepts low|medium|high only on a base id (gemini-3.8-flash); a suffixed id already fixes the effort and any other --effort conflicts with it, and claude-* rejects --effort outright. The vocabulary is per model, which a per-backend EffortControls cannot express, so no native_values are recorded and maestro selects effort through the model id."
+        },
+        "resume": "verified at 1.2.2: --conversation <id> continued the same conversation (num_turns 2, step_index continued). The id cannot be set at launch; the driver recovers it from the stream-json init event in impl.log.",
+        "compaction": "no compact command or hook exercised; auto-checkpoint thresholds come from ~/.gemini/model_context_limits.md (140K Flash family, 128K 3.1 Pro ceiling, 80K GPT-OSS), not re-measured",
+        "usage_surface": "headless json/stream-json carries per-turn tokens (input_tokens, cache_read_tokens, output_tokens, thinking_tokens) but no quota and no CLI version. Quota is only in ~/.gemini/statusline_dump.json, a four-pool `quota` object (gemini-5h, gemini-weekly, 3p-5h, 3p-weekly) written by the operator's interactive status line.",
+        "quota_measurement": "push-only: no headless pull path. The driver reads statusline_dump.json and reports both quotas on Usage.pools -- gemini-5h/gemini-weekly under usage_pool_id `antigravity-gemini`, 3p-5h/3p-weekly under `antigravity-3p` (P12A S2). Usage.windows stays the Gemini pools alone, the driver's one headline account reading, so a 3p exhaustion never reads as Gemini pressure. The catalog gives claude-* / gpt-oss-* profiles the 3p pool and BackendCapabilityEntry.pool_for routes admission on it.",
+    "sandbox_mode": "observed 2026-09-16 at 1.2.3 (P12A S2, two bounded headless probes in a scratch git repo, rc 0 both): maestro's own completion_argv shape (`--output-format json --model <id> -p <prompt>`) edited a workspace file with NO permission prompt and NO permission flag, and the same run under `--sandbox` still wrote to the workspace. `--sandbox` therefore runs non-interactively but restricts the *terminal*, not the filesystem -- matching `--help` -- so the driver keeps declaring sandbox=false, which means 'can constrain filesystem/network access'. Re-observed 2026-09-17 at 1.2.4 (bounded edit+shell probes, gemini-3.8-flash-low): `--mode accept-edits` changed nothing observable -- under this host's ~/.gemini/antigravity-cli/settings.json `toolPermission: always-proceed`, file edits and shell commands ran in both modes with no denied_actions. The real hazard was the workspace: without `--add-dir <cwd>` the system prompt says \"The user does not have any active workspace\", run_command takes a model-chosen Cwd, and 2 of 6 probes (one per mode) wrote their file and ran their command in $HOME. The driver now passes `--add-dir <cwd>` on launch, resume and completion; 3 of 3 probes then stayed in the cwd. It also passes `--dangerously-skip-permissions` on every run (Dan, 2026-09-17: agy runs unattended like the other agents), so the host toolPermission setting no longer matters; verified headless, edit and command ran, no denied_actions.",
+        "pools_observed": [
+          "gemini-5h",
+          "gemini-weekly",
+          "3p-5h",
+          "3p-weekly"
+        ]
+      },
+      "open_questions": [
+        "A quota-exhaustion error string was never observed; parse_exit matches maestro's generic limit regex against non-agent output only.",
+                "Effort values are per model, not per backend; an effort label must never be mapped across vendors without a measured mapping (B06)."
+      ],
+      "notes": "Driven by maestro/backends/antigravity.py (registry name `antigravity`, catalog backend_id `antigravity_cli`) and kept out of the implicit fallback chain (DriverRef.in_default_chain=False). Routing judgement lives in maestro/backends/catalog.py ANTIGRAVITY_CATALOG_DEFAULTS: only gemini-3.8-flash-high is balanced; every other id is light."
+    },
+    {
+      "subject": "claude",
+      "kind": "backend",
+      "scope": "runtime",
+      "verified_version": "2.1.270 (Claude Code)",
+      "verified_on": "2026-09-13",
+      "verified_by": "local blind-spot audit (scripts/graph_blind_spot_audit.py) re-run against the installed CLI on 2026-09-13 (help_controls, maestro_capabilities and usage shape unchanged from 2.1.269) — --help inspection and two repeated Maestro telemetry reads, no agent turn",
+      "evidence": [
+        "artifacts/graph-engineering/local-audit.json :: observations.backends.claude",
+        "GRAPH_ENGINEERING_RESEARCH_BLIND_SPOTS.md :: B02, B06"
+      ],
+      "free_use": null,
+      "findings": {
+        "controls_observed": [
+          "--effort",
+          "--model",
+          "--restricted",
+          "--resume"
+        ],
+        "declared_capabilities": {
+          "native_resume": true,
+          "system_prompt_file": true,
+          "usage_telemetry": true,
+          "sandbox": false
+        },
+        "quota_surface": {
+          "five_hour_used_pct": "present",
+          "five_hour_resets_at": "present — a real epoch in every sampled reading, where 2.1.263 returned null",
+          "seven_day": "present — used_pct and a real resets_at, where 2.1.263 returned null",
+          "context_reading": "context_used_pct and context_total_input_tokens are both populated; 2.1.263 reported 0 tokens and a null pct",
+          "attribution": "account-level; the sample now names a model (\"Opus 5\") but that is the reading session's model, not an attribution of the measured delta to one invocation"
+        },
+        "effort_control": {
+          "kind": "flag",
+          "native_values": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "observed": "claude --help at 2.1.272 (2026-09-15): `--effort <level>  Effort level for the current session (low, medium, high, xhigh, max)`. The canonical low/medium/high are native words, so no mapping is declared."
+        }
+      },
+      "open_questions": [
+        "Maestro declares sandbox=false while the installed CLI exposes --restricted. Whether that surface can satisfy a required enforced-permission grant is an unmade adapter decision (B06/B07).",
+        "Effort now reaches the CLI: CompletionSpec.effort_args carries the router's `--effort <value>` (P12A S2). The values were read from --help, not exercised in a paid turn.",
+        "A quota delta is not attributable to one invocation without measured isolation; the shared account is written to by concurrent human use (B02). 2.1.268 populating resets_at and seven_day narrows the missing-data half of this, not the attribution half.",
+        "Subscription terms and the permitted-automation boundary were not verified. The standing mitigation is the credential-boundary invariant: invoke the installed CLI under its own login and never repurpose its credentials as an API transport."
+      ],
+      "notes": "The CLI reports a list-price USD estimate per call. That is not evidence of a subscription charge and must not be converted into one. Re-verified at 2.1.268: the 2.1.263 row's null resets_at and null seven_day were a property of that version's telemetry, not of the reading method — both are populated now. Re-verified again at 2.1.269 during P02: the control set (--effort, --model, --restricted, --resume), the declared capability set and the quota surface are byte-identical to the 2.1.268 reading — five_hour.resets_at, the seven_day window and the context reading are all populated. A re-pin on observation, not a version bump. Re-verified at 2.1.270 on 2026-09-13 the same way: help_controls, maestro_capabilities and the usage field set match the 2.1.269 reading."
+    },
+    {
+      "subject": "codex",
+      "kind": "backend",
+      "scope": "runtime",
+      "verified_version": "codex-cli 0.154.0",
+      "verified_on": "2026-09-11",
+      "verified_by": "local blind-spot audit (scripts/graph_blind_spot_audit.py) re-run against the installed CLI on 2026-09-11 — --help inspection plus repeated Maestro telemetry reads (3 audit runs, 3 direct app-server calls), no agent turn",
+      "evidence": [
+        "artifacts/graph-engineering/local-audit.json :: observations.backends.codex",
+        "GRAPH_ENGINEERING_RESEARCH_BLIND_SPOTS.md :: B02, B06"
+      ],
+      "free_use": null,
+      "findings": {
+        "controls_observed": [
+          "--config",
+          "--model",
+          "--sandbox",
+          "resume"
+        ],
+        "effort_control": {
+          "kind": "config-key",
+          "observed": "still no --effort flag at 0.154.0; effort is `-c model_reasoning_effort=<value>` (the ~/.codex/config.toml key). Values are ~/.codex/models_cache.json supported_reasoning_levels on 2026-09-15, intersected across gpt-6-astra / gpt-5.6-sol / terra / luna (`ultra` is not on luna, so it is excluded).",
+          "key": "model_reasoning_effort",
+          "native_values": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ]
+        },
+        "declared_capabilities": {
+          "native_resume": true,
+          "system_prompt_file": false,
+          "usage_telemetry": true,
+          "sandbox": true
+        },
+        "quota_surface": {
+          "windows": "300 and 10080 both present with used_pct and a real resets_at epoch",
+          "reliability": "NOT reliably available at 0.154.0 — one of three audit runs returned no sample at all from the app-server fallback while three consecutive direct calls in the same minute each returned one",
+          "assessment": "still the best-instrumented of the three on this host when it answers, but a None is now a normal outcome and callers must treat it as 'not measurable', never as 'no limits'"
+        },
+        "configured_tuple_observed": {
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "note": "the host's ~/.codex/config.toml moved from gpt-5.6-sol to gpt-5.6-terra between the two verifications; a host setting, not a CLI change"
+        }
+      },
+      "open_questions": [
+        "PATH still holds a second codex at 0.122.0 (/usr/bin/codex); /home/dan/.local/bin/codex at 0.154.0 is the first match. registry.resolve_binary pins the first PATH match, so a PATH change would silently swap the version this row was verified against. Unchanged from the 0.153.4 row and re-confirmed on 2026-09-11.",
+        "Acquisition is no longer fully solved: the account-level usage read intermittently returns None at 0.154.0 (1 of 3 audit runs). Whether that is an app-server start race, a timeout, or a changed surface is unknown, and it matters because a None must not be read as an empty limits map (B02).",
+        "Attribution is not solved: the five-hour window moved 84% to 89% during a paired sample in which zero Codex tasks were launched (B02).",
+        "Effort is delivered as a config key, not a flag. Nothing may assume a --effort surface here, and no effort label may be mapped to another vendor's without a measured mapping (B06).",
+        "Subscription terms and the permitted-automation boundary were not verified; the credential-boundary invariant is the standing mitigation."
+      ],
+      "notes": "Re-verified at 0.154.0 on 2026-09-11. The one behavioural change the re-verification found is the intermittent null usage sample; the control surface and declared capabilities are unchanged from 0.153.4."
+    },
+    {
+      "subject": "pytest",
+      "kind": "dependency",
+      "scope": "dev",
+      "verified_version": "9.1.1",
+      "verified_on": "2026-09-08",
+      "verified_by": "installed distribution metadata read through importlib.metadata; no network access",
+      "evidence": [
+        "artifacts/thirdparty/python-dependency-licences.json :: records[pytest]"
+      ],
+      "free_use": {
+        "license": "MIT",
+        "source": "License-Expression in pytest-9.1.1.dist-info/METADATA",
+        "no_paid_tier_for_normal_operation": true
+      },
+      "findings": {},
+      "open_questions": [],
+      "notes": "Development and test only. Not required to operate Maestro."
+    },
+    {
+      "subject": "pytest-xdist",
+      "kind": "dependency",
+      "scope": "dev",
+      "verified_version": "3.8.0",
+      "verified_on": "2026-09-08",
+      "verified_by": "installed distribution metadata read through importlib.metadata; no network access",
+      "evidence": [
+        "artifacts/thirdparty/python-dependency-licences.json :: records[pytest-xdist]"
+      ],
+      "free_use": {
+        "license": "MIT",
+        "source": "License-Expression in pytest_xdist-3.8.0.dist-info/METADATA",
+        "no_paid_tier_for_normal_operation": true
+      },
+      "findings": {},
+      "open_questions": [],
+      "notes": "Development and test only."
+    },
+    {
+      "subject": "python-dotenv",
+      "kind": "dependency",
+      "scope": "runtime",
+      "verified_version": "1.2.2",
+      "verified_on": "2026-09-08",
+      "verified_by": "installed distribution metadata read through importlib.metadata; no network access",
+      "evidence": [
+        "artifacts/thirdparty/python-dependency-licences.json :: records[python-dotenv]"
+      ],
+      "free_use": {
+        "license": "BSD-3-Clause",
+        "source": "License field in python_dotenv-1.2.2.dist-info/METADATA",
+        "no_paid_tier_for_normal_operation": true
+      },
+      "findings": {},
+      "open_questions": [],
+      "notes": "Local file parsing only; contacts no service."
+    },
+    {
+      "subject": "pyyaml",
+      "kind": "dependency",
+      "scope": "runtime",
+      "verified_version": "6.0.3",
+      "verified_on": "2026-09-08",
+      "verified_by": "installed distribution metadata read through importlib.metadata; no network access",
+      "evidence": [
+        "artifacts/thirdparty/python-dependency-licences.json :: records[pyyaml]"
+      ],
+      "free_use": {
+        "license": "MIT",
+        "source": "License field and OSI classifier in pyyaml-6.0.3.dist-info/METADATA",
+        "no_paid_tier_for_normal_operation": true
+      },
+      "findings": {},
+      "open_questions": [],
+      "notes": "Local file parsing only; contacts no service."
+    },
+    {
+      "subject": "requests",
+      "kind": "dependency",
+      "scope": "runtime",
+      "verified_version": "2.34.2",
+      "verified_on": "2026-09-08",
+      "verified_by": "installed distribution metadata read through importlib.metadata; no network access",
+      "evidence": [
+        "artifacts/thirdparty/python-dependency-licences.json :: records[requests]"
+      ],
+      "free_use": {
+        "license": "Apache-2.0",
+        "source": "License field and OSI classifier in requests-2.34.2.dist-info/METADATA",
+        "no_paid_tier_for_normal_operation": true
+      },
+      "findings": {},
+      "open_questions": [
+        "The library is free; the endpoints anything built on it talks to are not necessarily. A free-mode model transport must verify its endpoint's own terms separately (B03/B17)."
+      ],
+      "notes": "The existing HTTP transport. The architecture reuses it for the optional model runtime rather than adding a provider SDK."
+    },
+    {
+      "subject": "tree-sitter",
+      "kind": "dependency",
+      "scope": "optional",
+      "verified_version": "0.25.2",
+      "verified_on": "2026-09-13",
+      "verified_by": "installed distribution metadata and shipped LICENSE read through importlib.metadata; parser loaded and a broken sample parsed (P09)",
+      "evidence": [
+        "artifacts/thirdparty/tree-sitter-licences.json :: records[tree-sitter]"
+      ],
+      "free_use": {
+        "license": "MIT",
+        "source": "License classifier in tree_sitter-0.25.2.dist-info/METADATA and tree_sitter-0.25.2.dist-info/licenses/LICENSE",
+        "no_paid_tier_for_normal_operation": true
+      },
+      "findings": {
+        "role": "parser",
+        "loaded_by": "maestro/repository/providers.py (TreeSitterProvider)",
+        "enabled_only_when": "this row and every enabled grammar's row are `verified` (providers.grammar_gate)"
+      },
+      "open_questions": [
+        "The wheel vendors the tree-sitter C runtime; its licence is read from the wheel's own declaration only, not from an inspection of the bundled sources.",
+        "Resource cost on a large repository is unmeasured (B10); the index is disposable and rebuilt on demand."
+      ],
+      "notes": "Layer 1 structural provider (D07). Optional: without it, Layer 0 (git grep / rg / Python ast) answers every query. Each grammar is its own row ([INV-A09])."
+    },
+    {
+      "subject": "tree-sitter-python",
+      "kind": "dependency",
+      "scope": "optional",
+      "verified_version": "0.25.0",
+      "verified_on": "2026-09-13",
+      "verified_by": "installed distribution metadata and shipped LICENSE read through importlib.metadata; grammar loaded (ABI 15) and a broken sample parsed with has_error set (P09)",
+      "evidence": [
+        "artifacts/thirdparty/tree-sitter-licences.json :: records[tree-sitter-python]",
+        "artifacts/thirdparty/tree-sitter-licences.json :: grammar_probe.python"
+      ],
+      "free_use": {
+        "license": "MIT",
+        "source": "License field in tree_sitter_python-0.25.0.dist-info/METADATA and tree_sitter_python-0.25.0.dist-info/licenses/LICENSE",
+        "no_paid_tier_for_normal_operation": true
+      },
+      "findings": {
+        "role": "grammar",
+        "language": "python",
+        "abi_version": 15,
+        "file_suffixes": [
+          ".py"
+        ]
+      },
+      "open_questions": [],
+      "notes": "The only enabled grammar. A grammar for another language needs its own row before providers.GRAMMARS may name it."
+    }
+  ]
+}

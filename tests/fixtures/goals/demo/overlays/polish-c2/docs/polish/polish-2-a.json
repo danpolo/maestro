@@ -1,0 +1,3 @@
+{"items": [
+  {"id": "BL-0002", "outcome": "declined", "reason": "the comment on CACHE already says what the cache does; the docstring would repeat it"}
+]}

@@ -28,6 +28,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from maestro import roles
 from maestro.backends import registry
 
 pytestmark = pytest.mark.maestro_module("implementer")
@@ -140,7 +141,33 @@ def _agent_argv(launch_py: Path, brief: str = "") -> list[str]:
         argv = _argv_from_json_header(tree)
     if argv is None:
         raise AssertionError("generated launch.py hands no argv to an agent CLI")
+    # Historical launch assertions below concern routing and profile delivery. W9's
+    # added policy flags are independently verified in test_claude_driver's real
+    # launch/resume tests, so keep this characterization's original argv view.
+    if "--allowedTools" in argv:
+        start = argv.index("--allowedTools")
+        end = argv.index("--permission-mode", start) + 2
+        argv = argv[:start] + argv[end:]
     return ["<brief>" if brief and element == brief else element for element in argv]
+
+
+def _agent_delivery(launch_py: Path, brief: str = ""):
+    """Inspect the production invocation, including sealed app-server jobs."""
+    from tests.backends.test_codex_driver import _job
+    tree = ast.parse(launch_py.read_text())
+    if any(isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+           and node.func.id == 'main' for node in ast.walk(tree)):
+        job = _job(launch_py.parent)
+        assert 'app-server' in job['argv']
+        assert 'exec' not in job['argv']
+        config = json.loads(job['expected_config'])
+        assert config['model'] == job['model']
+        assert config['model_reasoning_effort'] == job['effort']
+        return {'model': job['model'], 'effort': job['effort'],
+                'prompt': '<brief>' if job['prompt'] == brief else job['prompt'],
+                'cwd': job['cwd'], 'workspace': job['workspace'],
+                'resume_id': job['resume_id']}
+    return _agent_argv(launch_py, brief)
 
 
 TASK = {"id": "T1", "title": "Do a thing", "short_desc": "the description"}
@@ -151,23 +178,51 @@ TASK = {"id": "T1", "title": "Do a thing", "short_desc": "the description"}
 # The `implementer` role resolves through `maestro.roles`, which reads the project.yaml
 # the `sandbox` fixture has already rebased into the temp tree. Writing that file is
 # therefore the whole of "launch under this backend"; nothing here reaches a real repo,
-# a real binary or a real agent.
+# a real binary or a real agent. The role's model on each backend is derived from its
+# strength (`docs/DESIGN.md` §17.2, §17.5), so no test here configures one.
 
 #: Backend the reference module can produce an invocation for. It has one and only one.
 _LEGACY_BACKEND = "claude"
 
-#: A model to configure per backend, where the task-level `model:` allowlist (which holds
-#: Claude model ids) cannot say anything meaningful.
-_CONFIGURED_MODELS = {"codex": "gpt-5.4-codex"}
-
-
 def _configure_backend(sandbox, backend: str) -> None:
-    """Point the `implementer` role at `backend` through the sandbox's project.yaml."""
-    lines = ["roles:", "  implementer:", f"    backend: {backend}"]
-    model = _CONFIGURED_MODELS.get(backend)
-    if model:
-        lines += ["    models:", f"      {backend}: {model}"]
-    (sandbox.repo / "project.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    """Select the driver through the supported operator override in disposable state."""
+    from maestro.hitl.commands import BACKEND_KEY
+    path = sandbox.orch_dir / "state.json"
+    document = json.loads(path.read_text()) if path.exists() else {}
+    path.write_text(json.dumps({**document, BACKEND_KEY: backend}))
+
+
+@pytest.fixture(autouse=True)
+def _characterized_launch_backend(sandbox, monkeypatch):
+    # These historical launch contracts characterize Claude unless a test selects
+    # another driver. Neutral routing is covered by the router suite.
+    _configure_backend(sandbox, "claude")
+    native = sandbox.repo / 'synthetic-native-home'
+    native.mkdir()
+    (native / 'auth.json').write_text('synthetic-test-credential')
+    monkeypatch.setenv('CODEX_HOME', str(native))
+    # This fixture records launch arguments; unrelated live discovery metadata
+    # must not become one of its inputs. Keep real preparation and its checks.
+    from maestro.backends import codex_runtime
+    host = sandbox.repo / 'synthetic-host-home'
+    host.mkdir()
+    prepare = codex_runtime.prepare
+    def isolated_prepare(**kwargs):
+        kwargs.setdefault('host_home', host)
+        return prepare(**kwargs)
+    monkeypatch.setattr(codex_runtime, 'prepare', isolated_prepare)
+
+
+def _role_model(backend: str) -> str:
+    """The model the `implementer` role derives on `backend` under the sandbox's project.yaml.
+
+    Read through `maestro.roles` at call time rather than written down: a role states a
+    strength and the model is derived from the adopted policy (`docs/DESIGN.md` §17.5), so
+    a hardcoded id here would pin the shipped policy's table instead of the launch.
+    """
+    model = roles.model_for(roles.ROLE_IMPLEMENTER, backend)
+    assert model, f"the implementer role derives no model on {backend}"
+    return model
 
 
 def _delegates_to_a_driver(subject) -> bool:
@@ -184,25 +239,15 @@ def _delegates_to_a_driver(subject) -> bool:
 _AGENT_ARGV = {
     "claude": lambda subject, out, sess: [
         "claude", "-p",
-        "--model", subject._DEFAULT_IMPLEMENTER_MODEL,
+        "--model", _role_model("claude"),
         "--session-id", sess,
+        "--effort", "medium",
         "<brief>",
     ],
-    "codex": lambda subject, out, sess: [
-        "codex", "exec",
-        "--json",
-        "--skip-git-repo-check",
-        "-c", 'approval_policy="never"',
-        "-m", _CONFIGURED_MODELS["codex"],
-        "-s", "workspace-write",
-        "-C", str(out.worktree),
-        # The workspace (sentinel contract: DONE/FAILED/result.json) is a sibling of the
-        # worktree, not inside it — always added so `codex exec`'s sandbox can write there
-        # regardless of where the project lives relative to `$TMPDIR` (see
-        # `CodexBackend._launch_dirs`).
-        "--add-dir", str(out.workspace),
-        "<brief>",
-    ],
+    "codex": lambda subject, out, sess: {
+        'model': _role_model('codex'), 'effort': 'low', 'prompt': '<brief>',
+        'cwd': str(out.worktree), 'workspace': str(out.workspace), 'resume_id': '',
+    },
 }
 
 # The ordinary brief's resumable heading. Qualified because the prep brief contains an
@@ -708,6 +753,21 @@ def test_make_brief_always_carries_the_switch_sentinel_contract(subject, sandbox
     assert "SWITCH" in subject.SWITCH_SENTINEL_CONTRACT
 
 
+def test_make_brief_carries_the_goals_excerpt_when_the_project_has_goals(subject, sandbox,
+                                                                          tmp_path):
+    """P13 W11a: the legacy implementer brief carries the same bounded GOALS section as the
+    graph briefs; a project without `docs/GOALS.md` gets none."""
+    assert "GOALS (" not in subject._make_brief(TASK, tmp_path / "ws", tmp_path / "wt")
+    fixture = Path(__file__).resolve().parents[1] / "fixtures" / "goals" / "chatgpt_GOALS.md"
+    (subject.REPO / "docs").mkdir(parents=True, exist_ok=True)
+    (subject.REPO / "docs" / "GOALS.md").write_text(fixture.read_text())
+    brief = subject._make_brief({**TASK, "serves": ["G2"]}, tmp_path / "ws", tmp_path / "wt")
+    assert "GOALS (docs/GOALS.md excerpt" in brief
+    assert "This task serves: G2" in brief
+    assert "G2 (served) Find a recipe in seconds" in brief
+    assert "SCOPE (D23): the goals explain why this task exists" in brief  # GDT-5, legacy path
+
+
 def test_make_brief_defaults_the_title_to_the_task_id(subject, sandbox, tmp_path):
     brief = subject._make_brief({"id": "T9"}, tmp_path / "ws", tmp_path / "wt")
     assert "T9: T9" in brief
@@ -1041,25 +1101,20 @@ def test_prep_brief_includes_the_notebook_workflow_when_check_notebook_py_exists
     assert "check_notebook.py" in brief
 
 
-def test_prep_brief_ignores_the_verifications_block(subject, sandbox, tmp_path):
+def test_prep_brief_carries_the_exact_verification_contract(subject, sandbox, tmp_path):
     task = {**TASK, "verifications": [{"id": "V1", "kind": "auto", "check": "c",
                                        "cmd": "run", "expect": "ok"}]}
     brief = subject._make_prep_brief(task, tmp_path / "ws", tmp_path / "wt")
-    assert "VERIFICATIONS" not in brief
-    assert "V1" not in brief
+    assert 'VERIFICATION CONTRACT' in brief and 'V1' in brief
+    assert '"cmd": "run"' in brief and '"expect": "ok"' in brief
 
 
-def test_prep_brief_drops_dans_answers(subject, sandbox, tmp_path):
-    """Surprise: `_answers_section` is only appended by `_make_brief`.
-
-    A dispatch:manual task that also declares `questions:` is gated on Dan answering them,
-    but the prep implementer is never shown the answers.
-    """
+def test_prep_brief_preserves_dans_prerequisite_answers(subject, sandbox, tmp_path):
     _answer(subject, "q-T1-q1", '{"choice": "the answer"}')
     task = {**TASK, "dispatch": "manual", "questions": [{"id": "q1", "prompt": "Which?"}]}
     brief = subject._make_prep_brief(task, tmp_path / "ws", tmp_path / "wt")
-    assert "ANSWERS FROM DAN" not in brief
-    assert "the answer" not in brief
+    assert "ANSWERS FROM DAN" in brief
+    assert "the answer" in brief
 
 
 def test_prep_brief_is_pure_and_writes_nothing(subject, sandbox, tmp_path):
@@ -1090,6 +1145,7 @@ def _launch(subject, sandbox, monkeypatch, task=None, session_id="impl-T1-1",
     runs = _fake_run(monkeypatch)
     ws = _workspace(sandbox, ws_name)
     wt = sandbox.repo / "worktrees" / ws_name
+    wt.mkdir(parents=True, exist_ok=True)
     if backend is None:
         subject.launch_implementer(task, session_id, ws, wt, retry_note)
     else:
@@ -1097,23 +1153,24 @@ def _launch(subject, sandbox, monkeypatch, task=None, session_id="impl-T1-1",
     return SimpleNamespace(runs=runs, workspace=ws, worktree=wt)
 
 
-def test_launch_implementer_returns_none_and_writes_three_artifacts(
+def test_launch_implementer_returns_none_and_writes_artifacts_with_launch_state(
     subject, sandbox, monkeypatch
 ):
     runs = _fake_run(monkeypatch)
     ws = _workspace(sandbox)
     assert subject.launch_implementer(TASK, "impl-T1-1", ws, sandbox.repo / "wt") is None
-    assert sorted(p.name for p in ws.iterdir()) == ["brief.txt", "launch.py", "session_uuid.txt"]
+    assert sorted(p.name for p in ws.iterdir()) == [
+        "brief.txt", "launch.py", "launch_spec.json", "session_uuid.txt"]
 
 
 def test_launch_implementer_brief_file_matches_make_brief(subject, sandbox, monkeypatch):
     """The brief `launch_implementer` writes to disk must match `_make_brief` called with
     the same model/backend it actually resolved for this launch (the unconfigured sandbox
-    default: `claude-sonnet-5` on `claude` — see `_implementer_backend`/`roles.DEFAULT_MODELS`)."""
+    default: `claude-opus-5-5` on `claude` — see `_implementer_backend`/`roles.DEFAULT_MODELS`)."""
     out = _launch(subject, sandbox, monkeypatch, retry_note="note")
     assert (out.workspace / "brief.txt").read_text(encoding="utf-8") == \
         subject._make_brief(TASK, out.workspace, out.worktree, "note",
-                            "claude-sonnet-5", "claude")
+                            "claude-sonnet-5-5", "claude")
 
 
 def test_launch_implementer_writes_a_prep_brief_for_a_manual_task(
@@ -1148,8 +1205,8 @@ def test_launch_implementer_generated_launcher_is_valid_python(subject, sandbox,
 def test_launch_implementer_agent_argv(subject, sandbox, monkeypatch, configured_backend):
     """The argv belongs to the driver the `implementer` role resolves to.
 
-    One body, both drivers: the `roles:` block in the sandbox's project.yaml selects the
-    backend and the argv is pinned exactly, flag for flag, for whichever one that is.
+    One body, both drivers: `routing.harness_order` in the sandbox's project.yaml selects
+    the backend and the argv is pinned exactly, flag for flag, for whichever one that is.
 
     Subject-aware on purpose. The reference module predates backend drivers — it spells
     one CLI's argv inline and never reads a `roles:` block — so under the legacy subject
@@ -1167,7 +1224,7 @@ def test_launch_implementer_agent_argv(subject, sandbox, monkeypatch, configured
     brief = (out.workspace / "brief.txt").read_text(encoding="utf-8")
 
     expected = configured_backend if _delegates_to_a_driver(subject) else _LEGACY_BACKEND
-    assert _agent_argv(out.workspace / "launch.py", brief) == _AGENT_ARGV[expected](
+    assert _agent_delivery(out.workspace / "launch.py", brief) == _AGENT_ARGV[expected](
         subject, out, sess
     )
 
@@ -1175,29 +1232,24 @@ def test_launch_implementer_agent_argv(subject, sandbox, monkeypatch, configured
 def test_launch_implementer_backend_pin_overrides_the_configured_role(
     subject, sandbox, monkeypatch
 ):
-    """`backend=` pins the launch instead of re-resolving the `roles:` block.
+    """`backend=` pins the launch instead of re-resolving the role.
 
     Asserted through the argv the driver actually builds, not just a recorded name: the
     pin exists so a retry of work already switched onto another backend does not get
     handed back to the one it was moved off, and only the argv proves the right CLI ran.
     """
     monkeypatch.setattr(registry, "resolve_binary", lambda *args, **kwargs: None)
-    # The role points at claude, but declares a model per backend (DESIGN.md §5) — so the
-    # pin picks a different column out of the same table, it does not need one of its own.
-    (sandbox.repo / "project.yaml").write_text(
-        "roles:\n"
-        "  implementer:\n"
-        "    backend: claude\n"
-        "    models:\n"
-        f"      codex: {_CONFIGURED_MODELS['codex']}\n",
-        encoding="utf-8",
-    )
+    # The role resolves to claude, but its derived table holds a model per backend
+    # (DESIGN.md §17.5) — so the pin picks a different column out of the same table, it
+    # does not need one of its own.
+    _configure_backend(sandbox, "claude")
+    assert subject._implementer_backend()[0] == "claude"
 
     out = _launch(subject, sandbox, monkeypatch, backend="codex")
     sess = (out.workspace / "session_uuid.txt").read_text(encoding="utf-8")
     brief = (out.workspace / "brief.txt").read_text(encoding="utf-8")
 
-    assert _agent_argv(out.workspace / "launch.py", brief) == _AGENT_ARGV["codex"](
+    assert _agent_delivery(out.workspace / "launch.py", brief) == _AGENT_ARGV["codex"](
         subject, out, sess
     )
 
@@ -1215,7 +1267,7 @@ def test_launch_implementer_ignores_an_empty_or_unknown_backend_pin(
     sess = (out.workspace / "session_uuid.txt").read_text(encoding="utf-8")
     brief = (out.workspace / "brief.txt").read_text(encoding="utf-8")
 
-    assert _agent_argv(out.workspace / "launch.py", brief) == _AGENT_ARGV["codex"](
+    assert _agent_delivery(out.workspace / "launch.py", brief) == _AGENT_ARGV["codex"](
         subject, out, sess
     )
 
@@ -1248,17 +1300,17 @@ def test_launch_implementer_falsy_model_falls_back_to_the_default(
     subject, sandbox, monkeypatch, model_key
 ):
     """No task-level override at all (missing/empty/falsy `model:`). The sandbox's
-    default project.yaml declares no `roles.implementer.models`, so there is no role
-    table default to fall back to first here — see the override tests below for that
-    half of R2. Re-baselined from `test_launch_implementer_unknown_model_falls_back_to_
+    default project.yaml states no role strength, so the role derives its model at the
+    default strength, the same id as `_DEFAULT_IMPLEMENTER_MODEL` — see the override
+    tests below for a role table that differs. Re-baselined from `test_launch_implementer_unknown_model_falls_back_to_
     the_default`: `"gpt-4"`/`"haiku-4-5"` moved out, they are not falsy — R2 passes a
     non-keyword string straight through instead of discarding it as "unknown"."""
     out = _launch(subject, sandbox, monkeypatch, task={**TASK, "model": model_key})
     argv = _agent_argv(out.workspace / "launch.py")
-    assert argv[argv.index("--model") + 1] == subject._DEFAULT_IMPLEMENTER_MODEL
+    assert argv[argv.index("--model") + 1] == _role_model("claude")
 
 
-@pytest.mark.parametrize("model_key", ["gpt-4", "haiku-4-5", "gpt-5.6-sol"])
+@pytest.mark.parametrize("model_key", ["gpt-4", "haiku-4-5", "gpt-5.6-sol", "claude-sonnet-5"])
 def test_launch_implementer_literal_model_id_passes_through(
     subject, sandbox, monkeypatch, model_key
 ):
@@ -1274,42 +1326,54 @@ def test_launch_implementer_literal_model_id_passes_through(
     assert argv[argv.index("--model") + 1] == model_key
 
 
+def test_launch_implementer_current_sonnet_keyword_uses_5_5(subject, sandbox, monkeypatch):
+    out = _launch(subject, sandbox, monkeypatch, task={**TASK, "model": "sonnet5.5"})
+    argv = _agent_argv(out.workspace / "launch.py")
+    assert argv[argv.index("--model") + 1] == "claude-sonnet-5-5"
+
+
 def test_launch_implementer_task_model_overrides_the_configured_role_table(
     subject, sandbox, monkeypatch
 ):
-    """C1/R2: the bug this item fixes (G5). `project.yaml.tmpl` always declares
-    `roles.implementer.models`, so on every scaffolded project the role table used to win
-    unconditionally and a task's ROADMAP `model:` never did anything. The task now
-    overrides the role table; the role table becomes the default (below)."""
+    """C1/R2: the bug this item fixes (G5). Every scaffolded project has a role table, so
+    it used to win unconditionally and a task's ROADMAP `model:` never did anything. The
+    task now overrides the role table; the role table becomes the default (below).
+
+    A role states a strength, not a model (`docs/DESIGN.md` §17.2), so the role table is
+    given a model of its own by raising the strength above the task's model."""
     (sandbox.repo / "project.yaml").write_text(
         "roles:\n"
-        "  implementer:\n"
-        "    backend: claude\n"
-        "    models:\n"
-        "      claude: claude-sonnet-5\n",
+        "  implementer: {strength: strong}\n",
         encoding="utf-8",
     )
-    out = _launch(subject, sandbox, monkeypatch, task={**TASK, "model": "opus"})
+    derived = _role_model("claude")
+    assert derived != subject.IMPLEMENTER_MODELS["sonnet"]
+
+    out = _launch(subject, sandbox, monkeypatch, task={**TASK, "model": "sonnet"})
     argv = _agent_argv(out.workspace / "launch.py")
-    assert argv[argv.index("--model") + 1] == subject.IMPLEMENTER_MODELS["opus"]
+    assert argv[argv.index("--model") + 1] == subject.IMPLEMENTER_MODELS["sonnet"]
 
 
 def test_launch_implementer_role_table_is_the_default_when_the_task_has_no_model(
     subject, sandbox, monkeypatch
 ):
-    """The flip side of the fix above: with no task-level override, the role's configured
-    model still applies — it becomes the default, it does not disappear."""
+    """The flip side of the fix above: with no task-level override, the role's own model
+    still applies — it becomes the default, it does not disappear.
+
+    A role states a strength, not a model (`docs/DESIGN.md` §17.2), so the role table is
+    moved off the shipped default by raising the strength: the launch must then run the
+    model derived for that strength, not the hardcoded `_DEFAULT_IMPLEMENTER_MODEL`."""
     (sandbox.repo / "project.yaml").write_text(
         "roles:\n"
-        "  implementer:\n"
-        "    backend: claude\n"
-        "    models:\n"
-        "      claude: claude-opus-5\n",
+        "  implementer: {strength: strong}\n",
         encoding="utf-8",
     )
+    derived = _role_model("claude")
+    assert derived != subject._DEFAULT_IMPLEMENTER_MODEL
+
     out = _launch(subject, sandbox, monkeypatch, task=TASK)
     argv = _agent_argv(out.workspace / "launch.py")
-    assert argv[argv.index("--model") + 1] == "claude-opus-5"
+    assert argv[argv.index("--model") + 1] == derived
 
 
 def test_launch_implementer_keyword_with_no_backend_entry_warns_and_falls_back(
@@ -1326,7 +1390,7 @@ def test_launch_implementer_keyword_with_no_backend_entry_warns_and_falls_back(
     out = _launch(subject, sandbox, monkeypatch, task={**TASK, "model": "opus"})
     sess = (out.workspace / "session_uuid.txt").read_text(encoding="utf-8")
     brief = (out.workspace / "brief.txt").read_text(encoding="utf-8")
-    assert _agent_argv(out.workspace / "launch.py", brief) == _AGENT_ARGV["codex"](
+    assert _agent_delivery(out.workspace / "launch.py", brief) == _AGENT_ARGV["codex"](
         subject, out, sess
     )
 
@@ -1347,7 +1411,7 @@ def test_launch_implementer_title_keywords_never_escalate_the_model(
             "short_desc": "redesign the protocol engine, a cutover"}
     out = _launch(subject, sandbox, monkeypatch, task=task)
     argv = _agent_argv(out.workspace / "launch.py")
-    assert argv[argv.index("--model") + 1] == subject._DEFAULT_IMPLEMENTER_MODEL
+    assert argv[argv.index("--model") + 1] == _role_model("claude")
 
 
 def test_launch_implementer_non_string_model_raises(subject, sandbox, monkeypatch):
@@ -1403,14 +1467,14 @@ def test_launch_implementer_folds_the_profile_into_the_brief_when_the_backend_ca
     subject.SYS_PROMPT.write_text("PROFILE-TEXT-MARKER\n", encoding="utf-8")
 
     out = _launch(subject, sandbox, monkeypatch)
-    # `_configure_backend(sandbox, "codex")` resolves the model `_CONFIGURED_MODELS["codex"]`
-    # for this launch — pass the same values so `pure_brief` matches what was actually sent.
+    # `_configure_backend(sandbox, "codex")` resolves the role's derived codex model for
+    # this launch — pass the same values so `pure_brief` matches what was actually sent.
     pure_brief = subject._make_brief(TASK, out.workspace, out.worktree,
-                                     model=_CONFIGURED_MODELS["codex"], backend="codex")
-    argv = _agent_argv(out.workspace / "launch.py")
-
-    assert "--system-prompt-file" not in argv  # codex still never offered the file itself
-    sent_brief = argv[-1]
+                                     model=_role_model("codex"), backend="codex")
+    from tests.backends.test_codex_driver import _job
+    job = _job(out.workspace)
+    assert '--system-prompt-file' not in job['argv']
+    sent_brief = job['prompt']
     assert sent_brief.startswith("PROFILE-TEXT-MARKER")
     assert pure_brief in sent_brief
     assert sent_brief.index("PROFILE-TEXT-MARKER") < sent_brief.index(pure_brief)
@@ -1521,7 +1585,7 @@ def test_launch_implementer_prints_the_model_and_the_window(subject, sandbox, mo
                                                             capsys):
     _launch(subject, sandbox, monkeypatch)
     printed = capsys.readouterr().out
-    assert subject._DEFAULT_IMPLEMENTER_MODEL in printed
+    assert _role_model("claude") in printed
     assert f"{subject.TMUX_SESSION}:impl-T1" in printed
 
 
@@ -1561,8 +1625,10 @@ def test_launch_implementer_propagates_a_tmux_failure_after_writing_everything(
 
 def test_launch_implementer_never_touches_state_json(subject, sandbox, monkeypatch):
     """Pinned: the launch clock is persisted by the caller, not here."""
+    path = sandbox.orch_dir / "state.json"
+    before = path.read_bytes()
     _launch(subject, sandbox, monkeypatch)
-    assert not (sandbox.orch_dir / "state.json").exists()
+    assert path.read_bytes() == before
 
 
 def test_launch_implementer_does_not_gate_on_questions(subject, sandbox, monkeypatch):

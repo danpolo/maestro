@@ -70,6 +70,22 @@ def repo(subject, sandbox, tmp_path, monkeypatch) -> Path:
     return r
 
 
+@pytest.fixture
+def bare_origin(repo: Path, tmp_path: Path) -> Path:
+    """A throwaway bare remote wired as `origin`.
+
+    The `repo` fixture deliberately has no remote at all (see module docstring) so that
+    `git push origin main` fails locally without a network round trip — that's what
+    exercises the push-failure path most tests care about. This fixture is for the
+    handful of tests that need to prove the *success* path still works when a push can
+    actually land somewhere.
+    """
+    remote = tmp_path / "origin.git"
+    subprocess.run(["git", "init", "-q", "--bare", str(remote)], check=True)
+    _git(repo, "remote", "add", "origin", str(remote))
+    return remote
+
+
 def _branch(repo: Path, name: str, files: dict[str, str] | None = None,
             message: str = "work") -> str:
     """Create `name` off main, commit `files` on it (empty commit when none), back to main."""
@@ -1029,7 +1045,8 @@ def test_merge_data_only_one_stray_file_taints_an_allowlisted_diff(subject, repo
     assert subject._merge_data_only({"branch": "b"}) == "code_change"
 
 
-def test_merge_data_only_merges_allowlisted_paths(subject, repo):
+def test_merge_data_only_merges_allowlisted_paths(subject, repo, bare_origin, monkeypatch):
+    monkeypatch.setattr(subject.metabranch, "reconcile_meta", lambda *a, **k: "stub")
     rel = _allowed(subject, "rows.jsonl")
     _branch(repo, "b", {rel: "row\n"})
     assert subject._merge_data_only({"branch": "b"}) == "ok"
@@ -1037,13 +1054,18 @@ def test_merge_data_only_merges_allowlisted_paths(subject, repo):
     assert _subjects(repo)[0] == "merge(resume): partial data progress from b"
 
 
-def test_merge_data_only_pushes_and_ignores_the_failure(subject, repo, monkeypatch):
-    """There is no `origin` here, so the push fails locally — and the result is still ok."""
+def test_merge_data_only_reports_a_failed_push(subject, repo, monkeypatch, sandbox):
+    """There is no `origin` here, so the push fails locally — and the caller is told."""
     rel = _allowed(subject, "rows.jsonl")
     _branch(repo, "b", {rel: "row\n"})
     rec = _passthrough(monkeypatch)
-    assert subject._merge_data_only({"branch": "b"}) == "ok"
+    meta = SimpleNamespace(called=False)
+    monkeypatch.setattr(subject.metabranch, "reconcile_meta",
+                         lambda *a, **k: setattr(meta, "called", True))
+    assert subject._merge_data_only({"branch": "b"}) == "push_failed"
     assert ["git", "-C", str(subject.REPO), "push", "origin", "main"] in rec.argvs
+    assert not meta.called, "reconcile_meta must not run after a failed push"
+    assert "main push failed" in _detail(sandbox, "merge_push_failed")
 
 
 def test_merge_data_only_dirty_worktree_escalates(subject, repo, sandbox):
@@ -1228,7 +1250,9 @@ def test_resumable_escalation_prompt_contract(subject, repo, monkeypatch):
     assert "SENTINEL_LINE" in call["user"]
 
 
-def test_resumable_escalation_approved_merges_and_announces(subject, repo, monkeypatch, sandbox):
+def test_resumable_escalation_approved_merges_and_announces(subject, repo, bare_origin,
+                                                              monkeypatch, sandbox):
+    monkeypatch.setattr(subject.metabranch, "reconcile_meta", lambda *a, **k: "stub")
     _use_project(monkeypatch, subject, {})
     _use_judge(monkeypatch, subject, '{"pass": true, "reason": "benign logging tweak"}')
     sent: list[str] = []
@@ -1242,6 +1266,28 @@ def test_resumable_escalation_approved_merges_and_announces(subject, repo, monke
     assert len(sent) == 1 and "T1" in sent[0]
     detail = _detail(sandbox, "resume_code_change_approved")
     assert "T1" in detail and "src/app.py" in detail
+
+
+def test_resumable_escalation_approved_but_push_fails(subject, repo, monkeypatch, sandbox):
+    """There is no `origin` here (see module docstring) — approved-and-merged still
+    reports the push failure rather than claiming full success."""
+    meta = SimpleNamespace(called=False)
+    monkeypatch.setattr(subject.metabranch, "reconcile_meta",
+                         lambda *a, **k: setattr(meta, "called", True))
+    _use_project(monkeypatch, subject, {})
+    _use_judge(monkeypatch, subject, '{"pass": true, "reason": "benign logging tweak"}')
+    sent: list[str] = []
+    monkeypatch.setattr(subject, "notify_telegram", lambda msg, *a, **k: sent.append(msg))
+    _branch(repo, "b", {"src/app.py": "x\n"})
+
+    ok, reason, status = subject._resumable_code_change_escalation({"branch": "b"}, "T1")
+    assert (ok, reason, status) == (True, "benign logging tweak", "push_failed")
+    assert (repo / "src" / "app.py").read_text(encoding="utf-8") == "x\n"
+    assert not meta.called, "reconcile_meta must not run after a failed push"
+    assert len(sent) == 1 and "T1" in sent[0] and "push to origin/main FAILED" in sent[0]
+    assert "T1" in _detail(sandbox, "merge_push_failed")
+    with pytest.raises(AssertionError):
+        _detail(sandbox, "resume_code_change_approved")
 
 
 def test_resumable_escalation_approved_but_conflicting(subject, repo, monkeypatch):

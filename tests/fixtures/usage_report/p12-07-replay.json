@@ -1,0 +1,290 @@
+{
+  "attempts": [
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_gate_02",
+      "backend_id": null,
+      "binding_json": "{\"usage_pool_id\": null}",
+      "effort": null,
+      "failure_class": null,
+      "failure_kind": null,
+      "model_id": null,
+      "node_id": "gate",
+      "reset_crossing": null,
+      "status": "succeeded",
+      "usage_settle_json": null,
+      "usage_start_json": null,
+      "wall_time_sec": null
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_gate_03",
+      "backend_id": null,
+      "binding_json": "{\"usage_pool_id\": null}",
+      "effort": null,
+      "failure_class": "blocked",
+      "failure_kind": "dan_question",
+      "model_id": null,
+      "node_id": "gate",
+      "reset_crossing": null,
+      "status": "failed",
+      "usage_settle_json": null,
+      "usage_start_json": null,
+      "wall_time_sec": null
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_gate_04",
+      "backend_id": null,
+      "binding_json": "{\"usage_pool_id\": null}",
+      "effort": null,
+      "failure_class": null,
+      "failure_kind": null,
+      "model_id": null,
+      "node_id": "gate",
+      "reset_crossing": null,
+      "status": "succeeded",
+      "usage_settle_json": null,
+      "usage_start_json": null,
+      "wall_time_sec": null
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_gate_05",
+      "backend_id": null,
+      "binding_json": "{\"usage_pool_id\": null}",
+      "effort": null,
+      "failure_class": null,
+      "failure_kind": null,
+      "model_id": null,
+      "node_id": "gate",
+      "reset_crossing": null,
+      "status": "succeeded",
+      "usage_settle_json": null,
+      "usage_start_json": null,
+      "wall_time_sec": null
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_dan_confirm_01",
+      "backend_id": null,
+      "binding_json": "{\"usage_pool_id\": null}",
+      "effort": null,
+      "failure_class": null,
+      "failure_kind": null,
+      "model_id": null,
+      "node_id": "dan_confirm",
+      "reset_crossing": null,
+      "status": "succeeded",
+      "usage_settle_json": null,
+      "usage_start_json": null,
+      "wall_time_sec": null
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_merge_01",
+      "backend_id": null,
+      "binding_json": "{\"usage_pool_id\": null}",
+      "effort": null,
+      "failure_class": null,
+      "failure_kind": null,
+      "model_id": null,
+      "node_id": "merge",
+      "reset_crossing": null,
+      "status": "succeeded",
+      "usage_settle_json": null,
+      "usage_start_json": null,
+      "wall_time_sec": null
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_accept_01",
+      "backend_id": null,
+      "binding_json": "{\"usage_pool_id\": null}",
+      "effort": null,
+      "failure_class": null,
+      "failure_kind": null,
+      "model_id": null,
+      "node_id": "accept",
+      "reset_crossing": null,
+      "status": "succeeded",
+      "usage_settle_json": null,
+      "usage_start_json": null,
+      "wall_time_sec": null
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_implementer_01",
+      "backend_id": "codex",
+      "binding_json": "{\"usage_pool_id\": \"codex-subscription\"}",
+      "effort": "medium",
+      "failure_class": null,
+      "failure_kind": null,
+      "model_id": "gpt-6-luna",
+      "node_id": "implementer",
+      "reset_crossing": 0,
+      "status": "succeeded",
+      "usage_settle_json": "{\"windows\": {\"10080\": {\"resets_at\": 1791059445, \"used_pct\": 73.0}, \"300\": {\"resets_at\": 1790658107, \"used_pct\": 35.0}}, \"token_split\": {\"cache_read\": 1182208, \"cache_write\": 0, \"cost_usd\": null, \"fresh_input\": 68678, \"models\": [\"gpt-6-luna\"], \"output\": 10763, \"reasoning_output\": 2823, \"source\": \"codex_rollout\"}, \"source\": \"codex_app_server\", \"updated_at\": \"2026-09-29T00:35:47Z\", \"error\": null}",
+      "usage_start_json": "{\"windows\": {\"10080\": {\"resets_at\": 1791059445, \"used_pct\": 73.0}, \"300\": {\"resets_at\": 1790658107, \"used_pct\": 30.0}}, \"token_split\": null, \"source\": \"codex_app_server\", \"updated_at\": \"2026-09-29T00:26:06Z\", \"error\": null}",
+      "wall_time_sec": 578.0
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_gate_01",
+      "backend_id": null,
+      "binding_json": "{\"usage_pool_id\": null}",
+      "effort": null,
+      "failure_class": "blocked",
+      "failure_kind": "dan_question",
+      "model_id": null,
+      "node_id": "gate",
+      "reset_crossing": null,
+      "status": "failed",
+      "usage_settle_json": null,
+      "usage_start_json": null,
+      "wall_time_sec": null
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_proof_review_01",
+      "backend_id": "codex",
+      "binding_json": "{\"usage_pool_id\": \"codex-subscription\"}",
+      "effort": "medium",
+      "failure_class": "bad_output",
+      "failure_kind": "verification_failed",
+      "model_id": "gpt-6-sol",
+      "node_id": "proof_review",
+      "reset_crossing": null,
+      "status": "failed",
+      "usage_settle_json": "{\"windows\": {\"10080\": {\"resets_at\": 1791059445, \"used_pct\": 76.0}, \"300\": {\"resets_at\": 1790658107, \"used_pct\": 54.0}}, \"token_split\": {\"cache_read\": 719488, \"cache_write\": 0, \"cost_usd\": null, \"fresh_input\": 78081, \"models\": [\"gpt-6-sol\"], \"output\": 6931, \"reasoning_output\": 3070, \"source\": \"codex_rollout\"}, \"source\": \"codex_app_server\", \"updated_at\": \"2026-09-29T00:57:38Z\", \"error\": null}",
+      "usage_start_json": null,
+      "wall_time_sec": 277.0
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_implementer_02",
+      "backend_id": "codex",
+      "binding_json": "{\"usage_pool_id\": \"codex-subscription\"}",
+      "effort": "medium",
+      "failure_class": null,
+      "failure_kind": null,
+      "model_id": "gpt-6-luna",
+      "node_id": "implementer",
+      "reset_crossing": 0,
+      "status": "succeeded",
+      "usage_settle_json": "{\"windows\": {\"10080\": {\"resets_at\": 1791059445, \"used_pct\": 77.0}, \"300\": {\"resets_at\": 1790658107, \"used_pct\": 56.0}}, \"token_split\": {\"cache_read\": 1194240, \"cache_write\": 0, \"cost_usd\": null, \"fresh_input\": 72104, \"models\": [\"gpt-6-luna\"], \"output\": 7777, \"reasoning_output\": 2883, \"source\": \"codex_rollout\"}, \"source\": \"codex_app_server\", \"updated_at\": \"2026-09-29T01:01:18Z\", \"error\": null}",
+      "usage_start_json": "{\"windows\": {\"10080\": {\"resets_at\": 1791059445, \"used_pct\": 76.0}, \"300\": {\"resets_at\": 1790658107, \"used_pct\": 54.0}}, \"token_split\": null, \"source\": \"codex_app_server\", \"updated_at\": \"2026-09-29T00:57:45Z\", \"error\": null}",
+      "wall_time_sec": 224.0
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_proof_review_02",
+      "backend_id": "codex",
+      "binding_json": "{\"usage_pool_id\": \"codex-subscription\"}",
+      "effort": "medium",
+      "failure_class": "bad_output",
+      "failure_kind": "verification_failed",
+      "model_id": "gpt-6-sol",
+      "node_id": "proof_review",
+      "reset_crossing": 0,
+      "status": "failed",
+      "usage_settle_json": "{\"windows\": {\"10080\": {\"resets_at\": 1791059445, \"used_pct\": 78.0}, \"300\": {\"resets_at\": 1790658107, \"used_pct\": 62.0}}, \"token_split\": {\"cache_read\": 542848, \"cache_write\": 0, \"cost_usd\": null, \"fresh_input\": 68569, \"models\": [\"gpt-6-sol\"], \"output\": 6585, \"reasoning_output\": 2540, \"source\": \"codex_rollout\"}, \"source\": \"codex_app_server\", \"updated_at\": \"2026-09-29T01:07:35Z\", \"error\": null}",
+      "usage_start_json": "{\"windows\": {\"10080\": {\"resets_at\": 1791059445, \"used_pct\": 77.0}, \"300\": {\"resets_at\": 1790658107, \"used_pct\": 58.0}}, \"token_split\": null, \"source\": \"codex_app_server\", \"updated_at\": \"2026-09-29T01:04:01Z\", \"error\": null}",
+      "wall_time_sec": 220.0
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_implementer_03",
+      "backend_id": "antigravity_cli",
+      "binding_json": "{\"usage_pool_id\": \"antigravity-gemini\"}",
+      "effort": "unsupported",
+      "failure_class": null,
+      "failure_kind": null,
+      "model_id": "gemini-3.8-flash-high",
+      "node_id": "implementer",
+      "reset_crossing": 0,
+      "status": "succeeded",
+      "usage_settle_json": "{\"windows\": {\"10080\": {\"resets_at\": 1790759838, \"used_pct\": 49.13255600000001}, \"300\": {\"resets_at\": 1790656333, \"used_pct\": 43.16147}}, \"token_split\": null, \"source\": null, \"updated_at\": \"2026-09-29T01:16:04Z\", \"error\": null}",
+      "usage_start_json": "{\"windows\": {\"10080\": {\"resets_at\": 1790759838, \"used_pct\": 48.51736399999999}, \"300\": {\"resets_at\": 1790656333, \"used_pct\": 42.387319999999995}}, \"token_split\": null, \"source\": null, \"updated_at\": \"2026-09-29T01:06:47Z\", \"error\": null}",
+      "wall_time_sec": 518.0
+    },
+    {
+      "attempt_id": "att_run_qG3zSNhcUbdHKyDm_proof_review_03",
+      "backend_id": "codex",
+      "binding_json": "{\"usage_pool_id\": \"codex-subscription\"}",
+      "effort": "medium",
+      "failure_class": null,
+      "failure_kind": null,
+      "model_id": "gpt-6-sol",
+      "node_id": "proof_review",
+      "reset_crossing": 0,
+      "status": "succeeded",
+      "usage_settle_json": "{\"windows\": {\"10080\": {\"resets_at\": 1791059445, \"used_pct\": 80.0}, \"300\": {\"resets_at\": 1790658107, \"used_pct\": 76.0}}, \"token_split\": {\"cache_read\": 698112, \"cache_write\": 0, \"cost_usd\": null, \"fresh_input\": 57423, \"models\": [\"gpt-6-sol\"], \"output\": 4974, \"reasoning_output\": 970, \"source\": \"codex_rollout\"}, \"source\": \"codex_app_server\", \"updated_at\": \"2026-09-29T01:20:19Z\", \"error\": null}",
+      "usage_start_json": "{\"windows\": {\"10080\": {\"resets_at\": 1791059445, \"used_pct\": 78.0}, \"300\": {\"resets_at\": 1790658107, \"used_pct\": 67.0}}, \"token_split\": null, \"source\": \"codex_app_server\", \"updated_at\": \"2026-09-29T01:16:45Z\", \"error\": null}",
+      "wall_time_sec": 214.0
+    }
+  ],
+  "hand_counts": {
+    "attempts": 14,
+    "gate_attempts": 5,
+    "gate_failures": 0,
+    "gate_holds": 2,
+    "implementer_cycles": 3,
+    "review_rounds": 3
+  },
+  "nodes": [
+    {
+      "agent_definition_ref": "implementer",
+      "handler_ref": "maestro.handlers.agent",
+      "kind": "agent",
+      "node_id": "implementer"
+    },
+    {
+      "agent_definition_ref": null,
+      "handler_ref": "maestro.handlers.verification",
+      "kind": "function",
+      "node_id": "gate"
+    },
+    {
+      "agent_definition_ref": "reviewer",
+      "handler_ref": "maestro.handlers.agent",
+      "kind": "agent",
+      "node_id": "proof_review"
+    },
+    {
+      "agent_definition_ref": null,
+      "handler_ref": "maestro.handlers.merge",
+      "kind": "function",
+      "node_id": "merge"
+    },
+    {
+      "agent_definition_ref": null,
+      "handler_ref": "maestro.handlers.acceptance",
+      "kind": "decision",
+      "node_id": "accept"
+    },
+    {
+      "agent_definition_ref": null,
+      "handler_ref": "maestro.handlers.wait",
+      "kind": "wait",
+      "node_id": "park"
+    },
+    {
+      "agent_definition_ref": null,
+      "handler_ref": "maestro.handlers.dan_confirm",
+      "kind": "human",
+      "node_id": "dan_confirm"
+    },
+    {
+      "agent_definition_ref": "diagnoser",
+      "handler_ref": "maestro.handlers.agent",
+      "kind": "agent",
+      "node_id": "diagnose"
+    }
+  ],
+  "provenance": {
+    "dag_archive": "/home/dan/projects/duetflow/.orchestrator/archive/2026-09-29-run18/control.sqlite3",
+    "dag_json_sha256": "556339087f2e8b55a965af7af894e2d6e17c29c3e6851b4522577ce5154799fc",
+    "export_path": "artifacts/graph-engineering/p12-pilots/duetflow-07-run4-accepted-20260930.json",
+    "export_sha256": "a932b488df8929602e76e5531d99e511a90ead43e4aaac4d335b54cdbfada0e3",
+    "exported_at": "2026-09-30T10:02:44Z",
+    "hand_count_source": "handoffs/2026-09-30-graph-ask-installed-next-live-smoke.md:50-62; P12 verdict audit section 3",
+    "limits": [
+      "one saved accepted run; not the full 321-attempt pilot",
+      "relative_cost not persisted",
+      "DAG retrieved from immutable saved revision in archive; no live store",
+      "no final acceptance_decisions or historical goal/blame/complexity coverage"
+    ],
+    "workflow": "wf_07-reconciliation@1"
+  },
+  "run_id": "run_qG3zSNhcUbdHKyDm",
+  "run_status": "succeeded",
+  "task_id": "07-reconciliation"
+}

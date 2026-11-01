@@ -63,7 +63,7 @@ get_task_by_id = deferred("get_task_by_id", "maestro.docs.roadmap")
 # ── Verification gate ──
 
 def run_verification_gate(task_id: str, workspace: Path, worktree: Path | None = None,
-                          auto_only: bool = False) -> tuple[bool, str]:
+                          auto_only: bool = False, *, pre_merge_only: bool = False) -> tuple[bool, str]:
     """Run the verification checks. Auto-checks run in the worktree (unmerged changes
     live there, not in REPO). auto_only restricts to kind:auto items (used by
     dispatch:manual graduation, where there is no implementer result.json). Returns
@@ -83,14 +83,20 @@ def run_verification_gate(task_id: str, workspace: Path, worktree: Path | None =
             argv.append(str(worktree))
         if auto_only:
             argv.append("--auto-only")
+        if pre_merge_only:
+            argv.append("--pre-merge-only")
         rc, output = verifications.run_cli(argv)
         return rc == 0, output.strip()
     except Exception as exc:
         return False, f"verification gate error: {exc}"
 
 
+from maestro.model_policy import with_task_models
+
+
+@with_task_models
 def sonnet_review_proofs(task_id: str, verifications: list[dict],
-                         impl_verifs: dict) -> tuple[bool, str]:
+                         impl_verifs: dict, *, writer_routes=()) -> tuple[bool, str]:
     """Have the judge role review manual verification proofs. Returns (all_pass, feedback).
 
     Named for Sonnet historically, when that was the only model this could reach. Which
@@ -141,7 +147,8 @@ def sonnet_review_proofs(task_id: str, verifications: list[dict],
     # The judge role, not a named CLI: this gate is a judgment, and which backend renders
     # it is the project's configuration to make. `ask()` never raises, so the only failure
     # shapes left to handle are "said nothing" and "did not parse".
-    answer = agentcall.ask(ROLE_JUDGE, prompt, timeout=REVIEW_TIMEOUT)
+    answer = agentcall.ask(ROLE_JUDGE, prompt, timeout=REVIEW_TIMEOUT,
+        **({'source_routes': {'implementer': writer_routes}} if writer_routes else {}))
     if answer.timed_out:
         return False, f"proof review timed out ({REVIEW_TIMEOUT} s)"
     if not answer.text:
@@ -154,6 +161,18 @@ def sonnet_review_proofs(task_id: str, verifications: list[dict],
         if not m:
             return False, f"proof review returned non-JSON: {answer.text[:200]}"
         review   = json.loads(m.group())
+        # `[INV-04]`, `[P4]`: an empty reviewer output fails CLOSED. Until this line the
+        # loop below produced no failures for `{}` — a judge that answered with an empty
+        # object, or that reviewed three of five ids, read as "all pass". That is the
+        # claim-as-evidence substitution D06 refuses, arriving through an absence rather
+        # than an assertion. Every manual id must be present and must carry a verdict.
+        missing = [vid for vid, _v in manual_items if vid not in review]
+        if missing:
+            return False, (
+                "proof review returned no verdict for "
+                + ", ".join(missing)
+                + " — an unreviewed proof is not an approved proof"
+            )
         failures = [f"{vid}: {res.get('reason','')}"
                     for vid, res in review.items() if not res.get("pass")]
         if failures:
@@ -163,6 +182,88 @@ def sonnet_review_proofs(task_id: str, verifications: list[dict],
         return False, f"proof review returned invalid JSON: {exc}"
     except Exception as exc:
         return False, f"proof review error: {exc}"
+
+
+# ── The authoritative gate (`[P4]`) ──
+
+def authoritative_specs(task_id: str, roadmap: Path | None = None) -> list:
+    """This task's `VerificationSpec`s, lifted from its ROADMAP block.
+
+    The legacy gate above reads the same blocks and executes them immediately, reporting
+    a string. This returns typed specs instead, so `[P4]`'s `CheckRunner` can fingerprint
+    them, reuse valid evidence and record a receipt for each — the difference between a
+    gate that *ran* and a gate whose running is provable afterwards.
+    """
+    from maestro.validation import specs_from_roadmap
+
+    path = Path(roadmap) if roadmap is not None else verifications.ROADMAP_FILE
+    try:
+        content = path.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    entries = verifications.parse_verifications(content, task_id)
+    return specs_from_roadmap(entries)
+
+
+def run_authoritative_gate(
+    task_id: str, worktree: Path, *, attempt_id: str, store=None, artifacts=None,
+    roadmap: Path | None = None, runner=None, check_ids=None, check_output=None,
+):
+    """Run this task's checks on a frozen worktree and return `(decision, evidence)`.
+
+    Deliberately returns the decision rather than a boolean: a caller that only wants
+    `passed` can read `decision.accepted`, but the reason — which criterion had no proof,
+    which evidence was produced on a different snapshot — is not recoverable from a
+    boolean, and that reason is what an operator needs when a gate refuses.
+
+    The workspace is not a parameter. The legacy gate takes one because it reads the
+    implementer's `result.json` out of it; this one cannot, because a self-reported
+    verification is not evidence (`D06`).
+
+    `check_ids` restricts the run to those checks (an affected selection, P12A W5).
+    `check_output`, a dict, receives each check's stdout/stderr by evidence id when there
+    is no artifact store to put it in (a graph worker, P12B F7).
+    """
+    from maestro import validation
+
+    registry = validation.EvidenceRegistry(store=store, artifacts=artifacts)
+    checker = validation.CheckRunner(
+        registry=registry, **({"runner": runner} if runner is not None else {})
+    )
+    specs = authoritative_specs(task_id, roadmap=roadmap)
+    if check_ids is not None:
+        # P12A W5: an affected-check selection names the checks to run. `None` is all of
+        # them, which is also what a shadow-mode selection names.
+        chosen = set(check_ids)
+        specs = [spec for spec in specs if spec.check_id in chosen]
+    # `kind: dan` checks are Dan's to confirm, after this gate and before merge; the gate
+    # decides on everything else. A task whose only checks are Dan's passes here on
+    # nothing measured, and says so — its criteria are still owed at merge and accept.
+    deferred = [spec.check_id for spec in specs if validation.is_post_merge_check(spec)]
+    specs = [spec for spec in specs if not validation.is_post_merge_check(spec)]
+    snapshot = validation.snapshot_id(Path(worktree))
+    evidence = checker.evaluate(specs, Path(worktree), attempt_id=attempt_id, snapshot=snapshot)
+    if check_output is not None:
+        check_output.update(registry.held_output)
+    if deferred and not specs:
+        return validation.AcceptanceDecision(
+            task_id=task_id, run_id=attempt_id, decision="accepted",
+            reason=(
+                f"no automatic check declared; {len(deferred)} check(s) "
+                f"({', '.join(deferred)}) deferred to post-merge verification"
+            ),
+            integrated_source_snapshot=snapshot,
+        ), evidence
+    decision = validation.decide(
+        task_id=task_id,
+        run_id=attempt_id,
+        specs=specs,
+        evidence=evidence,
+        required_criterion_ids=[s.check_id for s in specs],
+        integrated_source_snapshot=snapshot,
+        expected_snapshot=snapshot,
+    )
+    return decision, evidence
 
 
 # ── Smoke eval ──

@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import os
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -531,3 +532,51 @@ def test_log_write_failure_is_silently_swallowed(subject, sandbox, monkeypatch, 
     assert rc == 0
     assert log_dir.is_dir()  # untouched, still a directory
     assert "ok answer" in notified[0]
+
+
+def test_graph_ask_answers_with_request_context_and_graph_verdict_commands(
+    subject, sandbox, monkeypatch, tmp_path
+):
+    fake = _fake_agentcall(monkeypatch, subject, lambda *a, **k: _agent_result(printed="Use the Pin record."))
+    sent = _stub_notify(subject, monkeypatch)
+    req_path = _write_request(tmp_path, uuid="", brief="", task="T7", dan_id="")
+    req = json.loads(req_path.read_text())
+    req["graph_request"] = {"run_id": "run_1", "snapshot": "abc123", "type": "verification"}
+    req["graph_context"] = "Acceptance criterion: attribution from added_by"
+    req_path.write_text(json.dumps(req))
+    _set_argv(monkeypatch, req_path)
+    assert subject.main() == 0
+    prompt = fake.calls[0].prompt
+    assert "run_1" in prompt and "abc123" in prompt
+    assert "attribution from added_by" in prompt
+    assert fake.calls[0].kwargs.get("writable", False) is False
+    assert "/verify T7 approve" in sent[-1]
+    assert "/approve " not in sent[-1]
+
+
+# =====================================================================================
+# delivery credentials — the ask runs in its own tmux window (D33, 2026-10-08)
+# =====================================================================================
+
+
+def test_main_loads_shared_credentials_over_project_and_server_before_replying(subject, sandbox, monkeypatch, tmp_path):
+    """`_handle_ask` starts this module with `tmux new-window`, which inherits the tmux
+    server's environment, not the controller's. P13 W1 loads project application settings
+    and then the shared Maestro bot credentials over both project and server values."""
+    _fake_agentcall(monkeypatch, subject, lambda *a, **k: _agent_result(printed="answer"))
+    (tmp_path / ".env").write_text("TELEGRAM_BOT_TOKEN=tok-from-env\n"
+                                   "TELEGRAM_ALERT_CHAT_ID=42\n", encoding="utf-8")
+    shared = tmp_path / 'shared.env'
+    shared.write_text('TELEGRAM_BOT_TOKEN=shared-token\nTELEGRAM_ALERT_CHAT_ID=43\n')
+    monkeypatch.setenv('MAESTRO_TELEGRAM_ENV', str(shared))
+    monkeypatch.setattr(subject, "REPO", tmp_path)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "stale-server-value")
+    monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "")
+    seen = []
+    monkeypatch.setattr(subject, "notify_telegram", lambda msg: seen.append(
+        (os.environ.get("TELEGRAM_BOT_TOKEN"), os.environ.get("TELEGRAM_ALERT_CHAT_ID"))))
+    _set_argv(monkeypatch, _write_request(tmp_path))
+
+    assert subject.main() == 0
+
+    assert seen == [("shared-token", "43")]

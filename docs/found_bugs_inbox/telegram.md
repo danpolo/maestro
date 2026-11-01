@@ -6,6 +6,9 @@ the reference *actually* does; the tests now pin that.
 
 ### _pending_danreqs sorts `ts` as text, so a UTC-offset spelling lands in the wrong slot
 
+P13 W1 slice 4 removes the answer-routing consequence by refusing ambiguous or unmatched
+free-text replies. The lexical sort is retained; the text below is historical evidence.
+
 `out.sort(key=lambda r: r.get("ts", ""), reverse=True)` (L1831) compares ISO timestamps as raw
 strings. Any record whose `ts` is written with a non-Zulu offset is ordered by its wall-clock
 text rather than by the instant it names: `2026-01-01T01:00:00+05:00` (= 2025-12-31T20:00Z) sorts

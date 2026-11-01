@@ -1,35 +1,29 @@
 # /etc/systemd/system/{{ project_name }}-watchdog.service
 #
-# Per DESIGN.md §10's Systemd-and-tmux subsection. ExecStart runs launch.sh, which
-# wraps `tmux new-session -d -s {{ project_name }}-watchdog` so the loop is
-# auditable from a phone with `tmux a -t {{ project_name }}-watchdog`.
+# The service owns one named TMUX session directly.  This follows the operator's
+# current generated-service contract: Type=forking with tmux as ExecStart, so the
+# session remains auditable with `tmux attach -t {{ project_name }}-watchdog`.
 #
-# Type=simple, not Type=forking: the tracked process (the watchdog) lives
-# inside the tmux server's cgroup, not a child systemd can find a PIDFile for —
-# launch.sh instead blocks until the tmux session ends, so systemd tracks the
-# launcher shell itself.
+# The unit's name matches what it runs: `maestro watchdog` (maestro/watchdog.py,
+# extracted in M4b), which supervises the orchestrator and launches `maestro run`
+# itself in the shared `agents` tmux session.
 #
-# The unit's name matches what it runs: launch.sh starts `maestro watchdog`
-# (maestro/watchdog.py, extracted in M4b), which supervises the orchestrator and
-# launches `maestro run` itself in the shared `agents` tmux session.
-#
-# Restart=on-failure, not Restart=always: systemd tracks launch.sh, whose exit
-# status is the wait loop's, not the watchdog's (tmux swallows that) — so this
-# restarts when the launcher itself fails, and a watchdog that stopped on the HALT
-# sentinel (`maestro ctl halt`) stays stopped, which is the point of HALT. Bringing
-# it back after a deliberate halt is `systemctl restart` plus removing the file.
+# TMUX owns the long-running process, so systemd cannot infer the watchdog's exit
+# status.  RemainAfterExit keeps service ownership explicit; health/reconciliation
+# must inspect the named session.  A HALT remains stopped until an operator clears
+# the sentinel and restarts the unit.
 [Unit]
 Description={{ project_name }} — maestro watchdog (supervises the orchestrator loop)
 After=network-online.target
 Wants=network-online.target
 
 [Service]
-Type=simple
-WorkingDirectory={{ repo_path }}
-ExecStart=/bin/bash {{ repo_path }}/launch.sh
-ExecStop=/bin/sh -c 'tmux kill-session -t {{ project_name }}-watchdog 2>/dev/null || true'
-Restart=on-failure
-RestartSec=60
+Type=forking
+RemainAfterExit=yes
+WorkingDirectory={{ systemd_repo_path }}
+ExecStartPre=-/usr/bin/tmux kill-session -t {{ systemd_session }}
+ExecStart=/usr/bin/tmux new-session -d -s {{ systemd_session }} -n main -c {{ systemd_repo_path }} {{ systemd_watchdog_command }}
+ExecStop=-/usr/bin/tmux kill-session -t {{ systemd_session }}
 
 [Install]
 WantedBy=multi-user.target

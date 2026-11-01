@@ -1,0 +1,86 @@
+{
+  "answer": "An operator-provided no-charge endpoint already exists on this machine: ollama 0.18.3 running as an active systemd service on 127.0.0.1:11434, with five models already pulled. Two of the five are NOT usable for ordinary operation because of their model licences.",
+  "blind_spot_id": "B03",
+  "consequences_for_maestro": [
+    "B03's 'select an installed or operator-provided no-charge endpoint' is satisfiable today. The first free adapter should target the ollama HTTP API with qwen2.5-coder:7b (Apache-2.0) as the default coding model and smollm2 as the small/fast route.",
+    "B17 made concrete: three of five locally available models carry terms that forbid or restrict ordinary use. A free-mode implementation that simply picked the largest local model would have picked a restricted one. Every enabled model needs its own verification row, exactly like a dependency.",
+    "Free mode has no billing penalty but a hard THROUGHPUT budget. At 3.95 generated tok/s, 2,000 tokens of output is about 8 minutes; at 5.5 prompt tok/s, a 20,000-token context manifest costs about an hour just to ingest. Free-mode context budgets are therefore TIGHTER than paid-mode ones, for a different reason.",
+    "Cold model load dominated both requests (59.2 s of 71.0 s; 23.1 s of 27.4 s). Model residency, not tokens, is the scarce free-mode resource. A graph that alternates models pays that cost at every switch, and admission must treat 'which model is resident' as a scheduled resource.",
+    "Candidate groups, independent test authors and multiple reviewers are the free-mode quality mechanism the plan relies on, and on this hardware they serialise. Free-mode graph width must be admitted against measured tok/s and residency rather than assumed cheap."
+  ],
+  "generated_at": "2026-09-08T12:53:54Z",
+  "host_envelope": {
+    "consequence": "CPU-only inference; roughly one 7B model can stay resident",
+    "cpu_cores": 4,
+    "gpu": "none detected (no nvidia-smi)",
+    "ram_total_gb": 15
+  },
+  "license_source": "ollama show --license <model>, read from the installed weights on this host",
+  "limits": [
+    "Two single-shot generations with num_predict=80 at temperature 0. This measures the host's throughput envelope, not model quality on Maestro's task catalog.",
+    "Ollama's own licence was not read from a distributed LICENSE file on this host; only the model weights' licences were. Record it before the adapter is called supported.",
+    "No conformance fixture was run against the endpoint. B04 (value of extra inference in free mode) remains open and now has a measured time budget to respect."
+  ],
+  "method": "Local inspection and two bounded generations against the already-running local endpoint. No web research, no paid API, no new download.",
+  "models": [
+    {
+      "license": "Apache-2.0",
+      "measured": {
+        "cold_load_s": 59.2,
+        "correct": true,
+        "generate_tok_per_s": 3.95,
+        "prompt_eval_tok_per_s": 5.5,
+        "sample_task": "write a string-reverse function",
+        "total_request_s": 71.0
+      },
+      "model": "qwen2.5-coder:7b",
+      "size_gb": 4.7,
+      "usable_for_normal_operation": true
+    },
+    {
+      "license": "Apache-2.0",
+      "measured": {
+        "cold_load_s": 23.1,
+        "correct": true,
+        "generate_tok_per_s": 10.96,
+        "prompt_eval_tok_per_s": 22.1,
+        "sample_task": "write a string-reverse function",
+        "total_request_s": 27.4
+      },
+      "model": "smollm2:latest",
+      "size_gb": 1.8,
+      "usable_for_normal_operation": true
+    },
+    {
+      "license": "Qwen RESEARCH LICENSE AGREEMENT",
+      "model": "qwen2.5:3b",
+      "reason": "research licence \u2014 not a free-use grant for ordinary operation",
+      "size_gb": 1.9,
+      "usable_for_normal_operation": false
+    },
+    {
+      "license": "Gemma Terms of Use",
+      "model": "gemma2:9b",
+      "reason": "usage-restricted vendor terms, not an OSI-open licence",
+      "size_gb": 5.4,
+      "usable_for_normal_operation": false
+    },
+    {
+      "license": "Gemma Terms of Use",
+      "model": "gemma3:4b",
+      "reason": "usage-restricted vendor terms, not an OSI-open licence",
+      "size_gb": 3.3,
+      "usable_for_normal_operation": false
+    }
+  ],
+  "question": "Which genuinely free serving runtime and model should the first free-inference adapter target, and what does this host's hardware actually allow?",
+  "runtime": {
+    "endpoint": "http://127.0.0.1:11434",
+    "model_store_size": "17 GB under /usr/share/ollama",
+    "name": "ollama",
+    "path": "/usr/local/bin/ollama",
+    "service": "active (systemd)",
+    "version": "0.18.3"
+  },
+  "schema_version": 1
+}

@@ -1,0 +1,170 @@
+{
+  "exported_at": "2026-09-24T12:52:13Z",
+  "project": "/home/dan/projects/duetflow",
+  "since": "2026-09-24T11:50:00Z",
+  "summary": {
+    "tasks_attempted": 1,
+    "tasks_accepted": 0,
+    "runs": 1,
+    "attempts": 3,
+    "rework_attempts": 0,
+    "human_interventions": 1
+  },
+  "tasks": {
+    "02-collector-schema": {
+      "status": "active",
+      "runs": [
+        {
+          "run_id": "run_Qk52s47aQCwcU4Hm",
+          "workflow": "wf_02-collector-schema@1",
+          "status": "running",
+          "started_at": "2026-09-24T11:51:26Z",
+          "finished_at": null,
+          "attempts": [
+            {
+              "attempt_id": "att_run_Qk52s47aQCwcU4Hm_gate_01",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null
+            },
+            {
+              "attempt_id": "att_run_Qk52s47aQCwcU4Hm_implementer_01",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-24T11:51:57Z",
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.270 (Claude Code)",
+              "session_id": "att_run_Qk52s47aQCwcU4Hm_implementer_01",
+              "session_mode": "fresh",
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": 61.0,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_Qk52s47aQCwcU4Hm_implementer_01/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-02-collector-schema/8d8829a9-04e0-4fd8-87d1-d38bb63e367a.jsonl",
+                "bytes": 285983,
+                "models": [
+                  "claude-sonnet-5"
+                ],
+                "assistant_turns": 7,
+                "first_at": "2026-09-24T11:51:29.552Z",
+                "last_at": "2026-09-24T11:52:16.628Z",
+                "token_split": {
+                  "fresh_input": 14,
+                  "cache_read": 247367,
+                  "cache_write": 34507,
+                  "output": 5194
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_Qk52s47aQCwcU4Hm_proof_review_01",
+              "node_id": "proof_review",
+              "status": "uncertain",
+              "started_at": "2026-09-24T11:53:30Z",
+              "backend_id": "codex",
+              "model_id": "gpt-5.6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.154.0",
+              "session_id": "att_run_Qk52s47aQCwcU4Hm_proof_review_01",
+              "session_mode": "fresh",
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": 273.0,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_Qk52s47aQCwcU4Hm_proof_review_01/impl.log",
+              "transcript": null
+            }
+          ]
+        }
+      ],
+      "rework_attempts": 0,
+      "reopens": 0,
+      "verification_evidence": [
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_Qk52s47aQCwcU4Hm_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T11:52:28Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_Qk52s47aQCwcU4Hm_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T11:52:30Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_Qk52s47aQCwcU4Hm_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T11:52:31Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_Qk52s47aQCwcU4Hm_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-24T11:52:31Z"
+        }
+      ],
+      "acceptance_decisions": [],
+      "human_interventions": [],
+      "attempt_wall_time_sec_sum": 334.0,
+      "tokens_sum": {
+        "fresh_input": 14,
+        "cache_read": 247367,
+        "cache_write": 34507,
+        "output": 5194
+      }
+    }
+  },
+  "project_human_interventions": [
+    {
+      "ts": "2026-09-24T11:50:57Z",
+      "event": "control_resume",
+      "agent": "B5.1-orchestrator",
+      "session_id": "",
+      "detail": "resumed via `maestro ctl resume`"
+    }
+  ]
+}

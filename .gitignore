@@ -8,6 +8,31 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 
+# Agent working space: probe repos, captured evidence, junit XML and working notes from
+# in-session work. Kept on persistent storage rather than /tmp (the session scratchpad is
+# swept mid-run), but never committed. Handoffs may reference paths under here.
+.scratch/
+
 # Local research drafts; preserve them on disk but keep them out of portfolio commits.
 docs/DEEP_RESEARCH_PROMPT.md
+
+# Process docs (handoffs, plans, progress, lessons): versioned on the orphan `meta`
+# branch (see maestro/metabranch.py), not on the main branch. Ignored here, not deleted
+# — `maestro init`/`doctor`/the orchestrator's startup reconcile keep them committed
+# there automatically; nothing about this is a manual git step.
+handoffs/
+docs/plans/
+docs/superpowers/
 docs/graph-engineering/
+docs/PROGRESS.md
+tasks/lessons.md
+
+# Local agent harness settings — never published (Dan, 2026-11-01)
+.claude/settings.json
+
+# Sibling agents' own instruction files, written and updated by those agents themselves
+# (Codex reads AGENTS.md, Antigravity/agy reads GEMINI.md). They are local to this
+# checkout and are not maestro's to version — unlike the block above, nothing moves these
+# to the `meta` branch.
+/AGENTS.md
+/GEMINI.md

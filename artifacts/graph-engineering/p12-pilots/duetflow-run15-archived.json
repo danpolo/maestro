@@ -1,0 +1,1547 @@
+{
+  "exported_at": "2026-09-28T10:08:07Z",
+  "project": "/home/dan/projects/duetflow",
+  "since": "2026-09-28T08:41:20Z",
+  "summary": {
+    "tasks_attempted": 1,
+    "tasks_accepted": 0,
+    "runs": 1,
+    "attempts": 11,
+    "rework_attempts": 2,
+    "human_interventions": 2
+  },
+  "tasks": {
+    "06-writer-first-light": {
+      "status": "active",
+      "runs": [
+        {
+          "run_id": "run_mqSXWdrvV78A6xDk",
+          "workflow": "wf_06-writer-first-light@1",
+          "status": "failed",
+          "started_at": "2026-09-28T08:42:32Z",
+          "finished_at": "2026-09-28T09:55:52Z",
+          "attempts": [
+            {
+              "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_01",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_02",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_03",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_mqSXWdrvV78A6xDk_dan_confirm_01",
+              "node_id": "dan_confirm",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_mqSXWdrvV78A6xDk_merge_01",
+              "node_id": "merge",
+              "status": "failed",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": "unknown",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "unknown",
+                "failure_class": "bad_output",
+                "evidence": "guard: deny_list: deny-list violation: pattern 'DELETE\\s+FROM' matched in diff: 'DELETE FROM'",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_mqSXWdrvV78A6xDk_implementer_01",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-28T08:43:07Z",
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.283 (Claude Code)",
+              "session_id": "att_run_mqSXWdrvV78A6xDk_implementer_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T08:42:34Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": null,
+                "updated_at": "2026-09-28T08:42:33Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 90.0
+                  },
+                  "300": {
+                    "resets_at": 1790599200,
+                    "used_pct": 19.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T08:46:38Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": {
+                  "cache_read": 1323575,
+                  "cache_write": 90929,
+                  "cost_usd": 0.9216429999999999,
+                  "fresh_input": 36,
+                  "models": [
+                    "claude-sonnet-5"
+                  ],
+                  "output": 29314,
+                  "source": "claude_cost_state"
+                },
+                "updated_at": "2026-09-28T08:46:37Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 91.0
+                  },
+                  "300": {
+                    "resets_at": 1790599200,
+                    "used_pct": 26.0
+                  }
+                }
+              },
+              "wall_time_sec": 244.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_mqSXWdrvV78A6xDk_implementer_01/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-06-writer-first-light/20cf7ea1-cd8a-4bdd-aceb-d78eee62126b.jsonl",
+                "bytes": 646178,
+                "models": [
+                  "claude-sonnet-5"
+                ],
+                "assistant_turns": 18,
+                "first_at": "2026-09-28T08:42:36.219Z",
+                "last_at": "2026-09-28T08:46:28.509Z",
+                "token_split": {
+                  "fresh_input": 36,
+                  "cache_read": 1323575,
+                  "cache_write": 90929,
+                  "output": 29314
+                }
+              },
+              "review": null,
+              "quota": {
+                "role": "implementer",
+                "backend": "claude",
+                "model": "claude-sonnet-5",
+                "effort": "medium",
+                "wall_time_sec": 244.0,
+                "tokens": {
+                  "cache_read": 1323575,
+                  "cache_write": 90929,
+                  "cost_usd": 0.9216429999999999,
+                  "fresh_input": 36,
+                  "models": [
+                    "claude-sonnet-5"
+                  ],
+                  "output": 29314,
+                  "source": "claude_cost_state"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 19.0,
+                    "seven_day_pct": 90.0,
+                    "five_hour_resets_at": 1790599200,
+                    "seven_day_resets_at": 1790686800,
+                    "sampled_at": "2026-09-28T08:42:33Z",
+                    "read_at": "2026-09-28T08:42:34Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 26.0,
+                    "seven_day_pct": 91.0,
+                    "five_hour_resets_at": 1790599200,
+                    "seven_day_resets_at": 1790686800,
+                    "sampled_at": "2026-09-28T08:46:37Z",
+                    "read_at": "2026-09-28T08:46:38Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": 7.0,
+                  "seven_day": 1.0,
+                  "reasons": {}
+                },
+                "attributed_delta": {
+                  "five_hour": 7.0,
+                  "seven_day": 1.0,
+                  "reasons": {},
+                  "weight_basis": [
+                    "sole"
+                  ],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": true,
+                  "foreign_sessions": [
+                    {
+                      "id": "cbd27974-7098-4865-b274-e0ced0487752",
+                      "where": "-home-dan-projects-maestro",
+                      "activity_count": 4
+                    }
+                  ],
+                  "reason": "1 other claude session(s) active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_mqSXWdrvV78A6xDk_proof_review_01",
+              "node_id": "proof_review",
+              "status": "failed",
+              "started_at": "2026-09-28T08:47:42Z",
+              "backend_id": "codex",
+              "model_id": "gpt-6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.1",
+              "session_id": "att_run_mqSXWdrvV78A6xDk_proof_review_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T08:47:12Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": null,
+                "updated_at": "2026-09-28T08:47:12Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 32.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 3.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T08:50:14Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": {
+                  "cache_read": 640512,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 71561,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 5729,
+                  "reasoning_output": 2071,
+                  "source": "codex_rollout"
+                },
+                "updated_at": "2026-09-28T08:50:14Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 32.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 6.0
+                  }
+                }
+              },
+              "wall_time_sec": 184.0,
+              "reset_crossing": 0,
+              "failure_kind": "verification_failed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "verification_failed",
+                "failure_class": "bad_output",
+                "evidence": "review changes_requested: On a cold start with 30 eligible Source Playlist tracks, 30 eligible Inferred Half tracks, and the default turnover.per_side=3, duetflow/selector.py caps n at turnover_per_side and refresh_duet writes only 3/3. The task requires cold-start halves to equal min(the two eligible pools, 20), so the first real Refresh is short even when enough history exists; tests/test_playlist.py sets turnover.per_side=20 and hides this case. Rule: Cold-start size is determined by the weaker eligible pool and the 20-per-side target; the steady-state turnover limit does not reduce the initial fill.. Scope: The empty-current selection path used by playlist.refresh_duet, including shared-track removal and the normal default configuration.. Verify: With an empty duet_state, default turnover.per_side=3, 30 unique eligible tracks per side, assert the single PUT contains 40 alternating URIs; repeat with shared tracks and assert each side equals min(A after overlap removal, B, 20)..; spotify.create_playlist only converts SpotifyError and selected HTTP statuses to DuetCreationUncertain. If its transport raises TimeoutError after a POST may have reached Spotify, the raw TimeoutError escapes (reproduced with one recorded POST), so the required uncertainty error and operator recovery instruction are absent. Rule: Every ambiguous create transport failure must surface as DuetCreationUncertain without automatically repeating the non-idempotent POST or persisting an id.. Scope: All transport exceptions from the create POST, including timeouts and connection resets through both the fake transport and urllib path.. Verify: A fake transport that records the POST then raises TimeoutError or ConnectionError must produce DuetCreationUncertain, record exactly one POST, and leave duet.playlist_id unset..; spotify.api_request retries a PUT after HTTP 429/5xx, but a transient transport failure raises SpotifyError from _get_once and bypasses the retry loop. A fake transport whose first ",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_mqSXWdrvV78A6xDk_proof_review_01/impl.log",
+              "transcript": null,
+              "review": {
+                "verdict": "changes_requested",
+                "findings": [
+                  "On a cold start with 30 eligible Source Playlist tracks, 30 eligible Inferred Half tracks, and the default turnover.per_side=3, duetflow/selector.py caps n at turnover_per_side and refresh_duet writes only 3/3. The task requires cold-start halves to equal min(the two eligible pools, 20), so the first real Refresh is short even when enough history exists; tests/test_playlist.py sets turnover.per_side=20 and hides this case. Rule: Cold-start size is determined by the weaker eligible pool and the 20-per-side target; the steady-state turnover limit does not reduce the initial fill.. Scope: The empty-current selection path used by playlist.refresh_duet, including shared-track removal and the normal default configuration.. Verify: With an empty duet_state, default turnover.per_side=3, 30 unique eligible tracks per side, assert the single PUT contains 40 alternating URIs; repeat with shared tracks and assert each side equals min(A after overlap removal, B, 20)..",
+                  "spotify.create_playlist only converts SpotifyError and selected HTTP statuses to DuetCreationUncertain. If its transport raises TimeoutError after a POST may have reached Spotify, the raw TimeoutError escapes (reproduced with one recorded POST), so the required uncertainty error and operator recovery instruction are absent. Rule: Every ambiguous create transport failure must surface as DuetCreationUncertain without automatically repeating the non-idempotent POST or persisting an id.. Scope: All transport exceptions from the create POST, including timeouts and connection resets through both the fake transport and urllib path.. Verify: A fake transport that records the POST then raises TimeoutError or ConnectionError must produce DuetCreationUncertain, record exactly one POST, and leave duet.playlist_id unset..",
+                  "spotify.api_request retries a PUT after HTTP 429/5xx, but a transient transport failure raises SpotifyError from _get_once and bypasses the retry loop. A fake transport whose first PUT raises a connection error and whose second would succeed therefore fails the Refresh without retrying the full ordered URI payload, contrary to the task note's whole-call backoff requirement. Rule: Transient full-replacement PUT failures must retry the same complete URI array with bounded backoff; they must never fall back to partial item writes.. Scope: The PUT request policy for transport-level transient failures as well as retryable HTTP responses.. Verify: Have a fake PUT fail once with a transient transport error, then succeed; assert two identical full-array PUT attempts, a backoff call, and storage of the successful snapshot_id..",
+                  "When the PUT ultimately fails, playlist.refresh_duet and app.cmd_refresh record the failed run and print an error, but no alert is sent. A 403 or exhausted 5xx therefore leaves the Duet alone without the alert required by docs/PLAN.md \u00a74.4 and this task's notes. Rule: A failed Duet write must leave the Duet and duet_state untouched and emit an alert after the permitted whole-call retries are exhausted.. Scope: Every terminal PUT failure path in the Refresh command, including nonretryable statuses, exhausted retries, and transport failures.. Verify: Inject a fake failing PUT and a fake alert sink; assert one alert after final failure, unchanged duet_state and snapshot_id, and no partial writes.."
+                ],
+                "follow_ups": [],
+                "round": 1,
+                "finding_records": [
+                  {
+                    "finding": "On a cold start with 30 eligible Source Playlist tracks, 30 eligible Inferred Half tracks, and the default turnover.per_side=3, duetflow/selector.py caps n at turnover_per_side and refresh_duet writes only 3/3. The task requires cold-start halves to equal min(the two eligible pools, 20), so the first real Refresh is short even when enough history exists; tests/test_playlist.py sets turnover.per_side=20 and hides this case. Rule: Cold-start size is determined by the weaker eligible pool and the 20-per-side target; the steady-state turnover limit does not reduce the initial fill.. Scope: The empty-current selection path used by playlist.refresh_duet, including shared-track removal and the normal default configuration.. Verify: With an empty duet_state, default turnover.per_side=3, 30 unique eligible tracks per side, assert the single PUT contains 40 alternating URIs; repeat with shared tracks and assert each side equals min(A after overlap removal, B, 20)..",
+                    "id": "r1-f1",
+                    "origin": null,
+                    "prior_finding": null,
+                    "severity": "blocking"
+                  },
+                  {
+                    "finding": "spotify.create_playlist only converts SpotifyError and selected HTTP statuses to DuetCreationUncertain. If its transport raises TimeoutError after a POST may have reached Spotify, the raw TimeoutError escapes (reproduced with one recorded POST), so the required uncertainty error and operator recovery instruction are absent. Rule: Every ambiguous create transport failure must surface as DuetCreationUncertain without automatically repeating the non-idempotent POST or persisting an id.. Scope: All transport exceptions from the create POST, including timeouts and connection resets through both the fake transport and urllib path.. Verify: A fake transport that records the POST then raises TimeoutError or ConnectionError must produce DuetCreationUncertain, record exactly one POST, and leave duet.playlist_id unset..",
+                    "id": "r1-f2",
+                    "origin": null,
+                    "prior_finding": null,
+                    "severity": "blocking"
+                  },
+                  {
+                    "finding": "spotify.api_request retries a PUT after HTTP 429/5xx, but a transient transport failure raises SpotifyError from _get_once and bypasses the retry loop. A fake transport whose first PUT raises a connection error and whose second would succeed therefore fails the Refresh without retrying the full ordered URI payload, contrary to the task note's whole-call backoff requirement. Rule: Transient full-replacement PUT failures must retry the same complete URI array with bounded backoff; they must never fall back to partial item writes.. Scope: The PUT request policy for transport-level transient failures as well as retryable HTTP responses.. Verify: Have a fake PUT fail once with a transient transport error, then succeed; assert two identical full-array PUT attempts, a backoff call, and storage of the successful snapshot_id..",
+                    "id": "r1-f3",
+                    "origin": null,
+                    "prior_finding": null,
+                    "severity": "blocking"
+                  },
+                  {
+                    "finding": "When the PUT ultimately fails, playlist.refresh_duet and app.cmd_refresh record the failed run and print an error, but no alert is sent. A 403 or exhausted 5xx therefore leaves the Duet alone without the alert required by docs/PLAN.md \u00a74.4 and this task's notes. Rule: A failed Duet write must leave the Duet and duet_state untouched and emit an alert after the permitted whole-call retries are exhausted.. Scope: Every terminal PUT failure path in the Refresh command, including nonretryable statuses, exhausted retries, and transport failures.. Verify: Inject a fake failing PUT and a fake alert sink; assert one alert after final failure, unchanged duet_state and snapshot_id, and no partial writes..",
+                    "id": "r1-f4",
+                    "origin": null,
+                    "prior_finding": null,
+                    "severity": "blocking"
+                  }
+                ]
+              },
+              "quota": {
+                "role": "proof_review",
+                "backend": "codex",
+                "model": "gpt-6-sol",
+                "effort": "medium",
+                "wall_time_sec": 184.0,
+                "tokens": {
+                  "cache_read": 640512,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 71561,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 5729,
+                  "reasoning_output": 2071,
+                  "source": "codex_rollout"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 3.0,
+                    "seven_day_pct": 32.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T08:47:12Z",
+                    "read_at": "2026-09-28T08:47:12Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 6.0,
+                    "seven_day_pct": 32.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T08:50:14Z",
+                    "read_at": "2026-09-28T08:50:14Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": 3.0,
+                  "seven_day": 0.0,
+                  "reasons": {}
+                },
+                "attributed_delta": {
+                  "five_hour": 3.0,
+                  "seven_day": 0.0,
+                  "reasons": {},
+                  "weight_basis": [
+                    "sole"
+                  ],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": false,
+                  "foreign_sessions": [],
+                  "reason": "no other codex session was active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_mqSXWdrvV78A6xDk_implementer_02",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-28T08:50:45Z",
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.283 (Claude Code)",
+              "session_id": "att_run_mqSXWdrvV78A6xDk_implementer_02",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T08:50:15Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": null,
+                "updated_at": "2026-09-28T08:50:15Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686799,
+                    "used_pct": 91.0
+                  },
+                  "300": {
+                    "resets_at": 1790599199,
+                    "used_pct": 26.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T08:51:46Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": {
+                  "cache_read": 357337,
+                  "cache_write": 49108,
+                  "cost_usd": 0.3436014,
+                  "fresh_input": 16,
+                  "models": [
+                    "claude-sonnet-5"
+                  ],
+                  "output": 7567,
+                  "source": "claude_cost_state"
+                },
+                "updated_at": "2026-09-28T08:51:46Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 91.0
+                  },
+                  "300": {
+                    "resets_at": 1790599200,
+                    "used_pct": 28.0
+                  }
+                }
+              },
+              "wall_time_sec": 94.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_mqSXWdrvV78A6xDk_implementer_02/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-06-writer-first-light/39748bee-47f7-4683-9c6b-2e172eadef62.jsonl",
+                "bytes": 378285,
+                "models": [
+                  "claude-sonnet-5"
+                ],
+                "assistant_turns": 8,
+                "first_at": "2026-09-28T08:50:17.332Z",
+                "last_at": "2026-09-28T08:51:30.435Z",
+                "token_split": {
+                  "fresh_input": 16,
+                  "cache_read": 357337,
+                  "cache_write": 49108,
+                  "output": 7567
+                }
+              },
+              "review": null,
+              "quota": {
+                "role": "implementer",
+                "backend": "claude",
+                "model": "claude-sonnet-5",
+                "effort": "medium",
+                "wall_time_sec": 94.0,
+                "tokens": {
+                  "cache_read": 357337,
+                  "cache_write": 49108,
+                  "cost_usd": 0.3436014,
+                  "fresh_input": 16,
+                  "models": [
+                    "claude-sonnet-5"
+                  ],
+                  "output": 7567,
+                  "source": "claude_cost_state"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 26.0,
+                    "seven_day_pct": 91.0,
+                    "five_hour_resets_at": 1790599199,
+                    "seven_day_resets_at": 1790686799,
+                    "sampled_at": "2026-09-28T08:50:15Z",
+                    "read_at": "2026-09-28T08:50:15Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 28.0,
+                    "seven_day_pct": 91.0,
+                    "five_hour_resets_at": 1790599200,
+                    "seven_day_resets_at": 1790686800,
+                    "sampled_at": "2026-09-28T08:51:46Z",
+                    "read_at": "2026-09-28T08:51:46Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": 2.0,
+                  "seven_day": 0.0,
+                  "reasons": {}
+                },
+                "attributed_delta": {
+                  "five_hour": 2.0,
+                  "seven_day": 0.0,
+                  "reasons": {},
+                  "weight_basis": [
+                    "sole"
+                  ],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": true,
+                  "foreign_sessions": [
+                    {
+                      "id": "cbd27974-7098-4865-b274-e0ced0487752",
+                      "where": "-home-dan-projects-maestro",
+                      "activity_count": 5
+                    }
+                  ],
+                  "reason": "1 other claude session(s) active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_mqSXWdrvV78A6xDk_proof_review_02",
+              "node_id": "proof_review",
+              "status": "failed",
+              "started_at": "2026-09-28T08:52:50Z",
+              "backend_id": "codex",
+              "model_id": "gpt-6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.1",
+              "session_id": "att_run_mqSXWdrvV78A6xDk_proof_review_02",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T08:52:19Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": null,
+                "updated_at": "2026-09-28T08:52:19Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 32.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 6.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T08:55:52Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": {
+                  "cache_read": 928768,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 97256,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 7240,
+                  "reasoning_output": 2785,
+                  "source": "codex_rollout"
+                },
+                "updated_at": "2026-09-28T08:55:52Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 33.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 10.0
+                  }
+                }
+              },
+              "wall_time_sec": 214.0,
+              "reset_crossing": 0,
+              "failure_kind": "verification_failed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "verification_failed",
+                "failure_class": "bad_output",
+                "evidence": "review changes_requested: At cold start, a track in the Source Playlist and B's short-term top tracks is assigned to A when it also has one recent play: playlist._candidates uses setdefault, so that play's score below entry_threshold suppresses the qualifying top-track seed. With source [shared, a1], top [shared, b1], and one recent play of shared, the PUT is [shared (A), b1 (B)]. The shared track must count for B and leave A's pool. Rule: A short-term top-track seed must remain eligible for the Inferred Half at cold start even when that track also has a lower play-derived score; overlap with the Source Playlist belongs only to B.. Scope: Every cold-start candidate that appears in both short-term top tracks and recorded B plays, including tracks shared with the Source Playlist and tracks found only in B's pool.. Verify: In tests/test_playlist.py, record one recent B play for a short-term top track whose play score is below entry_threshold; assert that it remains eligible for B. When the same track is in the Source Playlist, assert it is absent from A, present once in B, and both halves have min(A after overlap removal, B, 20) tracks..; With duet.playlist_id unset and no eligible B candidates, playlist.refresh_duet returns at lines 146-147 before ensure_duet or replace_playlist_items. A fake Refresh with a populated Source Playlist and empty top tracks and play history records zero POSTs and zero PUTs, leaves the id unset, and creates no real Duet. This violates the first-Refresh create-once requirement and I6's one full-array PUT per Refresh. Rule: A successful Refresh must create an unset Duet id once and issue exactly one full-replacement PUT, including when selection yields an empty ordered URI array.. Scope: Every zero-selection Refresh, especially the first Refresh with an unset duet.playlist_id, whether the Source Playlist or B's eligible pool is empty.. Verify: Use a fake transport and temp config with duet.playlist_id unset and one empty eligible pool; asser",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_mqSXWdrvV78A6xDk_proof_review_02/impl.log",
+              "transcript": null,
+              "review": {
+                "verdict": "changes_requested",
+                "findings": [
+                  "At cold start, a track in the Source Playlist and B's short-term top tracks is assigned to A when it also has one recent play: playlist._candidates uses setdefault, so that play's score below entry_threshold suppresses the qualifying top-track seed. With source [shared, a1], top [shared, b1], and one recent play of shared, the PUT is [shared (A), b1 (B)]. The shared track must count for B and leave A's pool. Rule: A short-term top-track seed must remain eligible for the Inferred Half at cold start even when that track also has a lower play-derived score; overlap with the Source Playlist belongs only to B.. Scope: Every cold-start candidate that appears in both short-term top tracks and recorded B plays, including tracks shared with the Source Playlist and tracks found only in B's pool.. Verify: In tests/test_playlist.py, record one recent B play for a short-term top track whose play score is below entry_threshold; assert that it remains eligible for B. When the same track is in the Source Playlist, assert it is absent from A, present once in B, and both halves have min(A after overlap removal, B, 20) tracks..",
+                  "With duet.playlist_id unset and no eligible B candidates, playlist.refresh_duet returns at lines 146-147 before ensure_duet or replace_playlist_items. A fake Refresh with a populated Source Playlist and empty top tracks and play history records zero POSTs and zero PUTs, leaves the id unset, and creates no real Duet. This violates the first-Refresh create-once requirement and I6's one full-array PUT per Refresh. Rule: A successful Refresh must create an unset Duet id once and issue exactly one full-replacement PUT, including when selection yields an empty ordered URI array.. Scope: Every zero-selection Refresh, especially the first Refresh with an unset duet.playlist_id, whether the Source Playlist or B's eligible pool is empty.. Verify: Use a fake transport and temp config with duet.playlist_id unset and one empty eligible pool; assert the first Refresh makes one private collaborative POST and one PUT with uris: [], persists the id, and prints the share link. Assert the second Refresh makes no POST and one PUT with uris: [].."
+                ],
+                "follow_ups": [],
+                "round": 2,
+                "finding_records": [
+                  {
+                    "finding": "At cold start, a track in the Source Playlist and B's short-term top tracks is assigned to A when it also has one recent play: playlist._candidates uses setdefault, so that play's score below entry_threshold suppresses the qualifying top-track seed. With source [shared, a1], top [shared, b1], and one recent play of shared, the PUT is [shared (A), b1 (B)]. The shared track must count for B and leave A's pool. Rule: A short-term top-track seed must remain eligible for the Inferred Half at cold start even when that track also has a lower play-derived score; overlap with the Source Playlist belongs only to B.. Scope: Every cold-start candidate that appears in both short-term top tracks and recorded B plays, including tracks shared with the Source Playlist and tracks found only in B's pool.. Verify: In tests/test_playlist.py, record one recent B play for a short-term top track whose play score is below entry_threshold; assert that it remains eligible for B. When the same track is in the Source Playlist, assert it is absent from A, present once in B, and both halves have min(A after overlap removal, B, 20) tracks..",
+                    "id": "r2-f1",
+                    "origin": "fixed_incompletely_in_scope",
+                    "prior_finding": "r1-f1",
+                    "severity": "blocking"
+                  },
+                  {
+                    "finding": "With duet.playlist_id unset and no eligible B candidates, playlist.refresh_duet returns at lines 146-147 before ensure_duet or replace_playlist_items. A fake Refresh with a populated Source Playlist and empty top tracks and play history records zero POSTs and zero PUTs, leaves the id unset, and creates no real Duet. This violates the first-Refresh create-once requirement and I6's one full-array PUT per Refresh. Rule: A successful Refresh must create an unset Duet id once and issue exactly one full-replacement PUT, including when selection yields an empty ordered URI array.. Scope: Every zero-selection Refresh, especially the first Refresh with an unset duet.playlist_id, whether the Source Playlist or B's eligible pool is empty.. Verify: Use a fake transport and temp config with duet.playlist_id unset and one empty eligible pool; assert the first Refresh makes one private collaborative POST and one PUT with uris: [], persists the id, and prints the share link. Assert the second Refresh makes no POST and one PUT with uris: []..",
+                    "id": "r2-f2",
+                    "origin": "missed_earlier",
+                    "prior_finding": null,
+                    "severity": "blocking"
+                  }
+                ]
+              },
+              "quota": {
+                "role": "proof_review",
+                "backend": "codex",
+                "model": "gpt-6-sol",
+                "effort": "medium",
+                "wall_time_sec": 214.0,
+                "tokens": {
+                  "cache_read": 928768,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 97256,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 7240,
+                  "reasoning_output": 2785,
+                  "source": "codex_rollout"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 6.0,
+                    "seven_day_pct": 32.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T08:52:19Z",
+                    "read_at": "2026-09-28T08:52:19Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 10.0,
+                    "seven_day_pct": 33.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T08:55:52Z",
+                    "read_at": "2026-09-28T08:55:52Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": 4.0,
+                  "seven_day": 1.0,
+                  "reasons": {}
+                },
+                "attributed_delta": {
+                  "five_hour": 4.0,
+                  "seven_day": 1.0,
+                  "reasons": {},
+                  "weight_basis": [
+                    "sole"
+                  ],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": false,
+                  "foreign_sessions": [],
+                  "reason": "no other codex session was active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_mqSXWdrvV78A6xDk_implementer_03",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-28T08:56:25Z",
+              "backend_id": "codex",
+              "model_id": "gpt-6-luna",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.1",
+              "session_id": "att_run_mqSXWdrvV78A6xDk_implementer_03",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T08:55:55Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": null,
+                "updated_at": "2026-09-28T08:55:55Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 33.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 10.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "error": "no usage sample",
+                "source": null,
+                "token_split": {
+                  "cache_read": 576256,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 45777,
+                  "models": [
+                    "gpt-6-luna"
+                  ],
+                  "output": 4068,
+                  "reasoning_output": 987,
+                  "source": "codex_rollout"
+                },
+                "windows": {}
+              },
+              "wall_time_sec": 155.0,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_mqSXWdrvV78A6xDk_implementer_03/impl.log",
+              "transcript": null,
+              "review": null,
+              "quota": {
+                "role": "implementer",
+                "backend": "codex",
+                "model": "gpt-6-luna",
+                "effort": "medium",
+                "wall_time_sec": 155.0,
+                "tokens": {
+                  "cache_read": 576256,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 45777,
+                  "models": [
+                    "gpt-6-luna"
+                  ],
+                  "output": 4068,
+                  "reasoning_output": 987,
+                  "source": "codex_rollout"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 10.0,
+                    "seven_day_pct": 33.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T08:55:55Z",
+                    "read_at": "2026-09-28T08:55:55Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": null,
+                    "seven_day_pct": null,
+                    "five_hour_resets_at": null,
+                    "seven_day_resets_at": null,
+                    "sampled_at": null,
+                    "read_at": null,
+                    "source": null,
+                    "freshness": "unavailable",
+                    "reason": "no usage sample"
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": null,
+                  "seven_day": null,
+                  "reasons": {
+                    "five_hour": "start or settle reading is not fresh",
+                    "seven_day": "start or settle reading is not fresh"
+                  }
+                },
+                "attributed_delta": {
+                  "five_hour": null,
+                  "seven_day": null,
+                  "reasons": {
+                    "five_hour": "start or settle reading is not fresh",
+                    "seven_day": "start or settle reading is not fresh"
+                  },
+                  "weight_basis": [],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": false,
+                  "foreign_sessions": [],
+                  "reason": "no other codex session was active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_mqSXWdrvV78A6xDk_proof_review_03",
+              "node_id": "proof_review",
+              "status": "succeeded",
+              "started_at": "2026-09-28T08:59:54Z",
+              "backend_id": "codex",
+              "model_id": "gpt-6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.1",
+              "session_id": "att_run_mqSXWdrvV78A6xDk_proof_review_03",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T08:59:24Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": null,
+                "updated_at": "2026-09-28T08:59:24Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 33.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 10.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T09:01:57Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": {
+                  "cache_read": 669184,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 79277,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 4150,
+                  "reasoning_output": 1101,
+                  "source": "codex_rollout"
+                },
+                "updated_at": "2026-09-28T09:01:57Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 33.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 12.0
+                  }
+                }
+              },
+              "wall_time_sec": 153.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_mqSXWdrvV78A6xDk_proof_review_03/impl.log",
+              "transcript": null,
+              "review": {
+                "verdict": "approved",
+                "findings": [],
+                "follow_ups": [
+                  "When the first Refresh has no eligible tracks on one side, refresh_duet creates the Duet and successfully sends PUT with uris: [], but duetflow/app.py cmd_refresh prints \"nothing was written.\" The command reports the opposite of the network write it just made. Rule: A successful Refresh status message must describe the write that actually occurred.. Scope: The zero-track success branch of the refresh CLI, for either an empty Source Playlist or an empty eligible Inferred Half.. Verify: Run cmd_refresh with a fake transport and an empty eligible pool; assert one PUT with uris: [] and a success message that states the Duet was written with zero tracks.."
+                ],
+                "round": 3,
+                "finding_records": [
+                  {
+                    "finding": "When the first Refresh has no eligible tracks on one side, refresh_duet creates the Duet and successfully sends PUT with uris: [], but duetflow/app.py cmd_refresh prints \"nothing was written.\" The command reports the opposite of the network write it just made. Rule: A successful Refresh status message must describe the write that actually occurred.. Scope: The zero-track success branch of the refresh CLI, for either an empty Source Playlist or an empty eligible Inferred Half.. Verify: Run cmd_refresh with a fake transport and an empty eligible pool; assert one PUT with uris: [] and a success message that states the Duet was written with zero tracks..",
+                    "id": "r3-f1",
+                    "origin": null,
+                    "prior_finding": null,
+                    "severity": "follow_up"
+                  }
+                ]
+              },
+              "quota": {
+                "role": "proof_review",
+                "backend": "codex",
+                "model": "gpt-6-sol",
+                "effort": "medium",
+                "wall_time_sec": 153.0,
+                "tokens": {
+                  "cache_read": 669184,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 79277,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 4150,
+                  "reasoning_output": 1101,
+                  "source": "codex_rollout"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 10.0,
+                    "seven_day_pct": 33.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T08:59:24Z",
+                    "read_at": "2026-09-28T08:59:24Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 12.0,
+                    "seven_day_pct": 33.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T09:01:57Z",
+                    "read_at": "2026-09-28T09:01:57Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": 2.0,
+                  "seven_day": 0.0,
+                  "reasons": {}
+                },
+                "attributed_delta": {
+                  "five_hour": 2.0,
+                  "seven_day": 0.0,
+                  "reasons": {},
+                  "weight_basis": [
+                    "sole"
+                  ],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": false,
+                  "foreign_sessions": [],
+                  "reason": "no other codex session was active during the attempt"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "rework_attempts": 2,
+      "reopens": 0,
+      "review_follow_ups": [
+        {
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_proof_review_03",
+          "finding": "When the first Refresh has no eligible tracks on one side, refresh_duet creates the Duet and successfully sends PUT with uris: [], but duetflow/app.py cmd_refresh prints \"nothing was written.\" The command reports the opposite of the network write it just made. Rule: A successful Refresh status message must describe the write that actually occurred.. Scope: The zero-track success branch of the refresh CLI, for either an empty Source Playlist or an empty eligible Inferred Half.. Verify: Run cmd_refresh with a fake transport and an empty eligible pool; assert one PUT with uris: [] and a success message that states the Duet was written with zero tracks.."
+        }
+      ],
+      "review_origins": {
+        "by_round": {
+          "1": {
+            "blocking": 4,
+            "origin": {},
+            "fault": {}
+          },
+          "2": {
+            "blocking": 2,
+            "origin": {
+              "fixed_incompletely_in_scope": 1,
+              "missed_earlier": 1
+            },
+            "fault": {
+              "implementer": 1,
+              "reviewer": 1
+            }
+          },
+          "3": {
+            "blocking": 0,
+            "origin": {},
+            "fault": {}
+          }
+        },
+        "total": {
+          "blocking": 6,
+          "origin": {
+            "fixed_incompletely_in_scope": 1,
+            "missed_earlier": 1
+          },
+          "fault": {
+            "implementer": 1,
+            "reviewer": 1
+          }
+        }
+      },
+      "verification_evidence": [
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:46:39Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:46:39Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:46:39Z"
+        },
+        {
+          "check_id": "V4",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:46:40Z"
+        },
+        {
+          "check_id": "V5",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:46:40Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:46:41Z"
+        },
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:51:47Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:51:47Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:51:47Z"
+        },
+        {
+          "check_id": "V4",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:51:48Z"
+        },
+        {
+          "check_id": "V5",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:51:48Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:51:50Z"
+        },
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:58:51Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:58:51Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:58:52Z"
+        },
+        {
+          "check_id": "V4",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:58:52Z"
+        },
+        {
+          "check_id": "V5",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:58:52Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_mqSXWdrvV78A6xDk_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T08:58:54Z"
+        }
+      ],
+      "acceptance_decisions": [],
+      "human_interventions": [
+        {
+          "ts": "2026-09-28T09:55:22Z",
+          "event": "dan_verify_decided",
+          "agent": "B5.1-orchestrator",
+          "session_id": "",
+          "detail": "06-writer-first-light d2ed8857cb10 approved"
+        }
+      ],
+      "attempt_wall_time_sec_sum": 1044.0,
+      "tokens_sum": {
+        "fresh_input": 52,
+        "cache_read": 1680912,
+        "cache_write": 140037,
+        "output": 36881
+      },
+      "quota_totals": {
+        "claude": {
+          "attempts": 2,
+          "attempts_with_tokens": 2,
+          "tokens": {
+            "fresh_input": 52,
+            "cache_read": 1680912,
+            "cache_write": 140037,
+            "output": 36881
+          },
+          "cost_usd": 1.2652443999999998,
+          "wall_time_sec": 338.0,
+          "attributed_five_hour_pct": 9.0,
+          "attributed_seven_day_pct": 1.0,
+          "attempts_unattributed_five_hour": 0,
+          "attempts_unattributed_seven_day": 0,
+          "attempts_contaminated": 2,
+          "attempts_contamination_unmeasurable": 0
+        },
+        "codex": {
+          "attempts": 4,
+          "attempts_with_tokens": 4,
+          "tokens": {
+            "fresh_input": 293871,
+            "cache_read": 2814720,
+            "cache_write": 0,
+            "output": 21187
+          },
+          "cost_usd": null,
+          "wall_time_sec": 706.0,
+          "attributed_five_hour_pct": 9.0,
+          "attributed_seven_day_pct": 1.0,
+          "attempts_unattributed_five_hour": 1,
+          "attempts_unattributed_seven_day": 1,
+          "attempts_contaminated": 0,
+          "attempts_contamination_unmeasurable": 0
+        }
+      }
+    }
+  },
+  "project_human_interventions": [
+    {
+      "ts": "2026-09-28T10:07:35Z",
+      "event": "control_halt",
+      "agent": "B5.1-orchestrator",
+      "session_id": "",
+      "detail": "halted via `maestro ctl halt`"
+    }
+  ],
+  "quota": {
+    "method": "per-backend segment split; see scripts/graph_pilot_export.py",
+    "per_task": {
+      "06-writer-first-light": {
+        "claude": {
+          "attempts": 2,
+          "attempts_with_tokens": 2,
+          "tokens": {
+            "fresh_input": 52,
+            "cache_read": 1680912,
+            "cache_write": 140037,
+            "output": 36881
+          },
+          "cost_usd": 1.2652443999999998,
+          "wall_time_sec": 338.0,
+          "attributed_five_hour_pct": 9.0,
+          "attributed_seven_day_pct": 1.0,
+          "attempts_unattributed_five_hour": 0,
+          "attempts_unattributed_seven_day": 0,
+          "attempts_contaminated": 2,
+          "attempts_contamination_unmeasurable": 0
+        },
+        "codex": {
+          "attempts": 4,
+          "attempts_with_tokens": 4,
+          "tokens": {
+            "fresh_input": 293871,
+            "cache_read": 2814720,
+            "cache_write": 0,
+            "output": 21187
+          },
+          "cost_usd": null,
+          "wall_time_sec": 706.0,
+          "attributed_five_hour_pct": 9.0,
+          "attributed_seven_day_pct": 1.0,
+          "attempts_unattributed_five_hour": 1,
+          "attempts_unattributed_seven_day": 1,
+          "attempts_contaminated": 0,
+          "attempts_contamination_unmeasurable": 0
+        }
+      }
+    },
+    "by_role": {
+      "implementer": {
+        "claude": {
+          "attempts": 2,
+          "attempts_with_tokens": 2,
+          "tokens": {
+            "fresh_input": 52,
+            "cache_read": 1680912,
+            "cache_write": 140037,
+            "output": 36881
+          },
+          "cost_usd": 1.2652443999999998,
+          "wall_time_sec": 338.0,
+          "attributed_five_hour_pct": 9.0,
+          "attributed_seven_day_pct": 1.0,
+          "attempts_unattributed_five_hour": 0,
+          "attempts_unattributed_seven_day": 0,
+          "attempts_contaminated": 2,
+          "attempts_contamination_unmeasurable": 0
+        },
+        "codex": {
+          "attempts": 1,
+          "attempts_with_tokens": 1,
+          "tokens": {
+            "fresh_input": 45777,
+            "cache_read": 576256,
+            "cache_write": 0,
+            "output": 4068
+          },
+          "cost_usd": null,
+          "wall_time_sec": 155.0,
+          "attributed_five_hour_pct": null,
+          "attributed_seven_day_pct": null,
+          "attempts_unattributed_five_hour": 1,
+          "attempts_unattributed_seven_day": 1,
+          "attempts_contaminated": 0,
+          "attempts_contamination_unmeasurable": 0
+        }
+      },
+      "proof_review": {
+        "codex": {
+          "attempts": 3,
+          "attempts_with_tokens": 3,
+          "tokens": {
+            "fresh_input": 248094,
+            "cache_read": 2238464,
+            "cache_write": 0,
+            "output": 17119
+          },
+          "cost_usd": null,
+          "wall_time_sec": 551.0,
+          "attributed_five_hour_pct": 9.0,
+          "attributed_seven_day_pct": 1.0,
+          "attempts_unattributed_five_hour": 0,
+          "attempts_unattributed_seven_day": 0,
+          "attempts_contaminated": 0,
+          "attempts_contamination_unmeasurable": 0
+        }
+      }
+    },
+    "by_route": {
+      "implementer|claude|claude-sonnet-5|medium": {
+        "attempts": 2,
+        "attempts_with_tokens": 2,
+        "tokens": {
+          "fresh_input": 52,
+          "cache_read": 1680912,
+          "cache_write": 140037,
+          "output": 36881
+        },
+        "cost_usd": 1.2652443999999998,
+        "wall_time_sec": 338.0,
+        "attributed_five_hour_pct": 9.0,
+        "attributed_seven_day_pct": 1.0,
+        "attempts_unattributed_five_hour": 0,
+        "attempts_unattributed_seven_day": 0,
+        "attempts_contaminated": 2,
+        "attempts_contamination_unmeasurable": 0
+      },
+      "proof_review|codex|gpt-6-sol|medium": {
+        "attempts": 3,
+        "attempts_with_tokens": 3,
+        "tokens": {
+          "fresh_input": 248094,
+          "cache_read": 2238464,
+          "cache_write": 0,
+          "output": 17119
+        },
+        "cost_usd": null,
+        "wall_time_sec": 551.0,
+        "attributed_five_hour_pct": 9.0,
+        "attributed_seven_day_pct": 1.0,
+        "attempts_unattributed_five_hour": 0,
+        "attempts_unattributed_seven_day": 0,
+        "attempts_contaminated": 0,
+        "attempts_contamination_unmeasurable": 0
+      },
+      "implementer|codex|gpt-6-luna|medium": {
+        "attempts": 1,
+        "attempts_with_tokens": 1,
+        "tokens": {
+          "fresh_input": 45777,
+          "cache_read": 576256,
+          "cache_write": 0,
+          "output": 4068
+        },
+        "cost_usd": null,
+        "wall_time_sec": 155.0,
+        "attributed_five_hour_pct": null,
+        "attributed_seven_day_pct": null,
+        "attempts_unattributed_five_hour": 1,
+        "attempts_unattributed_seven_day": 1,
+        "attempts_contaminated": 0,
+        "attempts_contamination_unmeasurable": 0
+      }
+    },
+    "per_accepted_task": {},
+    "contamination": {
+      "claude": {
+        "contaminated": 2,
+        "clean": 0,
+        "not_measurable": 0,
+        "foreign_sessions": {
+          "cbd27974-7098-4865-b274-e0ced0487752": {
+            "where": "-home-dan-projects-maestro",
+            "attempts": 2,
+            "activity_count": 9
+          }
+        }
+      },
+      "codex": {
+        "contaminated": 0,
+        "clean": 4,
+        "not_measurable": 0,
+        "foreign_sessions": {}
+      }
+    }
+  }
+}

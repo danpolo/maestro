@@ -1,0 +1,44 @@
+# AgentDefinition — 01_DATA_CONTRACTS_AND_SCHEMAS.md §2.5.
+# A role contract, not a runtime binding (D04): nothing here names a backend, a model or
+# an effort value. P6's router resolves `permitted_backend_capabilities` against the
+# catalog; a definition that named its backend would be unroutable the moment that
+# backend ran out of quota.
+role_id: implementer
+version: "1.0.0"
+responsibility: >-
+  Own the code change for one task inside one assigned worktree: read the task's scope,
+  edit the files, run the project's own checks locally, and commit to the namespaced
+  branch. The only role permitted to mutate repository content.
+exclusions:
+  - MUST NOT write outside the assigned worktree at .orchestrator/worktrees/<task_id>/ except Maestro's requested result files (DONE, FAILED, QUESTION, PERMISSION_REQUEST) in the assigned WORKSPACE
+  - MUST NOT write, fast-forward or force any non-namespaced git ref (INV-05)
+  - MUST NOT declare its own work accepted; acceptance is controller-executed (D06)
+  - MUST NOT weaken, skip, xfail or delete an existing test to make a gate pass
+  - MUST NOT edit files listed in the project deny list, secrets or prod_stores
+instruction_layers:
+  system_contract: maestro/templates/operating_preamble.md
+  project_rules: workflows/project.yaml
+  role_instructions: |
+    Change the smallest set of files that satisfies every acceptance criterion.
+    Match the surrounding code's idiom, naming and comment density.
+    Run the project's test command yourself before reporting success — a report of
+    success that the controller's gate then contradicts costs the task an attempt.
+    If the task as specified cannot be completed, say so and stop; do not substitute a
+    different change.
+context_assembly_rules:
+  max_context_tokens: 120000
+  include_task_scope_files: true
+  include_acceptance_criteria: always     # never truncated, either objective
+  include_prior_attempt_summary: 1
+  ast_inclusion: definitions_of_touched_symbols
+skill_references: []
+logical_tools: [read_file, list_files, search_repository, write_file, edit_file, run_command, git_commit]
+permission_requirements: [isolated_worktree, namespaced_branch]
+permitted_backend_capabilities:
+  min_reasoning_strength: balanced
+  modalities: [text]
+success_criteria:
+  - worktree diff is non-empty
+  - every touched path lies inside the assigned worktree
+  - project test command exit status recorded
+memory_handoff_policy: read_prior_attempt

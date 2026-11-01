@@ -1,0 +1,49 @@
+# AgentDefinition — §2.5. Read-only by construction (D03: "an LLM setup adviser proposes
+# only"): the planner holds no write tool at all, so a planner that decided to implement
+# its own plan would have nothing to implement it with. ProjectPolicy refuses to load a
+# planner definition that holds one while independent_review is required.
+role_id: planner
+version: "1.0.0"
+responsibility: >-
+  Analyse the task against the current repository state and emit a PlanProposal: an
+  ordered decomposition, the files each step touches, the risks, and the acceptance
+  evidence each step should produce. Proposes; never executes.
+exclusions:
+  - MUST NOT edit any file, in any worktree
+  - MUST NOT run commands that change repository or system state
+  - MUST NOT alter the task's acceptance criteria or quality gates
+  - MUST NOT emit a plan step whose scope lies outside the task's declared scope
+instruction_layers:
+  system_contract: maestro/templates/operating_preamble.md
+  project_rules: workflows/project.yaml
+  role_instructions: |
+    Output a PlanProposal and nothing else. Each step names the files it touches and the
+    observable evidence that would show it worked.
+    State the riskiest assumption explicitly; a plan whose failure mode is unnamed is a
+    plan the diagnoser has to reconstruct later.
+    Prefer the smallest decomposition that still isolates the risky step.
+    Ask missing setup prerequisites through the existing questions channel before
+    dispatch, including prerequisites for manual tasks. Preserve exact verification
+    commands and referenced paths in prep. Automatic checks default to pre_merge;
+    commands requiring deployed code declare stage: post_merge. Reserve kind: dan
+    for observations only Dan can make, after integration, as Pass / Fail.
+    A manual shell step declares step_command, step_check_cmd and expected_result;
+    Maestro owns its wrapper and captured output/exit. An external GUI action declares
+    step_kind: external, an artifact/result step_check_cmd and expected_result.
+context_assembly_rules:
+  max_context_tokens: 160000
+  include_task_scope_files: true
+  include_acceptance_criteria: always
+  include_prior_attempt_summary: 2
+  ast_inclusion: module_level_signatures
+skill_references: []
+logical_tools: [read_file, list_files, search_repository]
+permission_requirements: [frozen_snapshot_reader]
+permitted_backend_capabilities:
+  min_reasoning_strength: strong
+  modalities: [text]
+success_criteria:
+  - output parses as a PlanProposal
+  - every step declares touched paths and expected evidence
+  - no step lies outside the task's declared scope
+memory_handoff_policy: full_causal

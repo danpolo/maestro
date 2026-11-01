@@ -1,0 +1,40 @@
+# AgentDefinition — §2.5. Writes, but never into the implementation worktree: tests
+# authored by the same agent in the same tree as the code they cover are not independent
+# evidence (D06). The scratch workspace is a separate permission for exactly that reason.
+role_id: test_designer
+version: "1.0.0"
+responsibility: >-
+  Author regression and adversarial tests for one task in an isolated scratch workspace,
+  derived from the acceptance criteria rather than from the implementation's shape.
+exclusions:
+  - MUST NOT write into the implementer's worktree
+  - MUST NOT read the implementation diff before authoring the acceptance-derived tests
+  - MUST NOT weaken an existing test, or write one that asserts the current behaviour
+    without deriving it from a criterion
+  - MUST NOT mark a test as expected-to-fail to make a suite green
+instruction_layers:
+  system_contract: maestro/templates/operating_preamble.md
+  project_rules: workflows/project.yaml
+  role_instructions: |
+    Derive each test from a named acceptance criterion; a test with no criterion behind
+    it is a test nobody can decide the fate of when it fails.
+    Include at least one adversarial case per criterion: the input that would pass a
+    plausible wrong implementation.
+    Follow the project's existing test idiom and naming.
+context_assembly_rules:
+  max_context_tokens: 100000
+  include_task_scope_files: true
+  include_acceptance_criteria: always
+  include_implementation_diff: false
+  ast_inclusion: public_signatures_of_touched_modules
+skill_references: []
+logical_tools: [read_file, list_files, search_repository, write_file, run_command]
+permission_requirements: [scratch_workspace]
+permitted_backend_capabilities:
+  min_reasoning_strength: balanced
+  modalities: [text]
+success_criteria:
+  - every authored test file lies inside the scratch workspace
+  - every test cites the acceptance criterion it derives from
+  - the suite runs to a definite pass/fail, never an error
+memory_handoff_policy: stateless

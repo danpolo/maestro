@@ -3,10 +3,9 @@
 #
 # Same pattern as maestro's own scripts/maestro-build-launcher.sh: creates a
 # dedicated, named tmux session so the loop is auditable from a phone with
-# `tmux a -t {{ project_name }}-watchdog`, then blocks in a wait loop so systemd
-# (Type=simple, per DESIGN.md §10) tracks THIS shell rather than the tmux child —
-# Type=forking is unusable here because the tracked process lives in the tmux
-# server's cgroup, not this script's.
+# `tmux a -t {{ project_name }}-watchdog`, then blocks for a foreground/manual
+# invocation. The generated Type=forking service owns the same session directly
+# through its own tmux ExecStart and does not invoke this helper.
 #
 # What this runs (read before "fixing" it): `maestro watchdog`, the supervisor —
 # NOT `maestro run`, the loop. The watchdog polls every 30s and launches
@@ -17,8 +16,10 @@
 # would lose all four: systemd only supervises this shell, so it fires on the
 # tmux session ending, not on the orchestrator inside it dying.
 #
-# The watchdog exits only on HALT (0) or a stall-HALT (1), so the wait loop below
-# ends when it does. `maestro ctl halt` is the clean stop.
+# The watchdog exits on a stall-HALT (1), and on a `maestro ctl halt` HALT (0) only
+# without a Telegram bot. With one it stays up while halted, answers /help and
+# /status, and relaunches the loop as soon as HALT is removed. Stopping this systemd
+# unit is the full stop.
 set -euo pipefail
 
 PROJECT_NAME="{{ project_name }}"
@@ -29,10 +30,9 @@ SESSION="${PROJECT_NAME}-watchdog"
 tmux kill-session -t "$SESSION" 2>/dev/null || true
 
 # Launch the supervisor in a named, detached session. Source .env first (if present) so
-# TELEGRAM_BOT_TOKEN / TELEGRAM_ALERT_CHAT_ID (and anything else the project keeps there)
-# reach the watchdog and the `maestro run` it launches — the reference implementation's
-# `orchestrator_run.py` did this at import time via `load_dotenv(REPO/".env", override=True)`;
-# nothing in maestro replaces that automatically, so this launcher must.
+# project application settings reach the watchdog and the `maestro run` it launches.
+# Maestro startup overrides Telegram credentials from the shared ~/.maestro/.env;
+# project processes read durable local mailboxes, served by `maestro telegram poll`.
 #
 # Bare `maestro` deliberately not used: a new tmux session/window's PATH comes from
 # whatever environment the tmux *server* was started with, not this script's — not
@@ -47,7 +47,7 @@ tmux new-session -d -s "$SESSION" -n main -c "$REPO_PATH" \
 # Note the watchdog's own exit code is swallowed by tmux — this script exits 0
 # either way, so Restart=on-failure fires for a failure of the *launcher* (no tmux,
 # bad REPO_PATH), not for the watchdog stopping. That is deliberate: a watchdog that
-# stopped because someone ran `maestro ctl halt` must stay stopped.
+# stopped (a stall-HALT, or a halt with no bot) must stay stopped.
 while tmux has-session -t "$SESSION" 2>/dev/null; do
     sleep 10
 done

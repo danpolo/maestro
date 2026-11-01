@@ -1,0 +1,2215 @@
+{
+  "exported_at": "2026-09-28T14:11:08Z",
+  "project": "/home/dan/projects/duetflow",
+  "since": "2026-09-28T13:20:00Z",
+  "summary": {
+    "tasks_attempted": 2,
+    "tasks_accepted": 1,
+    "runs": 2,
+    "attempts": 15,
+    "rework_attempts": 4,
+    "human_interventions": 0
+  },
+  "tasks": {
+    "06-writer-first-light": {
+      "status": "accepted",
+      "runs": [
+        {
+          "run_id": "run_TtdRSe58jchh2Jud",
+          "workflow": "wf_06-writer-first-light@1",
+          "status": "succeeded",
+          "started_at": "2026-09-28T12:18:35Z",
+          "finished_at": "2026-09-28T13:19:48Z",
+          "attempts": [
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_01",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_02",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_03",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_dan_confirm_01",
+              "node_id": "dan_confirm",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_merge_01",
+              "node_id": "merge",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_accept_01",
+              "node_id": "accept",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null,
+              "review": null
+            },
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_implementer_01",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-28T12:19:09Z",
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.283 (Claude Code)",
+              "session_id": "att_run_TtdRSe58jchh2Jud_implementer_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T12:18:36Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": null,
+                "updated_at": "2026-09-28T12:18:36Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686799,
+                    "used_pct": 95.0
+                  },
+                  "300": {
+                    "resets_at": 1790599199,
+                    "used_pct": 67.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T12:22:40Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": {
+                  "cache_read": 1492020,
+                  "cache_write": 94617,
+                  "cost_usd": 0.994992,
+                  "fresh_input": 40,
+                  "models": [
+                    "claude-sonnet-5"
+                  ],
+                  "output": 31804,
+                  "source": "claude_cost_state"
+                },
+                "updated_at": "2026-09-28T12:22:40Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686799,
+                    "used_pct": 96.0
+                  },
+                  "300": {
+                    "resets_at": 1790599199,
+                    "used_pct": 78.0
+                  }
+                }
+              },
+              "wall_time_sec": 245.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_TtdRSe58jchh2Jud_implementer_01/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-06-writer-first-light/1e6fe6cb-0e0f-47d5-96dd-9838bc3739fd.jsonl",
+                "bytes": 711411,
+                "models": [
+                  "claude-sonnet-5"
+                ],
+                "assistant_turns": 20,
+                "first_at": "2026-09-28T12:18:38.941Z",
+                "last_at": "2026-09-28T12:22:35.500Z",
+                "token_split": {
+                  "fresh_input": 40,
+                  "cache_read": 1492020,
+                  "cache_write": 94617,
+                  "output": 31804
+                }
+              },
+              "review": null,
+              "quota": {
+                "role": "implementer",
+                "backend": "claude",
+                "model": "claude-sonnet-5",
+                "effort": "medium",
+                "wall_time_sec": 245.0,
+                "tokens": {
+                  "cache_read": 1492020,
+                  "cache_write": 94617,
+                  "cost_usd": 0.994992,
+                  "fresh_input": 40,
+                  "models": [
+                    "claude-sonnet-5"
+                  ],
+                  "output": 31804,
+                  "source": "claude_cost_state"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 67.0,
+                    "seven_day_pct": 95.0,
+                    "five_hour_resets_at": 1790599199,
+                    "seven_day_resets_at": 1790686799,
+                    "sampled_at": "2026-09-28T12:18:36Z",
+                    "read_at": "2026-09-28T12:18:36Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 78.0,
+                    "seven_day_pct": 96.0,
+                    "five_hour_resets_at": 1790599199,
+                    "seven_day_resets_at": 1790686799,
+                    "sampled_at": "2026-09-28T12:22:40Z",
+                    "read_at": "2026-09-28T12:22:40Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": 11.0,
+                  "seven_day": 1.0,
+                  "reasons": {}
+                },
+                "attributed_delta": {
+                  "five_hour": 11.0,
+                  "seven_day": 1.0,
+                  "reasons": {},
+                  "weight_basis": [
+                    "sole"
+                  ],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": true,
+                  "foreign_sessions": [
+                    {
+                      "id": "08c313a6-f8ad-40f6-80a0-a3067cb02985",
+                      "where": "-home-dan-projects-maestro",
+                      "activity_count": 18
+                    }
+                  ],
+                  "reason": "1 other claude session(s) active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_proof_review_01",
+              "node_id": "proof_review",
+              "status": "failed",
+              "started_at": "2026-09-28T12:24:07Z",
+              "backend_id": "codex",
+              "model_id": "gpt-6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.1",
+              "session_id": "att_run_TtdRSe58jchh2Jud_proof_review_01",
+              "session_mode": "fresh",
+              "usage_start": null,
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T12:26:40Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": {
+                  "cache_read": 497280,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 64308,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 6587,
+                  "reasoning_output": 2816,
+                  "source": "codex_rollout"
+                },
+                "updated_at": "2026-09-28T12:26:40Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 35.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 24.0
+                  }
+                }
+              },
+              "wall_time_sec": 207.0,
+              "reset_crossing": null,
+              "failure_kind": "verification_failed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "verification_failed",
+                "failure_class": "bad_output",
+                "evidence": "review changes_requested: duetflow/spotify.py replace_playlist_items accepts a 2xx PUT reply with no snapshot_id and returns None; duetflow/playlist.py then records a successful Refresh with runs.snapshot_id NULL. A fake PUT returning {} reproduces this (one PUT, result None). This loses the write receipt required by PLAN \u00a74.4 and the single_put acceptance criterion. Rule: A Refresh may be recorded as successful only when the full-replacement PUT yields a usable snapshot_id, and that exact id must be persisted.. Scope: All successful PUT response handling in spotify.replace_playlist_items and the success path through playlist._refresh and db.record_refresh.. Verify: With a fake PUT returning a valid snapshot_id, assert the same id is stored; with a 2xx reply missing, empty, or having a non-string snapshot_id, assert Refresh cannot finish as ok or persist a NULL snapshot_id..; After every PUT attempt fails (for example four fake HTTP 503 replies), spotify.replace_playlist_items raises and playlist.refresh records an error, but duetflow.app only prints to stderr. No alert is sent. TASK NOTES and PLAN \u00a74.4 require an alert after the whole-call retries are exhausted. Rule: A failed Duet write must be surfaced through the operator alert path after bounded whole-call retries, while leaving the Duet state unchanged.. Scope: Every terminal failure of the Duet PUT, including exhausted 429, 5xx, and transport retries and non-retryable errors, from spotify.replace_playlist_items through playlist.refresh and the CLI entrypoint.. Verify: Inject terminal PUT failures through a fake transport and fake alert sink; assert one operator alert identifies the failed Refresh, no duet_state update occurs, and no extra or piecemeal write occurs..; duetflow/config.py set_duet_playlist_id rewrites config.yaml in place with Path.write_text after Spotify has created the playlist. If the write is interrupted or fails after truncation (for example disk full), the existing keys and new playlist i",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_TtdRSe58jchh2Jud_proof_review_01/impl.log",
+              "transcript": null,
+              "review": {
+                "verdict": "changes_requested",
+                "findings": [
+                  "duetflow/spotify.py replace_playlist_items accepts a 2xx PUT reply with no snapshot_id and returns None; duetflow/playlist.py then records a successful Refresh with runs.snapshot_id NULL. A fake PUT returning {} reproduces this (one PUT, result None). This loses the write receipt required by PLAN \u00a74.4 and the single_put acceptance criterion. Rule: A Refresh may be recorded as successful only when the full-replacement PUT yields a usable snapshot_id, and that exact id must be persisted.. Scope: All successful PUT response handling in spotify.replace_playlist_items and the success path through playlist._refresh and db.record_refresh.. Verify: With a fake PUT returning a valid snapshot_id, assert the same id is stored; with a 2xx reply missing, empty, or having a non-string snapshot_id, assert Refresh cannot finish as ok or persist a NULL snapshot_id..",
+                  "After every PUT attempt fails (for example four fake HTTP 503 replies), spotify.replace_playlist_items raises and playlist.refresh records an error, but duetflow.app only prints to stderr. No alert is sent. TASK NOTES and PLAN \u00a74.4 require an alert after the whole-call retries are exhausted. Rule: A failed Duet write must be surfaced through the operator alert path after bounded whole-call retries, while leaving the Duet state unchanged.. Scope: Every terminal failure of the Duet PUT, including exhausted 429, 5xx, and transport retries and non-retryable errors, from spotify.replace_playlist_items through playlist.refresh and the CLI entrypoint.. Verify: Inject terminal PUT failures through a fake transport and fake alert sink; assert one operator alert identifies the failed Refresh, no duet_state update occurs, and no extra or piecemeal write occurs..",
+                  "duetflow/config.py set_duet_playlist_id rewrites config.yaml in place with Path.write_text after Spotify has created the playlist. If the write is interrupted or fails after truncation (for example disk full), the existing keys and new playlist id can both be lost; the next Refresh cannot reuse the created Duet. This violates create-once persistence and keeping other config keys. Rule: Persisting a newly created non-idempotent Duet id must not destroy the prior config or leave a partial config file on a local write failure.. Scope: The config.yaml persistence step in config.set_duet_playlist_id, including the failure path from playlist._refresh after a successful create POST.. Verify: Inject a failure after a partial config write; assert config.yaml still parses with all original keys intact and the created playlist id remains recoverable from the raised error, then show a successful write preserves keys and the second Refresh sends no POST.."
+                ],
+                "follow_ups": [],
+                "round": 1,
+                "finding_records": [
+                  {
+                    "finding": "duetflow/spotify.py replace_playlist_items accepts a 2xx PUT reply with no snapshot_id and returns None; duetflow/playlist.py then records a successful Refresh with runs.snapshot_id NULL. A fake PUT returning {} reproduces this (one PUT, result None). This loses the write receipt required by PLAN \u00a74.4 and the single_put acceptance criterion. Rule: A Refresh may be recorded as successful only when the full-replacement PUT yields a usable snapshot_id, and that exact id must be persisted.. Scope: All successful PUT response handling in spotify.replace_playlist_items and the success path through playlist._refresh and db.record_refresh.. Verify: With a fake PUT returning a valid snapshot_id, assert the same id is stored; with a 2xx reply missing, empty, or having a non-string snapshot_id, assert Refresh cannot finish as ok or persist a NULL snapshot_id..",
+                    "id": "r1-f1",
+                    "origin": null,
+                    "prior_finding": null,
+                    "severity": "blocking"
+                  },
+                  {
+                    "finding": "After every PUT attempt fails (for example four fake HTTP 503 replies), spotify.replace_playlist_items raises and playlist.refresh records an error, but duetflow.app only prints to stderr. No alert is sent. TASK NOTES and PLAN \u00a74.4 require an alert after the whole-call retries are exhausted. Rule: A failed Duet write must be surfaced through the operator alert path after bounded whole-call retries, while leaving the Duet state unchanged.. Scope: Every terminal failure of the Duet PUT, including exhausted 429, 5xx, and transport retries and non-retryable errors, from spotify.replace_playlist_items through playlist.refresh and the CLI entrypoint.. Verify: Inject terminal PUT failures through a fake transport and fake alert sink; assert one operator alert identifies the failed Refresh, no duet_state update occurs, and no extra or piecemeal write occurs..",
+                    "id": "r1-f2",
+                    "origin": null,
+                    "prior_finding": null,
+                    "severity": "blocking"
+                  },
+                  {
+                    "finding": "duetflow/config.py set_duet_playlist_id rewrites config.yaml in place with Path.write_text after Spotify has created the playlist. If the write is interrupted or fails after truncation (for example disk full), the existing keys and new playlist id can both be lost; the next Refresh cannot reuse the created Duet. This violates create-once persistence and keeping other config keys. Rule: Persisting a newly created non-idempotent Duet id must not destroy the prior config or leave a partial config file on a local write failure.. Scope: The config.yaml persistence step in config.set_duet_playlist_id, including the failure path from playlist._refresh after a successful create POST.. Verify: Inject a failure after a partial config write; assert config.yaml still parses with all original keys intact and the created playlist id remains recoverable from the raised error, then show a successful write preserves keys and the second Refresh sends no POST..",
+                    "id": "r1-f3",
+                    "origin": null,
+                    "prior_finding": null,
+                    "severity": "blocking"
+                  }
+                ]
+              },
+              "quota": {
+                "role": "proof_review",
+                "backend": "codex",
+                "model": "gpt-6-sol",
+                "effort": "medium",
+                "wall_time_sec": 207.0,
+                "tokens": {
+                  "cache_read": 497280,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 64308,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 6587,
+                  "reasoning_output": 2816,
+                  "source": "codex_rollout"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": null,
+                    "seven_day_pct": null,
+                    "five_hour_resets_at": null,
+                    "seven_day_resets_at": null,
+                    "sampled_at": null,
+                    "read_at": null,
+                    "source": null,
+                    "freshness": "unavailable",
+                    "reason": "no usage sample recorded"
+                  },
+                  "settle": {
+                    "five_hour_pct": 24.0,
+                    "seven_day_pct": 35.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T12:26:40Z",
+                    "read_at": "2026-09-28T12:26:40Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": null,
+                  "seven_day": null,
+                  "reasons": {
+                    "five_hour": "start or settle reading is not fresh",
+                    "seven_day": "start or settle reading is not fresh"
+                  }
+                },
+                "attributed_delta": {
+                  "five_hour": null,
+                  "seven_day": null,
+                  "reasons": {
+                    "five_hour": "start or settle reading is not fresh",
+                    "seven_day": "start or settle reading is not fresh"
+                  },
+                  "weight_basis": [],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": false,
+                  "foreign_sessions": [],
+                  "reason": "no other codex session was active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_implementer_02",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-28T12:27:11Z",
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.283 (Claude Code)",
+              "session_id": "att_run_TtdRSe58jchh2Jud_implementer_02",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T12:26:41Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": null,
+                "updated_at": "2026-09-28T12:26:40Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 96.0
+                  },
+                  "300": {
+                    "resets_at": 1790599200,
+                    "used_pct": 78.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T12:28:42Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": {
+                  "cache_read": 600111,
+                  "cache_write": 51706,
+                  "cost_usd": 0.4220142,
+                  "fresh_input": 24,
+                  "models": [
+                    "claude-sonnet-5"
+                  ],
+                  "output": 9512,
+                  "source": "claude_cost_state"
+                },
+                "updated_at": "2026-09-28T12:28:42Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 96.0
+                  },
+                  "300": {
+                    "resets_at": 1790599200,
+                    "used_pct": 81.0
+                  }
+                }
+              },
+              "wall_time_sec": 123.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_TtdRSe58jchh2Jud_implementer_02/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-06-writer-first-light/fc29c2f6-7c40-43ce-8da1-389dbb55eda3.jsonl",
+                "bytes": 406719,
+                "models": [
+                  "claude-sonnet-5"
+                ],
+                "assistant_turns": 12,
+                "first_at": "2026-09-28T12:26:42.929Z",
+                "last_at": "2026-09-28T12:28:33.178Z",
+                "token_split": {
+                  "fresh_input": 24,
+                  "cache_read": 600111,
+                  "cache_write": 51706,
+                  "output": 9512
+                }
+              },
+              "review": null,
+              "quota": {
+                "role": "implementer",
+                "backend": "claude",
+                "model": "claude-sonnet-5",
+                "effort": "medium",
+                "wall_time_sec": 123.0,
+                "tokens": {
+                  "cache_read": 600111,
+                  "cache_write": 51706,
+                  "cost_usd": 0.4220142,
+                  "fresh_input": 24,
+                  "models": [
+                    "claude-sonnet-5"
+                  ],
+                  "output": 9512,
+                  "source": "claude_cost_state"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 78.0,
+                    "seven_day_pct": 96.0,
+                    "five_hour_resets_at": 1790599200,
+                    "seven_day_resets_at": 1790686800,
+                    "sampled_at": "2026-09-28T12:26:40Z",
+                    "read_at": "2026-09-28T12:26:41Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 81.0,
+                    "seven_day_pct": 96.0,
+                    "five_hour_resets_at": 1790599200,
+                    "seven_day_resets_at": 1790686800,
+                    "sampled_at": "2026-09-28T12:28:42Z",
+                    "read_at": "2026-09-28T12:28:42Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": 3.0,
+                  "seven_day": 0.0,
+                  "reasons": {}
+                },
+                "attributed_delta": {
+                  "five_hour": 3.0,
+                  "seven_day": 0.0,
+                  "reasons": {},
+                  "weight_basis": [
+                    "sole"
+                  ],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": false,
+                  "foreign_sessions": [],
+                  "reason": "no other claude session was active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_proof_review_02",
+              "node_id": "proof_review",
+              "status": "failed",
+              "started_at": "2026-09-28T12:29:45Z",
+              "backend_id": "codex",
+              "model_id": "gpt-6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.1",
+              "session_id": "att_run_TtdRSe58jchh2Jud_proof_review_02",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T12:29:15Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": null,
+                "updated_at": "2026-09-28T12:29:15Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 35.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 24.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T12:32:18Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": {
+                  "cache_read": 670720,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 85831,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 7340,
+                  "reasoning_output": 2838,
+                  "source": "codex_rollout"
+                },
+                "updated_at": "2026-09-28T12:32:18Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 35.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 27.0
+                  }
+                }
+              },
+              "wall_time_sec": 184.0,
+              "reset_crossing": 0,
+              "failure_kind": "verification_failed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "verification_failed",
+                "failure_class": "bad_output",
+                "evidence": "review changes_requested: On the normal `duetflow refresh` CLI path, a terminal PUT failure calls `app._alert`, which only prints `ALERT:` to stderr. With no injected callback, no operator notification is delivered; this is the same stderr-only outcome identified in r1-f2. The new callback makes tests pass only when a caller supplies its own sink. Rule: After bounded whole-call PUT retries end in failure, Refresh must send one operator alert through a delivery path, while leaving `duet_state` unchanged. Printing to the failing process's stderr alone does not send an alert.. Scope: Every terminal Duet PUT failure, including exhausted 429, 5xx, and transport failures and non-retryable errors, through `spotify.replace_playlist_items`, `playlist.refresh`, and the default CLI entrypoint.. Verify: Run the default CLI Refresh path against a fake transport whose PUT ends in 503, 429, transport failure, or 403, with a fake operator delivery backend; assert exactly one delivered alert per failed Refresh, no `duet_state` update, and only whole ordered PUT attempts. A stderr capture alone must not satisfy the delivery assertion..; At cold start, `selector.select` excludes from A only IDs in `inferred_avail`, after filtering B candidates by `entry_threshold`. For source `[x, s1]` and B candidates `x` scored 1.0 from one play and `b1` scored 2.0, with threshold 1.3, it writes `x` on A and `b1` on B. ADR-0003 and V5 say a track in the Source Playlist and B's plays belongs only to the Inferred Half and leaves A's pool. Rule: At cold start, every Source Playlist track also present among B's play or short-term-top candidates must be removed from the Sampled pool; eligible B tracks then determine the equal half size with A's remaining pool, capped at 20.. Scope: Cold-start overlap handling in `selector.select` for every B candidate source, including stored plays below the entry threshold and short-term top tracks, and the resulting pool-size calculation through `playlist.refresh`.. Ve",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_TtdRSe58jchh2Jud_proof_review_02/impl.log",
+              "transcript": null,
+              "review": {
+                "verdict": "changes_requested",
+                "findings": [
+                  "On the normal `duetflow refresh` CLI path, a terminal PUT failure calls `app._alert`, which only prints `ALERT:` to stderr. With no injected callback, no operator notification is delivered; this is the same stderr-only outcome identified in r1-f2. The new callback makes tests pass only when a caller supplies its own sink. Rule: After bounded whole-call PUT retries end in failure, Refresh must send one operator alert through a delivery path, while leaving `duet_state` unchanged. Printing to the failing process's stderr alone does not send an alert.. Scope: Every terminal Duet PUT failure, including exhausted 429, 5xx, and transport failures and non-retryable errors, through `spotify.replace_playlist_items`, `playlist.refresh`, and the default CLI entrypoint.. Verify: Run the default CLI Refresh path against a fake transport whose PUT ends in 503, 429, transport failure, or 403, with a fake operator delivery backend; assert exactly one delivered alert per failed Refresh, no `duet_state` update, and only whole ordered PUT attempts. A stderr capture alone must not satisfy the delivery assertion..",
+                  "At cold start, `selector.select` excludes from A only IDs in `inferred_avail`, after filtering B candidates by `entry_threshold`. For source `[x, s1]` and B candidates `x` scored 1.0 from one play and `b1` scored 2.0, with threshold 1.3, it writes `x` on A and `b1` on B. ADR-0003 and V5 say a track in the Source Playlist and B's plays belongs only to the Inferred Half and leaves A's pool. Rule: At cold start, every Source Playlist track also present among B's play or short-term-top candidates must be removed from the Sampled pool; eligible B tracks then determine the equal half size with A's remaining pool, capped at 20.. Scope: Cold-start overlap handling in `selector.select` for every B candidate source, including stored plays below the entry threshold and short-term top tracks, and the resulting pool-size calculation through `playlist.refresh`.. Verify: Add a `shared_track` Refresh test with `x` in the Source Playlist and one recent B play scoring below the entry threshold, plus a separate qualifying B track. Assert `x` never appears on A, and both halves equal `min(A's remaining pool, B's qualified pool, 20)`; retain the existing qualifying-overlap tests.."
+                ],
+                "follow_ups": [],
+                "round": 2,
+                "finding_records": [
+                  {
+                    "finding": "On the normal `duetflow refresh` CLI path, a terminal PUT failure calls `app._alert`, which only prints `ALERT:` to stderr. With no injected callback, no operator notification is delivered; this is the same stderr-only outcome identified in r1-f2. The new callback makes tests pass only when a caller supplies its own sink. Rule: After bounded whole-call PUT retries end in failure, Refresh must send one operator alert through a delivery path, while leaving `duet_state` unchanged. Printing to the failing process's stderr alone does not send an alert.. Scope: Every terminal Duet PUT failure, including exhausted 429, 5xx, and transport failures and non-retryable errors, through `spotify.replace_playlist_items`, `playlist.refresh`, and the default CLI entrypoint.. Verify: Run the default CLI Refresh path against a fake transport whose PUT ends in 503, 429, transport failure, or 403, with a fake operator delivery backend; assert exactly one delivered alert per failed Refresh, no `duet_state` update, and only whole ordered PUT attempts. A stderr capture alone must not satisfy the delivery assertion..",
+                    "id": "r2-f1",
+                    "origin": "fixed_incompletely_in_scope",
+                    "prior_finding": "r1-f2",
+                    "severity": "blocking"
+                  },
+                  {
+                    "finding": "At cold start, `selector.select` excludes from A only IDs in `inferred_avail`, after filtering B candidates by `entry_threshold`. For source `[x, s1]` and B candidates `x` scored 1.0 from one play and `b1` scored 2.0, with threshold 1.3, it writes `x` on A and `b1` on B. ADR-0003 and V5 say a track in the Source Playlist and B's plays belongs only to the Inferred Half and leaves A's pool. Rule: At cold start, every Source Playlist track also present among B's play or short-term-top candidates must be removed from the Sampled pool; eligible B tracks then determine the equal half size with A's remaining pool, capped at 20.. Scope: Cold-start overlap handling in `selector.select` for every B candidate source, including stored plays below the entry threshold and short-term top tracks, and the resulting pool-size calculation through `playlist.refresh`.. Verify: Add a `shared_track` Refresh test with `x` in the Source Playlist and one recent B play scoring below the entry threshold, plus a separate qualifying B track. Assert `x` never appears on A, and both halves equal `min(A's remaining pool, B's qualified pool, 20)`; retain the existing qualifying-overlap tests..",
+                    "id": "r2-f2",
+                    "origin": "missed_earlier",
+                    "prior_finding": null,
+                    "severity": "blocking"
+                  }
+                ]
+              },
+              "quota": {
+                "role": "proof_review",
+                "backend": "codex",
+                "model": "gpt-6-sol",
+                "effort": "medium",
+                "wall_time_sec": 184.0,
+                "tokens": {
+                  "cache_read": 670720,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 85831,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 7340,
+                  "reasoning_output": 2838,
+                  "source": "codex_rollout"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 24.0,
+                    "seven_day_pct": 35.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T12:29:15Z",
+                    "read_at": "2026-09-28T12:29:15Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 27.0,
+                    "seven_day_pct": 35.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T12:32:18Z",
+                    "read_at": "2026-09-28T12:32:18Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": 3.0,
+                  "seven_day": 0.0,
+                  "reasons": {}
+                },
+                "attributed_delta": {
+                  "five_hour": 3.0,
+                  "seven_day": 0.0,
+                  "reasons": {},
+                  "weight_basis": [
+                    "sole"
+                  ],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": false,
+                  "foreign_sessions": [],
+                  "reason": "no other codex session was active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_implementer_03",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-28T12:33:14Z",
+              "backend_id": "codex",
+              "model_id": "gpt-6-luna",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.1",
+              "session_id": "att_run_TtdRSe58jchh2Jud_implementer_03",
+              "session_mode": "fresh",
+              "usage_start": null,
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T12:37:17Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": {
+                  "cache_read": 1377280,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 68520,
+                  "models": [
+                    "gpt-6-luna"
+                  ],
+                  "output": 8445,
+                  "reasoning_output": 3147,
+                  "source": "codex_rollout"
+                },
+                "updated_at": "2026-09-28T12:37:17Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 35.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 27.0
+                  }
+                }
+              },
+              "wall_time_sec": 299.0,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_TtdRSe58jchh2Jud_implementer_03/impl.log",
+              "transcript": null,
+              "review": null,
+              "quota": {
+                "role": "implementer",
+                "backend": "codex",
+                "model": "gpt-6-luna",
+                "effort": "medium",
+                "wall_time_sec": 299.0,
+                "tokens": {
+                  "cache_read": 1377280,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 68520,
+                  "models": [
+                    "gpt-6-luna"
+                  ],
+                  "output": 8445,
+                  "reasoning_output": 3147,
+                  "source": "codex_rollout"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": null,
+                    "seven_day_pct": null,
+                    "five_hour_resets_at": null,
+                    "seven_day_resets_at": null,
+                    "sampled_at": null,
+                    "read_at": null,
+                    "source": null,
+                    "freshness": "unavailable",
+                    "reason": "no usage sample recorded"
+                  },
+                  "settle": {
+                    "five_hour_pct": 27.0,
+                    "seven_day_pct": 35.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T12:37:17Z",
+                    "read_at": "2026-09-28T12:37:17Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": null,
+                  "seven_day": null,
+                  "reasons": {
+                    "five_hour": "start or settle reading is not fresh",
+                    "seven_day": "start or settle reading is not fresh"
+                  }
+                },
+                "attributed_delta": {
+                  "five_hour": null,
+                  "seven_day": null,
+                  "reasons": {
+                    "five_hour": "start or settle reading is not fresh",
+                    "seven_day": "start or settle reading is not fresh"
+                  },
+                  "weight_basis": [],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": false,
+                  "foreign_sessions": [],
+                  "reason": "no other codex session was active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_TtdRSe58jchh2Jud_proof_review_03",
+              "node_id": "proof_review",
+              "status": "succeeded",
+              "started_at": "2026-09-28T12:38:21Z",
+              "backend_id": "codex",
+              "model_id": "gpt-6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.1",
+              "session_id": "att_run_TtdRSe58jchh2Jud_proof_review_03",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T12:37:50Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": null,
+                "updated_at": "2026-09-28T12:37:50Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 35.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 27.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T12:40:53Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": {
+                  "cache_read": 871424,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 76772,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 5522,
+                  "reasoning_output": 1510,
+                  "source": "codex_rollout"
+                },
+                "updated_at": "2026-09-28T12:40:53Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 37.0
+                  },
+                  "300": {
+                    "resets_at": 1790602273,
+                    "used_pct": 35.0
+                  }
+                }
+              },
+              "wall_time_sec": 184.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_TtdRSe58jchh2Jud_proof_review_03/impl.log",
+              "transcript": null,
+              "review": {
+                "verdict": "approved",
+                "findings": [],
+                "follow_ups": [],
+                "round": 3,
+                "finding_records": []
+              },
+              "quota": {
+                "role": "proof_review",
+                "backend": "codex",
+                "model": "gpt-6-sol",
+                "effort": "medium",
+                "wall_time_sec": 184.0,
+                "tokens": {
+                  "cache_read": 871424,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 76772,
+                  "models": [
+                    "gpt-6-sol"
+                  ],
+                  "output": 5522,
+                  "reasoning_output": 1510,
+                  "source": "codex_rollout"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 27.0,
+                    "seven_day_pct": 35.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T12:37:50Z",
+                    "read_at": "2026-09-28T12:37:50Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 35.0,
+                    "seven_day_pct": 37.0,
+                    "five_hour_resets_at": 1790602273,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T12:40:53Z",
+                    "read_at": "2026-09-28T12:40:53Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": 8.0,
+                  "seven_day": 2.0,
+                  "reasons": {}
+                },
+                "attributed_delta": {
+                  "five_hour": 7.160159274312746,
+                  "seven_day": 1.7900398185781865,
+                  "reasons": {},
+                  "weight_basis": [
+                    "tokens"
+                  ],
+                  "overlapping_attempts": [
+                    "att_run_TtdRSe58jchh2Jud_implementer_03"
+                  ]
+                },
+                "contamination": {
+                  "contaminated": false,
+                  "foreign_sessions": [],
+                  "reason": "no other codex session was active during the attempt"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "rework_attempts": 2,
+      "reopens": 0,
+      "review_follow_ups": [],
+      "review_origins": {
+        "by_round": {
+          "1": {
+            "blocking": 3,
+            "origin": {},
+            "fault": {}
+          },
+          "2": {
+            "blocking": 2,
+            "origin": {
+              "fixed_incompletely_in_scope": 1,
+              "missed_earlier": 1
+            },
+            "fault": {
+              "implementer": 1,
+              "reviewer": 1
+            }
+          },
+          "3": {
+            "blocking": 0,
+            "origin": {},
+            "fault": {}
+          }
+        },
+        "total": {
+          "blocking": 5,
+          "origin": {
+            "fixed_incompletely_in_scope": 1,
+            "missed_earlier": 1
+          },
+          "fault": {
+            "implementer": 1,
+            "reviewer": 1
+          }
+        }
+      },
+      "verification_evidence": [
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:22:41Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:22:42Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:22:42Z"
+        },
+        {
+          "check_id": "V4",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:22:42Z"
+        },
+        {
+          "check_id": "V5",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:22:42Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:22:44Z"
+        },
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:28:43Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:28:43Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:28:44Z"
+        },
+        {
+          "check_id": "V4",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:28:44Z"
+        },
+        {
+          "check_id": "V5",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:28:44Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_02",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:28:46Z"
+        },
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:37:18Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:37:18Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:37:19Z"
+        },
+        {
+          "check_id": "V4",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:37:19Z"
+        },
+        {
+          "check_id": "V5",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:37:19Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_gate_03",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T12:37:21Z"
+        },
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_merge_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T13:19:15Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_merge_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T13:19:15Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_merge_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T13:19:15Z"
+        },
+        {
+          "check_id": "V4",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_merge_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T13:19:16Z"
+        },
+        {
+          "check_id": "V5",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_merge_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T13:19:16Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_TtdRSe58jchh2Jud_merge_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-28T13:19:18Z"
+        }
+      ],
+      "acceptance_decisions": [
+        {
+          "run_id": "run_TtdRSe58jchh2Jud",
+          "decision": "accepted",
+          "reason": "7 required check(s) passed on 951789b86e17; 7 criterion(s) discharged; 0 effect receipt(s) present",
+          "integrated_source_snapshot": "951789b86e17c3b87eb55cc2759dcbb8331b9cd4",
+          "decided_at": "2026-09-28T13:19:18Z"
+        },
+        {
+          "run_id": "run_TtdRSe58jchh2Jud",
+          "decision": "accepted",
+          "reason": "7 required check(s) passed on 951789b86e17; 7 criterion(s) discharged; 0 effect receipt(s) present",
+          "integrated_source_snapshot": "951789b86e17c3b87eb55cc2759dcbb8331b9cd4",
+          "decided_at": "2026-09-28T13:19:48Z"
+        }
+      ],
+      "human_interventions": [],
+      "attempt_wall_time_sec_sum": 1242.0,
+      "tokens_sum": {
+        "fresh_input": 64,
+        "cache_read": 2092131,
+        "cache_write": 146323,
+        "output": 41316
+      },
+      "quota_totals": {
+        "claude": {
+          "attempts": 2,
+          "attempts_with_tokens": 2,
+          "tokens": {
+            "fresh_input": 64,
+            "cache_read": 2092131,
+            "cache_write": 146323,
+            "output": 41316
+          },
+          "cost_usd": 1.4170061999999999,
+          "wall_time_sec": 368.0,
+          "attributed_five_hour_pct": 14.0,
+          "attributed_seven_day_pct": 1.0,
+          "attempts_unattributed_five_hour": 0,
+          "attempts_unattributed_seven_day": 0,
+          "attempts_contaminated": 1,
+          "attempts_contamination_unmeasurable": 0
+        },
+        "codex": {
+          "attempts": 4,
+          "attempts_with_tokens": 4,
+          "tokens": {
+            "fresh_input": 295431,
+            "cache_read": 3416704,
+            "cache_write": 0,
+            "output": 27894
+          },
+          "cost_usd": null,
+          "wall_time_sec": 874.0,
+          "attributed_five_hour_pct": 10.160159274312747,
+          "attributed_seven_day_pct": 1.7900398185781865,
+          "attempts_unattributed_five_hour": 2,
+          "attempts_unattributed_seven_day": 2,
+          "attempts_contaminated": 0,
+          "attempts_contamination_unmeasurable": 0
+        }
+      }
+    },
+    "07-reconciliation": {
+      "status": "active",
+      "runs": [
+        {
+          "run_id": "run_EBEhOJzVEWlucunX",
+          "workflow": "wf_07-reconciliation@1",
+          "status": "running",
+          "started_at": "2026-09-28T13:20:27Z",
+          "finished_at": null,
+          "attempts": [
+            {
+              "attempt_id": "att_run_EBEhOJzVEWlucunX_implementer_02",
+              "node_id": "implementer",
+              "status": "failed",
+              "started_at": null,
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.283 (Claude Code)",
+              "session_id": "att_run_EBEhOJzVEWlucunX_implementer_02",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T13:37:51Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": null,
+                "updated_at": "2026-09-28T13:37:50Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686799,
+                    "used_pct": 100.0
+                  },
+                  "300": {
+                    "resets_at": 1790617199,
+                    "used_pct": 34.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T13:38:25Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": {
+                  "cache_read": 0,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 0,
+                  "models": [
+                    "<synthetic>"
+                  ],
+                  "output": 0,
+                  "source": "claude_transcript"
+                },
+                "updated_at": "2026-09-28T13:37:50Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686799,
+                    "used_pct": 100.0
+                  },
+                  "300": {
+                    "resets_at": 1790617199,
+                    "used_pct": 34.0
+                  }
+                }
+              },
+              "wall_time_sec": 43.0,
+              "reset_crossing": 0,
+              "failure_kind": "rate_limited",
+              "failure_class": "blocked",
+              "failure": {
+                "kind": "rate_limited",
+                "failure_class": "blocked",
+                "evidence": "You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage?from=cc_cli_limit_message \u00b7 your weekly limit resets 4pm (Asia/Jerusalem)",
+                "retry_after_sec": null,
+                "reset_at": "2026-09-28T17:40:00Z"
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_EBEhOJzVEWlucunX_implementer_02/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-07-reconciliation/c6894781-bffe-47ad-afe0-c7ddd074a64e.jsonl",
+                "bytes": 141789,
+                "models": [
+                  "<synthetic>"
+                ],
+                "assistant_turns": 1,
+                "first_at": "2026-09-28T13:37:52.619Z",
+                "last_at": "2026-09-28T13:37:53.968Z",
+                "token_split": {
+                  "fresh_input": 0,
+                  "cache_read": 0,
+                  "cache_write": 0,
+                  "output": 0
+                }
+              },
+              "review": null,
+              "quota": {
+                "role": "implementer",
+                "backend": "claude",
+                "model": "claude-sonnet-5",
+                "effort": "medium",
+                "wall_time_sec": 43.0,
+                "tokens": {
+                  "cache_read": 0,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 0,
+                  "models": [
+                    "<synthetic>"
+                  ],
+                  "output": 0,
+                  "source": "claude_transcript"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 34.0,
+                    "seven_day_pct": 100.0,
+                    "five_hour_resets_at": 1790617199,
+                    "seven_day_resets_at": 1790686799,
+                    "sampled_at": "2026-09-28T13:37:50Z",
+                    "read_at": "2026-09-28T13:37:51Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 34.0,
+                    "seven_day_pct": 100.0,
+                    "five_hour_resets_at": 1790617199,
+                    "seven_day_resets_at": 1790686799,
+                    "sampled_at": "2026-09-28T13:37:50Z",
+                    "read_at": "2026-09-28T13:38:25Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": null,
+                  "seven_day": null,
+                  "reasons": {
+                    "five_hour": "start and settle share one cached sample (shorter than the read throttle)",
+                    "seven_day": "start and settle share one cached sample (shorter than the read throttle)"
+                  }
+                },
+                "attributed_delta": {
+                  "five_hour": null,
+                  "seven_day": null,
+                  "reasons": {
+                    "five_hour": "start and settle share one cached sample (shorter than the read throttle)",
+                    "seven_day": "start and settle share one cached sample (shorter than the read throttle)"
+                  },
+                  "weight_basis": [],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": false,
+                  "foreign_sessions": [],
+                  "reason": "no other claude session was active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_EBEhOJzVEWlucunX_implementer_01",
+              "node_id": "implementer",
+              "status": "failed",
+              "started_at": "2026-09-28T13:21:01Z",
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.283 (Claude Code)",
+              "session_id": "att_run_EBEhOJzVEWlucunX_implementer_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T13:20:28Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": null,
+                "updated_at": "2026-09-28T13:20:28Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 100.0
+                  },
+                  "300": {
+                    "resets_at": 1790617200,
+                    "used_pct": 25.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T13:35:11Z",
+                "session_id": "",
+                "source": "claude_oauth_usage_api",
+                "token_split": {
+                  "cache_read": 290771,
+                  "cache_write": 52745,
+                  "cost_usd": 0.3354922,
+                  "fresh_input": 14,
+                  "models": [
+                    "claude-sonnet-5"
+                  ],
+                  "output": 6633,
+                  "source": "claude_cost_state"
+                },
+                "updated_at": "2026-09-28T13:35:11Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686799,
+                    "used_pct": 100.0
+                  },
+                  "300": {
+                    "resets_at": 1790617199,
+                    "used_pct": 34.0
+                  }
+                }
+              },
+              "wall_time_sec": 883.0,
+              "reset_crossing": 0,
+              "failure_kind": "dan_question",
+              "failure_class": "blocked",
+              "failure": {
+                "kind": "dan_question",
+                "failure_class": "blocked",
+                "evidence": "asked Dan: When a hand edit leaves the Duet with an uneven split (e.g. a person removes one Sampled-Half track: 19 vs 20; or adds a Pin to A: 21 vs 20), how should the next Refresh restore the even split (I1)?",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_EBEhOJzVEWlucunX_implementer_01/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-07-reconciliation/e6d30dc3-92d4-4ac8-88a4-aa35d8c9db04.jsonl",
+                "bytes": 411149,
+                "models": [
+                  "claude-sonnet-5"
+                ],
+                "assistant_turns": 7,
+                "first_at": "2026-09-28T13:20:30.561Z",
+                "last_at": "2026-09-28T13:21:50.333Z",
+                "token_split": {
+                  "fresh_input": 14,
+                  "cache_read": 290771,
+                  "cache_write": 52745,
+                  "output": 6633
+                }
+              },
+              "review": null,
+              "quota": {
+                "role": "implementer",
+                "backend": "claude",
+                "model": "claude-sonnet-5",
+                "effort": "medium",
+                "wall_time_sec": 883.0,
+                "tokens": {
+                  "cache_read": 290771,
+                  "cache_write": 52745,
+                  "cost_usd": 0.3354922,
+                  "fresh_input": 14,
+                  "models": [
+                    "claude-sonnet-5"
+                  ],
+                  "output": 6633,
+                  "source": "claude_cost_state"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 25.0,
+                    "seven_day_pct": 100.0,
+                    "five_hour_resets_at": 1790617200,
+                    "seven_day_resets_at": 1790686800,
+                    "sampled_at": "2026-09-28T13:20:28Z",
+                    "read_at": "2026-09-28T13:20:28Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 34.0,
+                    "seven_day_pct": 100.0,
+                    "five_hour_resets_at": 1790617199,
+                    "seven_day_resets_at": 1790686799,
+                    "sampled_at": "2026-09-28T13:35:11Z",
+                    "read_at": "2026-09-28T13:35:11Z",
+                    "source": "claude_oauth_usage_api",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": 9.0,
+                  "seven_day": 0.0,
+                  "reasons": {}
+                },
+                "attributed_delta": {
+                  "five_hour": 9.0,
+                  "seven_day": 0.0,
+                  "reasons": {},
+                  "weight_basis": [
+                    "sole"
+                  ],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": true,
+                  "foreign_sessions": [
+                    {
+                      "id": "540c5be1-dc8c-4ecf-95fb-83a2f997a8eb",
+                      "where": "-home-dan-projects-maestro",
+                      "activity_count": 24
+                    },
+                    {
+                      "id": "8e60a4a0-c3a3-400e-b6c9-6229de079535",
+                      "where": "-home-dan-projects-duetflow",
+                      "activity_count": 1
+                    },
+                    {
+                      "id": "9f2681b3-af72-452f-b87e-08a74788b33b",
+                      "where": "-home-dan-projects-duetflow",
+                      "activity_count": 2
+                    },
+                    {
+                      "id": "ebe9d86c-ef7e-4c5d-b7ae-9b4ba4926d29",
+                      "where": "-home-dan-projects-maestro",
+                      "activity_count": 61
+                    }
+                  ],
+                  "reason": "4 other claude session(s) active during the attempt"
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_EBEhOJzVEWlucunX_implementer_03",
+              "node_id": "implementer",
+              "status": "uncertain",
+              "started_at": "2026-09-28T13:38:57Z",
+              "backend_id": "codex",
+              "model_id": "gpt-6-luna",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.1",
+              "session_id": "att_run_EBEhOJzVEWlucunX_implementer_03",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T13:38:27Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": null,
+                "updated_at": "2026-09-28T13:38:27Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 37.0
+                  },
+                  "300": {
+                    "resets_at": 1790620707,
+                    "used_pct": 0.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "error": null,
+                "model": null,
+                "read_at": "2026-09-28T13:44:31Z",
+                "session_id": "",
+                "source": "codex_app_server",
+                "token_split": {
+                  "cache_read": 1331456,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 84289,
+                  "models": [
+                    "gpt-6-luna"
+                  ],
+                  "output": 11480,
+                  "reasoning_output": 4674,
+                  "source": "codex_rollout"
+                },
+                "updated_at": "2026-09-28T13:44:31Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1791059445,
+                    "used_pct": 37.0
+                  },
+                  "300": {
+                    "resets_at": 1790620718,
+                    "used_pct": 0.0
+                  }
+                }
+              },
+              "wall_time_sec": 363.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_EBEhOJzVEWlucunX_implementer_03/impl.log",
+              "transcript": null,
+              "review": null,
+              "quota": {
+                "role": "implementer",
+                "backend": "codex",
+                "model": "gpt-6-luna",
+                "effort": "medium",
+                "wall_time_sec": 363.0,
+                "tokens": {
+                  "cache_read": 1331456,
+                  "cache_write": 0,
+                  "cost_usd": null,
+                  "fresh_input": 84289,
+                  "models": [
+                    "gpt-6-luna"
+                  ],
+                  "output": 11480,
+                  "reasoning_output": 4674,
+                  "source": "codex_rollout"
+                },
+                "tokens_source": "settle_telemetry",
+                "readings": {
+                  "start": {
+                    "five_hour_pct": 0.0,
+                    "seven_day_pct": 37.0,
+                    "five_hour_resets_at": 1790620707,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T13:38:27Z",
+                    "read_at": "2026-09-28T13:38:27Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  },
+                  "settle": {
+                    "five_hour_pct": 0.0,
+                    "seven_day_pct": 37.0,
+                    "five_hour_resets_at": 1790620718,
+                    "seven_day_resets_at": 1791059445,
+                    "sampled_at": "2026-09-28T13:44:31Z",
+                    "read_at": "2026-09-28T13:44:31Z",
+                    "source": "codex_app_server",
+                    "freshness": "fresh",
+                    "reason": null
+                  }
+                },
+                "raw_delta": {
+                  "five_hour": 0.0,
+                  "seven_day": 0.0,
+                  "reasons": {}
+                },
+                "attributed_delta": {
+                  "five_hour": 0.0,
+                  "seven_day": 0.0,
+                  "reasons": {},
+                  "weight_basis": [
+                    "sole"
+                  ],
+                  "overlapping_attempts": []
+                },
+                "contamination": {
+                  "contaminated": false,
+                  "foreign_sessions": [],
+                  "reason": "no other codex session was active during the attempt"
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "rework_attempts": 2,
+      "reopens": 0,
+      "review_follow_ups": [],
+      "review_origins": {
+        "by_round": {},
+        "total": null
+      },
+      "verification_evidence": [],
+      "acceptance_decisions": [],
+      "human_interventions": [],
+      "attempt_wall_time_sec_sum": 1289.0,
+      "tokens_sum": {
+        "fresh_input": 14,
+        "cache_read": 290771,
+        "cache_write": 52745,
+        "output": 6633
+      },
+      "quota_totals": {
+        "claude": {
+          "attempts": 2,
+          "attempts_with_tokens": 2,
+          "tokens": {
+            "fresh_input": 14,
+            "cache_read": 290771,
+            "cache_write": 52745,
+            "output": 6633
+          },
+          "cost_usd": 0.3354922,
+          "wall_time_sec": 926.0,
+          "attributed_five_hour_pct": 9.0,
+          "attributed_seven_day_pct": 0.0,
+          "attempts_unattributed_five_hour": 1,
+          "attempts_unattributed_seven_day": 1,
+          "attempts_contaminated": 1,
+          "attempts_contamination_unmeasurable": 0
+        },
+        "codex": {
+          "attempts": 1,
+          "attempts_with_tokens": 1,
+          "tokens": {
+            "fresh_input": 84289,
+            "cache_read": 1331456,
+            "cache_write": 0,
+            "output": 11480
+          },
+          "cost_usd": null,
+          "wall_time_sec": 363.0,
+          "attributed_five_hour_pct": 0.0,
+          "attributed_seven_day_pct": 0.0,
+          "attempts_unattributed_five_hour": 0,
+          "attempts_unattributed_seven_day": 0,
+          "attempts_contaminated": 0,
+          "attempts_contamination_unmeasurable": 0
+        }
+      }
+    }
+  },
+  "project_human_interventions": [],
+  "quota": {
+    "method": "per-backend segment split; see scripts/graph_pilot_export.py",
+    "per_task": {
+      "06-writer-first-light": {
+        "claude": {
+          "attempts": 2,
+          "attempts_with_tokens": 2,
+          "tokens": {
+            "fresh_input": 64,
+            "cache_read": 2092131,
+            "cache_write": 146323,
+            "output": 41316
+          },
+          "cost_usd": 1.4170061999999999,
+          "wall_time_sec": 368.0,
+          "attributed_five_hour_pct": 14.0,
+          "attributed_seven_day_pct": 1.0,
+          "attempts_unattributed_five_hour": 0,
+          "attempts_unattributed_seven_day": 0,
+          "attempts_contaminated": 1,
+          "attempts_contamination_unmeasurable": 0
+        },
+        "codex": {
+          "attempts": 4,
+          "attempts_with_tokens": 4,
+          "tokens": {
+            "fresh_input": 295431,
+            "cache_read": 3416704,
+            "cache_write": 0,
+            "output": 27894
+          },
+          "cost_usd": null,
+          "wall_time_sec": 874.0,
+          "attributed_five_hour_pct": 10.160159274312747,
+          "attributed_seven_day_pct": 1.7900398185781865,
+          "attempts_unattributed_five_hour": 2,
+          "attempts_unattributed_seven_day": 2,
+          "attempts_contaminated": 0,
+          "attempts_contamination_unmeasurable": 0
+        }
+      },
+      "07-reconciliation": {
+        "claude": {
+          "attempts": 2,
+          "attempts_with_tokens": 2,
+          "tokens": {
+            "fresh_input": 14,
+            "cache_read": 290771,
+            "cache_write": 52745,
+            "output": 6633
+          },
+          "cost_usd": 0.3354922,
+          "wall_time_sec": 926.0,
+          "attributed_five_hour_pct": 9.0,
+          "attributed_seven_day_pct": 0.0,
+          "attempts_unattributed_five_hour": 1,
+          "attempts_unattributed_seven_day": 1,
+          "attempts_contaminated": 1,
+          "attempts_contamination_unmeasurable": 0
+        },
+        "codex": {
+          "attempts": 1,
+          "attempts_with_tokens": 1,
+          "tokens": {
+            "fresh_input": 84289,
+            "cache_read": 1331456,
+            "cache_write": 0,
+            "output": 11480
+          },
+          "cost_usd": null,
+          "wall_time_sec": 363.0,
+          "attributed_five_hour_pct": 0.0,
+          "attributed_seven_day_pct": 0.0,
+          "attempts_unattributed_five_hour": 0,
+          "attempts_unattributed_seven_day": 0,
+          "attempts_contaminated": 0,
+          "attempts_contamination_unmeasurable": 0
+        }
+      }
+    },
+    "by_role": {
+      "implementer": {
+        "claude": {
+          "attempts": 4,
+          "attempts_with_tokens": 4,
+          "tokens": {
+            "fresh_input": 78,
+            "cache_read": 2382902,
+            "cache_write": 199068,
+            "output": 47949
+          },
+          "cost_usd": 1.7524984,
+          "wall_time_sec": 1294.0,
+          "attributed_five_hour_pct": 23.0,
+          "attributed_seven_day_pct": 1.0,
+          "attempts_unattributed_five_hour": 1,
+          "attempts_unattributed_seven_day": 1,
+          "attempts_contaminated": 2,
+          "attempts_contamination_unmeasurable": 0
+        },
+        "codex": {
+          "attempts": 2,
+          "attempts_with_tokens": 2,
+          "tokens": {
+            "fresh_input": 152809,
+            "cache_read": 2708736,
+            "cache_write": 0,
+            "output": 19925
+          },
+          "cost_usd": null,
+          "wall_time_sec": 662.0,
+          "attributed_five_hour_pct": 0.0,
+          "attributed_seven_day_pct": 0.0,
+          "attempts_unattributed_five_hour": 1,
+          "attempts_unattributed_seven_day": 1,
+          "attempts_contaminated": 0,
+          "attempts_contamination_unmeasurable": 0
+        }
+      },
+      "proof_review": {
+        "codex": {
+          "attempts": 3,
+          "attempts_with_tokens": 3,
+          "tokens": {
+            "fresh_input": 226911,
+            "cache_read": 2039424,
+            "cache_write": 0,
+            "output": 19449
+          },
+          "cost_usd": null,
+          "wall_time_sec": 575.0,
+          "attributed_five_hour_pct": 10.160159274312747,
+          "attributed_seven_day_pct": 1.7900398185781865,
+          "attempts_unattributed_five_hour": 1,
+          "attempts_unattributed_seven_day": 1,
+          "attempts_contaminated": 0,
+          "attempts_contamination_unmeasurable": 0
+        }
+      }
+    },
+    "by_route": {
+      "implementer|claude|claude-sonnet-5|medium": {
+        "attempts": 4,
+        "attempts_with_tokens": 4,
+        "tokens": {
+          "fresh_input": 78,
+          "cache_read": 2382902,
+          "cache_write": 199068,
+          "output": 47949
+        },
+        "cost_usd": 1.7524984,
+        "wall_time_sec": 1294.0,
+        "attributed_five_hour_pct": 23.0,
+        "attributed_seven_day_pct": 1.0,
+        "attempts_unattributed_five_hour": 1,
+        "attempts_unattributed_seven_day": 1,
+        "attempts_contaminated": 2,
+        "attempts_contamination_unmeasurable": 0
+      },
+      "proof_review|codex|gpt-6-sol|medium": {
+        "attempts": 3,
+        "attempts_with_tokens": 3,
+        "tokens": {
+          "fresh_input": 226911,
+          "cache_read": 2039424,
+          "cache_write": 0,
+          "output": 19449
+        },
+        "cost_usd": null,
+        "wall_time_sec": 575.0,
+        "attributed_five_hour_pct": 10.160159274312747,
+        "attributed_seven_day_pct": 1.7900398185781865,
+        "attempts_unattributed_five_hour": 1,
+        "attempts_unattributed_seven_day": 1,
+        "attempts_contaminated": 0,
+        "attempts_contamination_unmeasurable": 0
+      },
+      "implementer|codex|gpt-6-luna|medium": {
+        "attempts": 2,
+        "attempts_with_tokens": 2,
+        "tokens": {
+          "fresh_input": 152809,
+          "cache_read": 2708736,
+          "cache_write": 0,
+          "output": 19925
+        },
+        "cost_usd": null,
+        "wall_time_sec": 662.0,
+        "attributed_five_hour_pct": 0.0,
+        "attributed_seven_day_pct": 0.0,
+        "attempts_unattributed_five_hour": 1,
+        "attempts_unattributed_seven_day": 1,
+        "attempts_contaminated": 0,
+        "attempts_contamination_unmeasurable": 0
+      }
+    },
+    "per_accepted_task": {
+      "claude": {
+        "attempts": 2,
+        "attempts_with_tokens": 2,
+        "tokens": {
+          "fresh_input": 64,
+          "cache_read": 2092131,
+          "cache_write": 146323,
+          "output": 41316
+        },
+        "cost_usd": 1.4170061999999999,
+        "wall_time_sec": 368.0,
+        "attributed_five_hour_pct": 14.0,
+        "attributed_seven_day_pct": 1.0,
+        "attempts_unattributed_five_hour": 0,
+        "attempts_unattributed_seven_day": 0,
+        "attempts_contaminated": 1,
+        "attempts_contamination_unmeasurable": 0,
+        "accepted_tasks": 1,
+        "attributed_five_hour_pct_per_accepted_task": 14.0,
+        "attributed_seven_day_pct_per_accepted_task": 1.0
+      },
+      "codex": {
+        "attempts": 4,
+        "attempts_with_tokens": 4,
+        "tokens": {
+          "fresh_input": 295431,
+          "cache_read": 3416704,
+          "cache_write": 0,
+          "output": 27894
+        },
+        "cost_usd": null,
+        "wall_time_sec": 874.0,
+        "attributed_five_hour_pct": 10.160159274312747,
+        "attributed_seven_day_pct": 1.7900398185781865,
+        "attempts_unattributed_five_hour": 2,
+        "attempts_unattributed_seven_day": 2,
+        "attempts_contaminated": 0,
+        "attempts_contamination_unmeasurable": 0,
+        "accepted_tasks": 1,
+        "attributed_five_hour_pct_per_accepted_task": 10.160159274312747,
+        "attributed_seven_day_pct_per_accepted_task": 1.7900398185781865
+      }
+    },
+    "contamination": {
+      "claude": {
+        "contaminated": 2,
+        "clean": 2,
+        "not_measurable": 0,
+        "foreign_sessions": {
+          "08c313a6-f8ad-40f6-80a0-a3067cb02985": {
+            "where": "-home-dan-projects-maestro",
+            "attempts": 1,
+            "activity_count": 18
+          },
+          "540c5be1-dc8c-4ecf-95fb-83a2f997a8eb": {
+            "where": "-home-dan-projects-maestro",
+            "attempts": 1,
+            "activity_count": 24
+          },
+          "8e60a4a0-c3a3-400e-b6c9-6229de079535": {
+            "where": "-home-dan-projects-duetflow",
+            "attempts": 1,
+            "activity_count": 1
+          },
+          "9f2681b3-af72-452f-b87e-08a74788b33b": {
+            "where": "-home-dan-projects-duetflow",
+            "attempts": 1,
+            "activity_count": 2
+          },
+          "ebe9d86c-ef7e-4c5d-b7ae-9b4ba4926d29": {
+            "where": "-home-dan-projects-maestro",
+            "attempts": 1,
+            "activity_count": 61
+          }
+        }
+      },
+      "codex": {
+        "contaminated": 0,
+        "clean": 5,
+        "not_measurable": 0,
+        "foreign_sessions": {}
+      }
+    }
+  }
+}

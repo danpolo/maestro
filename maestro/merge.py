@@ -13,9 +13,11 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from pathlib import Path
 
 from maestro.config import _load_project_yaml
 from maestro import confinement
+from maestro import metabranch
 from maestro import metrics
 from maestro.hitl.telegram import notify_telegram
 from maestro.paths import Paths
@@ -76,6 +78,20 @@ _HARD_DENY_PATTERNS = [
     r"open\s*\(\s*['\"]\.env['\"]",  # direct open(".env") — path-building is fine
 ]
 
+#: The command-shaped patterns: they guard what would *run*. Dan 2026-10-08 (itv pilot,
+#: `sudo` in a report's prose asked him three times): they do not apply to prose files,
+#: which nothing executes. The secret patterns above and every `deny_list_extra` entry
+#: still apply to every file.
+_COMMAND_PATTERNS = frozenset({
+    r"\bsudo\b(?!.*systemctl\b)", r"git\s+push\s+.*--force", r"git\s+push\s+-f\b",
+    r"DROP\s+TABLE", r"DELETE\s+FROM", r"--force-reset-index",
+})
+PROSE_SUFFIXES = (".md", ".markdown", ".rst", ".txt")
+
+
+def _is_prose(path: str) -> bool:
+    return path.lower().endswith(PROSE_SUFFIXES)
+
 
 def deny_list_guard(branch: str, task_id: str) -> tuple[bool, str]:
     """Check diff of branch against hard deny-list.
@@ -109,8 +125,241 @@ def deny_list_guard(branch: str, task_id: str) -> tuple[bool, str]:
     return True, "ok"
 
 
+# ── the graph's merge guard (P12 finding D10) ──
+#
+# The graph's merge node lands through `integrate_candidate`, which skipped both of the
+# legacy loop's pre-merge checks. The hard deny-list is restored here, unchanged in its
+# patterns, and made to diff against the base that actually matters: the merge base of the
+# frozen candidate commit and the target head, not a literal `main...<branch>`. The legacy
+# Sonnet risky reviewer is NOT ported: a risky-set edit is gated by the proof review, run
+# by a model stronger than the implementer (`WorkflowRunner._review_strength_floor`) and
+# told which risky files the diff touched (`worker.agent_brief`). What remains here is the
+# floor under that: a risky diff with no approving proof review never lands.
+
+
+def path_matches_entry(path: str, entry: str) -> bool:
+    """`risky_set` / `secrets` semantics: a glob when it has metacharacters, else a substring."""
+    return confinement._denied_by(path, entry)
+
+
+def risky_files(changed, risky_set=(), risky_globs=()) -> list[str]:
+    """The changed paths that fall under `risky_set` (substring or glob) or a policy glob."""
+    from fnmatch import fnmatch
+
+    entries = [str(e) for e in (risky_set or ()) if str(e).strip()]
+    globs = [str(g) for g in (risky_globs or ()) if str(g).strip()]
+    return [
+        path for path in changed
+        if any(path_matches_entry(path, entry) for entry in entries)
+        or any(fnmatch(path, glob) for glob in globs)
+    ]
+
+
+def _added_lines(diff_text: str) -> str:
+    """Only what the diff adds. Removing a deny-listed line is not a violation."""
+    return "\n".join(
+        line[1:] for line in diff_text.splitlines()
+        if line.startswith("+") and not line.startswith("+++")
+    )
+
+
+def deny_list_violation(added_text: str, changed, proj=None) -> str:
+    """Why this change may not land, or `""`. The hard deny-list, in the graph's terms.
+
+    The same `_HARD_DENY_PATTERNS` plus `deny_list_extra` as `deny_list_guard`, matched
+    against the lines the change *adds*; then `secrets` and `prod_stores` among the changed
+    paths, matched the way `confinement` matches them (a glob is a glob — the legacy guard
+    reduced `**/*.pem` to a substring that no filename contains).
+    """
+    proj = _load_project_yaml() if proj is None else proj
+    proj = proj if isinstance(proj, dict) else {}
+    patterns = _HARD_DENY_PATTERNS + [str(p) for p in (proj.get("deny_list_extra") or [])]
+    for pat in patterns:
+        try:
+            hit = re.search(pat, added_text, re.MULTILINE)
+        except re.error as exc:
+            return f"deny-list pattern {pat!r} is not a valid regex ({exc}); refusing to merge"
+        if hit:
+            return f"deny-list violation: pattern '{pat}' matched in diff: {hit.group(0)[:80]!r}"
+    secrets = proj.get("secrets", [".env", ".env.local"]) or []
+    guarded = [str(s) for s in list(secrets) + list(proj.get("prod_stores") or []) if str(s).strip()]
+    for path in changed:
+        for entry in guarded:
+            if path_matches_entry(path, entry):
+                return f"deny-list violation: secret or production file in diff: {path}"
+    return ""
+
+
+def deny_hit_key(file: str, pattern: str, line: str) -> str:
+    """What Dan's ruling on a deny-list hit is bound to (P12 pilot finding D29).
+
+    The file, the pattern and the added line(s) the match spans (whitespace collapsed).
+    The same line in the same file keeps its key across a rebase or an unrelated edit; a
+    changed line, a moved file or another pattern is a new hit, which asks Dan again.
+    """
+    import hashlib
+
+    text = re.sub(r"\s+", " ", str(line)).strip()
+    body = f"{file}\0{pattern}\0{text}"
+    return hashlib.sha256(body.encode("utf-8")).hexdigest()[:16]
+
+
+def _added_by_file(diff_text: str) -> dict[str, list[str]]:
+    """The lines a unified diff adds, per file (the `+++ b/<path>` it follows)."""
+    out: dict[str, list[str]] = {}
+    current, header = "", False
+    for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            header = True
+            continue
+        if header:
+            if line.startswith("+++ "):
+                target = line[4:]
+                current = target[2:] if target.startswith("b/") else target
+            elif line.startswith("@@"):
+                header = False
+            continue
+        if line.startswith("+"):
+            out.setdefault(current, []).append(line[1:])
+    return out
+
+
+def deny_list_hits(diff_text: str, changed, proj=None) -> tuple[list[dict], str]:
+    """`(hits, refusal)`: every place `diff_text` breaks the hard deny-list (D29).
+
+    The same patterns, secrets and production stores as `deny_list_violation`, reported
+    one hit per distinct match so Dan can rule on each: `{key, kind, file, pattern,
+    match, line}`, `kind` being `pattern` (added text) or `path` (a guarded file). A
+    pattern is matched against each file's added lines joined, and then, as before,
+    against all added lines at once: a match only that finds is reported under the file
+    `(across files)`, so splitting by file never lets a match through. `refusal` is a
+    fault no ruling can clear (a pattern that is not a valid regex).
+    """
+    proj = _load_project_yaml() if proj is None else proj
+    proj = proj if isinstance(proj, dict) else {}
+    patterns = _HARD_DENY_PATTERNS + [str(p) for p in (proj.get("deny_list_extra") or [])]
+    by_file = _added_by_file(diff_text)
+    hits: list[dict] = []
+    for pat in patterns:
+        try:
+            compiled = re.compile(pat, re.MULTILINE)
+        except re.error as exc:
+            return [], f"deny-list pattern {pat!r} is not a valid regex ({exc}); refusing to merge"
+        seen: set[str] = set()
+        command = pat in _COMMAND_PATTERNS
+        for path, lines in by_file.items():
+            if command and _is_prose(path):
+                continue
+            text = "\n".join(lines)
+            for m in compiled.finditer(text):
+                start = text.rfind("\n", 0, m.start()) + 1
+                end = text.find("\n", m.end())
+                line = text[start: end if end != -1 else len(text)]
+                # Bound to the whole added line, not the match: approving one DELETE FROM
+                # must not approve a different one in the same file.
+                key = deny_hit_key(path, pat, line)
+                if key in seen:
+                    continue
+                seen.add(key)
+                hits.append({
+                    "key": key, "kind": "pattern", "file": path, "pattern": pat,
+                    "match": m.group(0)[:200], "line": line[:300],
+                })
+        if not seen:
+            scope = (
+                "\n".join(l for path, ls in by_file.items() if not _is_prose(path) for l in ls)
+                if command else _added_lines(diff_text)
+            )
+            whole = compiled.search(scope)
+            if whole:
+                hits.append({
+                    "key": deny_hit_key("(across files)", pat, whole.group(0)),
+                    "kind": "pattern", "file": "(across files)", "pattern": pat,
+                    "match": whole.group(0)[:200], "line": whole.group(0)[:300],
+                })
+    secrets = proj.get("secrets", [".env", ".env.local"]) or []
+    guarded = [str(s) for s in list(secrets) + list(proj.get("prod_stores") or []) if str(s).strip()]
+    for path in changed:
+        for entry in guarded:
+            if path_matches_entry(path, entry):
+                hits.append({
+                    "key": deny_hit_key(path, entry, path), "kind": "path", "file": path,
+                    "pattern": entry, "match": path, "line": path,
+                })
+                break
+    return hits, ""
+
+
+def hit_violation(hit: dict) -> str:
+    """`deny_list_violation`'s wording for one hit."""
+    if hit.get("kind") == "path":
+        return f"deny-list violation: secret or production file in diff: {hit['file']}"
+    return (f"deny-list violation: pattern '{hit['pattern']}' matched in diff: "
+            f"{str(hit['match'])[:80]!r}")
+
+
+def _approves(disposition, commit: str) -> bool:
+    """A conclusive approval of `commit` (or of an unnamed subject) by a proof reviewer."""
+    from maestro.validation import review_is_conclusive
+
+    if not isinstance(disposition, dict) or not review_is_conclusive(disposition)[0]:
+        return False
+    subject = str(disposition.get("subject_sha") or "")
+    return not subject or subject == commit
+
+
+def integration_guard(
+    repo: Path, commit: str, target_head: str, *, proof_reviews=(), risky_globs=(), proj=None,
+    approved_hits=(),
+) -> str:
+    """What stops `commit` landing on `target_head`, or `""` (checked before staging).
+
+    Fails closed: a diff that cannot be computed is a refusal, never a pass.
+    `approved_hits` are the keys (`deny_hit_key`) of deny-list hits Dan approved for this
+    task's workflow (D29); any other hit, including a changed one, still refuses.
+    """
+    proj = _load_project_yaml() if proj is None else proj
+    proj = proj if isinstance(proj, dict) else {}
+    if not target_head:
+        return "deny_list: the target branch has no head to diff the candidate against; refusing"
+    span = f"{target_head}...{commit}"
+    text = subprocess.run(
+        ["git", "diff", "--no-color", "--no-ext-diff", span],
+        cwd=str(repo), capture_output=True, text=True,
+    )
+    names = subprocess.run(
+        ["git", "diff", "--name-only", "--no-renames", "-z", span],
+        cwd=str(repo), capture_output=True, text=True,
+    )
+    if text.returncode != 0 or names.returncode != 0:
+        err = (text.stderr or names.stderr or "").strip()[:200]
+        return f"deny_list: could not diff the candidate against the target ({err}); refusing"
+    changed = [p for p in names.stdout.split("\0") if p]
+    hits, refusal = deny_list_hits(text.stdout, changed, proj)
+    if refusal:
+        return f"deny_list: {refusal}"
+    approved = {str(k) for k in (approved_hits or ())}
+    unapproved = [hit for hit in hits if hit["key"] not in approved]
+    if unapproved:
+        return f"deny_list: {hit_violation(unapproved[0])}"
+    risky = risky_files(changed, proj.get("risky_set") or [], risky_globs)
+    if risky and not any(_approves(d, commit) for d in (proof_reviews or ())):
+        return (
+            f"risky_unreviewed: the change touches risky file(s) {risky} and no proof "
+            f"review approved commit {commit[:12]}; a risky edit lands only after a proof "
+            "review by a stronger model approves that exact commit, and this workflow has "
+            "no such approval (a script or resumable lane composes no reviewer, a policy "
+            "may skip one), so nothing may land"
+        )
+    return ""
+
+
 # ── B6: Sonnet risky-set reviewer ──
 
+from maestro.model_policy import with_task_models
+
+
+@with_task_models
 def sonnet_risky_reviewer(branch: str, task_id: str) -> tuple[bool, str]:
     """If branch touches risky_set files, spawn a Sonnet call to review.
 
@@ -237,6 +486,7 @@ def _commit_eval_history(task_id: str = "") -> bool:
 
 # ── Merge and eval ──
 
+@with_task_models
 def merge_and_eval(entry: dict) -> tuple[bool, dict]:
     """Merge branch → smoke → keep or revert.
 
@@ -343,6 +593,66 @@ def merge_and_eval(entry: dict) -> tuple[bool, dict]:
                    f"{task_id} sha={sha_short} {shown} reason={smoke.get('reason','')}",
                    session_id=entry["session_id"])
     return False, smoke
+
+
+# ── Staged integration (`[P4]`) ──
+
+def integrate_candidate(
+    task_id: str, branch: str, *, attempt_id: str, run_id: str = "", store=None,
+    lifecycle=None, repo=None, target_branch: str = "main", specs=None,
+    candidate_worktree=None, effects=(), keep_staging: bool = False,
+    review_dispositions=(), proof_reviews=(), risky_globs=(), approved_deny_hits=(),
+):
+    """Land `branch` through the 5-stage staging pipeline instead of onto the live tree.
+
+    `merge_and_eval` above merges the candidate into REPO's own working tree and then
+    runs the smoke there, which means a failing smoke has to be *undone* — the
+    `git reset --hard sha_pre` path. Undoing is the part that goes wrong: the reset has
+    to be right about what to reset to (hence `sha_pre` rather than `HEAD~1`), the live
+    tree has to be clean enough to merge into in the first place (hence
+    `_clean_worktree_for_merge`), and for the duration of the smoke the target branch is
+    carrying unverified code that another process could read.
+
+    The staged path removes the need for all three: the merge happens in
+    `.orchestrator/worktrees/staging/` on a detached head, the checks run there, and the
+    target branch is written exactly once, by a compare-and-swap, only after they pass
+    (`§3`, `[INV-05]`). A failure has nothing to revert because nothing was written.
+
+    `merge_and_eval` is left exactly as it is. `D08` migrates one authority at a time and
+    the legacy loop still calls it; this is the seam the graph runner's `merge` node uses.
+
+    Before anything is staged, `integration_guard` checks the frozen commit against the
+    target head (P12 finding D10): the hard deny-list, secret files, and a risky-set edit
+    no proof review approved. Any of them stops the merge at stage `guard`, target untouched.
+    """
+    from maestro.validation import StagingPipeline
+
+    root = Path(repo) if repo is not None else REPO
+
+    def guard(commit: str, target_head: str) -> str:
+        return integration_guard(
+            root, commit, target_head, proof_reviews=proof_reviews, risky_globs=risky_globs,
+            approved_hits=approved_deny_hits,
+        )
+
+    pipeline = StagingPipeline(
+        root,
+        target_branch=target_branch,
+        store=store,
+        lifecycle=lifecycle,
+    )
+    return pipeline.integrate(
+        candidate_ref=branch,
+        specs=list(specs or []),
+        attempt_id=attempt_id,
+        task_id=task_id,
+        run_id=run_id or attempt_id,
+        candidate_worktree=candidate_worktree,
+        effects=effects,
+        keep_staging=keep_staging,
+        review_dispositions=list(review_dispositions or ()),
+        guard=guard,
+    )
 
 
 def _merge_self_fix_branch(branch: str) -> tuple:
@@ -555,8 +865,14 @@ def _merge_data_only(entry: dict) -> str:
     if merge.returncode != 0:
         subprocess.run(["git", "-C", str(REPO), "merge", "--abort"], capture_output=True)
         return "conflict"
-    subprocess.run(["git", "-C", str(REPO), "push", "origin", "main"],
-                   cwd=str(REPO), capture_output=True)
+    push = subprocess.run(["git", "-C", str(REPO), "push", "origin", "main"],
+                          cwd=str(REPO), capture_output=True, text=True)
+    if push.returncode != 0:
+        append_journal("merge_push_failed",
+                        f"main push failed after data-only merge from {branch}: "
+                        f"{push.stderr.strip()[:300]}")
+        return "push_failed"
+    metabranch.reconcile_meta(REPO)
     return "ok"
 
 
@@ -637,9 +953,20 @@ def _resumable_code_change_escalation(entry: dict, task_id: str) -> tuple[bool, 
     if merge.returncode != 0:
         subprocess.run(["git", "-C", str(REPO), "merge", "--abort"], capture_output=True)
         return False, "merge conflict after Opus approval", "conflict"
-    subprocess.run(["git", "-C", str(REPO), "push", "origin", "main"],
-                   cwd=str(REPO), capture_output=True)
     reason = obj.get("reason", "approved")
+    push = subprocess.run(["git", "-C", str(REPO), "push", "origin", "main"],
+                          cwd=str(REPO), capture_output=True, text=True)
+    if push.returncode != 0:
+        append_journal("merge_push_failed",
+                        f"{task_id} main push failed after Opus-approved merge from {branch}: "
+                        f"{push.stderr.strip()[:300]}")
+        notify_telegram(
+            f"⚠ {task_id} (resumable): Opus approved out-of-allowlist change and merged "
+            f"locally, but push to origin/main FAILED — local main is ahead of remote. "
+            f"{push.stderr.strip()[:160]}"
+        )
+        return True, reason, "push_failed"
+    metabranch.reconcile_meta(REPO)
     notify_telegram(f"✓ {task_id} (resumable): Opus approved out-of-allowlist change — merged. {reason[:120]}")
     append_journal("resume_code_change_approved", f"{task_id} files={out} {reason[:160]}")
     return True, reason, "ok"

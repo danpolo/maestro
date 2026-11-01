@@ -39,8 +39,9 @@ WINDOW = f"impl-{TASK_ID}"
 DIRTY_TRACKED = "def solve():\n    return 'half-finished, uncommitted'\n"
 DIRTY_UNTRACKED = "scratch notes the previous agent never committed\n"
 
-FROM = "claude"
-TO = "codex"
+from maestro import roles
+FROM = roles.backend_for(roles.ROLE_IMPLEMENTER, config={})
+TO = next(name for name in roles.default_chain() if name != FROM)
 
 # Every driver capability combination these tests need, spelled by capability only.
 RESUMING = Capabilities(
@@ -117,7 +118,7 @@ class FakeDriver:
             window=f"agents:impl-{spec.task_id}",
         )
 
-    def resume(self, handle: Handle, prompt: str) -> Handle:
+    def resume(self, handle: Handle, prompt: str, *, spec=None) -> Handle:
         self.resumed.append((handle, prompt))
         return Handle(
             backend=self.name,
@@ -506,6 +507,11 @@ def test_the_incoming_agent_gets_a_fresh_workspace(dirty_worktree, previous_work
 
 def test_journal_record_keeps_its_five_fields(dirty_worktree, previous_workspace):
     """F5: `backend_switch` is flattened into `detail`. No sixth field."""
+    from maestro import roles
+    # `config={}` states no strength, so the target's model is the one the shipped role
+    # strength derives on it (`docs/DESIGN.md` §17.5).
+    target_model = roles.model_for(roles.ROLE_IMPLEMENTER, TO, config={})
+    assert target_model
     recorder = Recorder()
     driver = FakeDriver()
     state.JOURNAL.parent.mkdir(parents=True, exist_ok=True)
@@ -531,9 +537,7 @@ def test_journal_record_keeps_its_five_fields(dirty_worktree, previous_workspace
     # Re-baselined when `model=` joined the flattened detail: one more field pinned,
     # nothing relaxed. `reason=` is still last.
     assert switches[0]["detail"] == (
-        # `config={}` declares no model for the target, so nothing resolves — recorded
-        # as `unset`, which is a value; blank would read as missing punctuation.
-        f"{TASK_ID} from={FROM} to={TO} model=unset reason=usage_threshold"
+        f"{TASK_ID} from={FROM} to={TO} model={target_model} reason=usage_threshold"
     )
     assert switches[0]["session_id"] == OLD_SESSION
 
@@ -624,7 +628,7 @@ def test_an_existing_backend_key_is_read_as_the_source(dirty_worktree):
     # Re-baselined when `model=` joined the flattened detail: one more field pinned,
     # nothing relaxed.
     assert recorder.events(switch.SWITCH_EVENT)[0][1] == (
-        f"{TASK_ID} from={TO} to={FROM} model=claude-sonnet-5 reason=quota_exhausted"
+        f"{TASK_ID} from={TO} to={FROM} model={roles.model_for('implementer', FROM, config={})} reason=quota_exhausted"
     )
 
 
@@ -1209,7 +1213,7 @@ def test_a_rotation_is_journalled_distinctly_and_keeps_its_five_fields(
     # Re-baselined when `model=` joined the flattened detail: one more field pinned,
     # nothing relaxed.
     assert rotations[0]["detail"] == (
-        f"{TASK_ID} from={FROM} to={FROM} model=claude-sonnet-5 "
+        f"{TASK_ID} from={FROM} to={FROM} model={roles.model_for('implementer', FROM, config={})} "
         f"reason={switch.REASON_CONTEXT}"
     )
     assert rotations[0]["session_id"] == OLD_SESSION
@@ -1380,10 +1384,18 @@ def test_the_rotation_is_a_fourth_trigger_on_the_one_path(dirty_worktree, previo
 # the opposite case: a model id is backend-specific, so the target's own must win.
 
 #: A role table that answers differently per backend, so "which one did it use" is visible.
-ROLE_MODELS = {
-    "roles": {"implementer": {"backend": FROM, "models": {FROM: "claude-sonnet-5",
-                                                          TO: "gpt-5-codex"}}}
-}
+#: A role states a strength, not a model (`docs/DESIGN.md` §17.2): the table is derived
+#: from it per backend, and `strong` moves it off the shipped default on both of them.
+ROLE_MODELS = {"roles": {"implementer": {"strength": "strong"}}}
+
+
+def _role_model(backend: str) -> str:
+    """The model `ROLE_MODELS` derives for the implementer on `backend`."""
+    from maestro import roles
+
+    table = roles.role_config(roles.ROLE_IMPLEMENTER, ROLE_MODELS).models
+    assert table[FROM] != table[TO], "the role table must answer differently per backend"
+    return table[backend]
 
 
 def test_a_rotation_keeps_the_model_the_task_is_actually_running(
@@ -1427,9 +1439,9 @@ def test_a_rotation_of_an_entry_with_no_model_falls_back_to_the_role_table(
         deps=_deps(recorder, driver),
     )
 
-    assert driver.launched[0].model == "claude-sonnet-5"
+    assert driver.launched[0].model == _role_model(FROM)
     # …and the entry it writes back records it, so the next rotation has an answer.
-    assert outcome.entry["model"] == "claude-sonnet-5"
+    assert outcome.entry["model"] == _role_model(FROM)
 
 
 def test_a_cross_backend_switch_resolves_the_targets_own_model(
@@ -1452,8 +1464,8 @@ def test_a_cross_backend_switch_resolves_the_targets_own_model(
     )
 
     assert outcome.to_backend == TO
-    assert driver.launched[0].model == "gpt-5-codex"
-    assert outcome.entry["model"] == "gpt-5-codex"
+    assert driver.launched[0].model == _role_model(TO)
+    assert outcome.entry["model"] == _role_model(TO)
 
 
 def test_the_record_names_the_model_the_relaunch_ran_under(dirty_worktree):
@@ -1481,6 +1493,17 @@ def test_an_unresolvable_model_is_recorded_as_unset_not_as_blank(dirty_worktree)
     """`None` is not zero and it is not the empty string either: a model nothing could
     resolve is *not measurable*, and the record says so rather than leaving `model=`
     hanging where a real id would read as missing punctuation."""
+    # A role's model is derived, and a backend with no approved route at the role's
+    # strength gets none (`docs/DESIGN.md` §17.5; under the shipped policy that is
+    # `antigravity` at `strong`). The table is handed over already derived, as
+    # `model_policy.runtime_roles` hands it to the resolver, so this does not depend on
+    # which routes the shipped policy happens to approve.
+    from maestro import roles
+    no_model_for_target = {
+        roles.DERIVED_MARKER: True,
+        "roles": {"implementer": {"strength": "strong", "backend": TO, "models": {}}},
+    }
+    assert roles.model_for(roles.ROLE_IMPLEMENTER, TO, config=no_model_for_target) is None
     recorder = Recorder()
     driver = FakeDriver(name=TO)
 
@@ -1488,7 +1511,7 @@ def test_an_unresolvable_model_is_recorded_as_unset_not_as_blank(dirty_worktree)
         TASK_ID,
         reason=switch.REASON_CONTEXT,
         entry=_entry(dirty_worktree, backend=TO),
-        config={"roles": {"implementer": {"backend": TO, "models": {}}}},
+        config=no_model_for_target,
         deps=_deps(recorder, driver),
     )
 
@@ -1514,3 +1537,21 @@ def test_the_samples_display_name_is_not_a_table_key():
     assert table.get("claude-opus-5") is ROW
     assert switch.context_crossed(over, resolve=table.get) is False
     assert switch.context_crossed(over, "claude-opus-5", resolve=table.get) is True
+
+
+def test_context_crossed_scopes_the_lookup_to_the_sessions_harness():
+    """An agy session is measured against its `agy/` row; the same id unscoped finds none."""
+    from maestro import limits
+
+    table = Path(__file__).resolve().parent / "fixtures" / "model_limits" / "antigravity.md"
+    seen = []
+
+    def resolve(name):
+        seen.append(name)
+        return limits.resolve(name, [table])
+
+    over = Usage(context_total_input_tokens=121_000, model="gemini-3.8-flash-high", session_id="s")
+    assert switch.context_crossed(over, resolve=resolve, backend="antigravity") is True
+    assert seen == ["agy/gemini-3.8-flash-high"]
+    with pytest.warns(UserWarning):
+        assert switch.context_crossed(over, resolve=resolve) is False

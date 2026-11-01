@@ -43,8 +43,7 @@ import re
 import sys
 from pathlib import Path
 
-import yaml
-
+from maestro import taskgraph
 from maestro.docs import depmap as gen_dependency_map
 from maestro.docs import upcoming as gen_upcoming
 from maestro.paths import Paths
@@ -59,16 +58,15 @@ DOC_FILES = [REPO / "docs" / "PROJECT.md", REPO / "docs" / "AUTONOMOUS_SYSTEM.md
 
 
 def _roadmap_tasks() -> list[dict]:
+    """Every task block, read by `maestro.taskgraph` (P02).
+
+    Deliberately *not* normalized: this is the consistency checker, so it must see the
+    document as written — a `mode: needs-dan` task that never declares a dispatch is
+    exactly the kind of thing it exists to report on, and promoting it first would hide
+    it. `normalize=False` is that decision, made explicit.
+    """
     content = ROADMAP.read_text(encoding="utf-8")
-    tasks: list[dict] = []
-    for raw in re.findall(r"```yaml\n(.*?)```", content, re.DOTALL):
-        try:
-            task = yaml.safe_load(raw)
-        except yaml.YAMLError:
-            continue
-        if isinstance(task, dict) and task.get("id"):
-            tasks.append(task)
-    return tasks
+    return taskgraph.scan_tasks(content, normalize=False)
 
 
 def _registry_ids() -> set[str]:
@@ -81,11 +79,8 @@ def _registry_ids() -> set[str]:
     return {str(r.get("id")) for r in reg if r.get("id")}
 
 
-def _deps(task: dict) -> list[str]:
-    deps = task.get("deps") or []
-    if isinstance(deps, str):
-        deps = [deps] if deps else []
-    return [str(d) for d in deps]
+#: `deps` flattening, shared with every other reader of the roadmap (P02).
+_deps = taskgraph.legacy_deps
 
 
 def check_no_lingering_complete(problems: list[str]) -> None:
@@ -185,11 +180,6 @@ def check_questions_schema(problems: list[str]) -> None:
                 f"(f) task {t['id']} has a `questions:` field that is not a non-empty list"
             )
             continue
-        if t.get("dispatch") == "manual":
-            problems.append(
-                f"(f) task {t['id']} sets both `questions:` and `dispatch: manual` — "
-                f"Dan either answers a question or performs the task, not both"
-            )
         seen: set[str] = set()
         for i, q in enumerate(raw):
             if not isinstance(q, dict):

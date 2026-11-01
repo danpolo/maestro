@@ -69,6 +69,7 @@ def _stub_send(subject, monkeypatch, message_id=12345, raises=None):
     """Stub the outbound Telegram call. Returns a list of recorded call dicts
     (`url`, `data`, `timeout`). `message_id=None` simulates an unparseable response body
     (mirrors the reference's `except Exception: return None`)."""
+    monkeypatch.setattr(subject, 'load_shared_env', lambda: None)
     calls: list[dict] = []
     body = (
         json.dumps({"result": {"message_id": message_id}})

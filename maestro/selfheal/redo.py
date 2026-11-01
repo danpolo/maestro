@@ -49,6 +49,7 @@ import sys
 from pathlib import Path
 
 from maestro import agentcall
+from maestro.model_policy import task_model_context
 from maestro import confinement
 from maestro.docs.roadmap import run_dep_map
 from maestro.hitl.telegram import notify_telegram
@@ -290,11 +291,12 @@ def main() -> int:
         outside the worktree, so `git add -A` cannot commit it into the gated diff — and
         that file is the transcript.
         """
-        answer = agentcall.ask(
-            ROLE_IMPLEMENTER, prompt,
-            timeout=REDO_TIMEOUT, cwd=wt, resume_id=resume_id,
-            log_file=log_path, writable=True,
-        )
+        with task_model_context(REPO, task):
+            answer = agentcall.ask(
+                ROLE_IMPLEMENTER, prompt,
+                timeout=REDO_TIMEOUT, cwd=wt, resume_id=resume_id,
+                log_file=log_path, writable=True,
+            )
         if answer.timed_out:
             return "(timed out after 30 min)"
         try:

@@ -1143,7 +1143,7 @@ def test_park_manual_action_pings_dan_with_all_four_affordances(subject, sandbox
     assert msg.startswith(
         f"{TARGET} *T1* is prepped \N{EM DASH} your ONE action (ID 1):\n\nupload the notebook\n\n"
     )
-    assert f"{CHECK} It worked {ARROW} /approve 1" in msg
+    assert f"{CHECK} I ran it {ARROW} /approve 1" in msg
     assert f"{QUESTION} Problem / question {ARROW} /ask 1 <your message>" in msg
     assert f"{WRENCH} Needs a rewrite {ARROW} /redo 1 <what's wrong>" in msg
     assert msg.endswith(f"{CROSS} Abandon {ARROW} /reject 1")
@@ -1181,6 +1181,9 @@ def prep_done(subject, sandbox, monkeypatch, notifier, runner, prep):
     box = SimpleNamespace(sent=notifier, runner=runner, prep=prep,
                           merge=(True, "merged t1-prep at abc1234"), removed=[])
     monkeypatch.setattr(subject, "_merge_prep_branch", lambda entry: box.merge)
+    # These characterize routing after preparation; real capture is exercised in
+    # test_manual_legacy_contract through the actual helper and script.
+    monkeypatch.setattr(subject, "_prepare_manual_capture", lambda *a: {})
     monkeypatch.setattr(subject, "remove_worktree", lambda wt: box.removed.append(Path(wt)))
     return box
 
@@ -1524,6 +1527,8 @@ def test_surface_await_failure_is_idempotent_by_kind(subject, sandbox, surfacing
 
 @pytest.fixture
 def finalizing(subject, sandbox, monkeypatch, notifier, runner, prep):
+    # Isolate downstream finalization from the separately tested capture boundary.
+    monkeypatch.setattr(subject, "_verify_manual_capture", lambda *a: True)
     _put_state(subject, sandbox, waiting_on_dan={
         "1": {"task_id": "T1", "session_id": "impl-T1-1", "kind": "manual-action"},
     })
@@ -1657,7 +1662,7 @@ def test_finalize_manual_action_gate_runs_auto_only_against_the_repo(subject, sa
     subject._finalize_manual_action("1", finalizing.parked, [])
     args, kwargs = seen[0]
     assert args == ("T1", subject.REPO, subject.REPO)
-    assert kwargs == {"auto_only": True}
+    assert kwargs == {"auto_only": True, "pre_merge_only": True}
 
 
 def test_finalize_manual_action_does_not_catch_a_post_cmd_timeout(subject, sandbox, finalizing, monkeypatch):

@@ -1,9 +1,17 @@
 """The machine-readable ROADMAP: parsing it, hashing it, and graduating tasks out of it.
 
-Extracted verbatim from the reference orchestrator. Bodies are unchanged — only the
-import block and the derivation of the module-level path globals differ. Behavioural
-surprises are catalogued in `docs/FOUND_BUGS.md` and pinned by
-`tests/characterization/test_roadmap.py`; none of them is fixed here.
+Extracted verbatim from the reference orchestrator. Behavioural surprises are
+catalogued in `docs/FOUND_BUGS.md` and pinned by `tests/characterization/test_roadmap.py`;
+none of them is fixed here.
+
+P02 moved the *parsing* out and left the behaviour alone: the four functions that used to
+scan ```` ```yaml ```` blocks with a private regex now call `maestro.taskgraph`, which is
+the one reading of `docs/ROADMAP.md` for every module that has one. The quirks went with
+them — a malformed block is still skipped, a falsy `id` is still no id — and every
+assertion in the characterisation suite still holds byte-for-byte. What is genuinely new
+here is `_drift_blocked_ids`: a task whose ROADMAP block was hand-edited under a live
+controller, and everything downstream of it, is withheld from dispatch. That is inert for
+any project that has never run `maestro roadmap apply`.
 
 R5–R7 (`docs/plans/2026-08-18-m4c-superseded-sidecars.md` §2b): `run_dep_map` and
 `mark_roadmap_complete` used to shell out to `scripts/gen_dependency_map.py`,
@@ -22,17 +30,14 @@ import hashlib
 import io
 import json
 import os
-import re
 import subprocess
 import sys
 
-import yaml  # PyYAML
-
-from maestro import prep_actions
+from maestro import prep_actions, taskgraph
 from maestro.docs import complete as doc_complete
 from maestro.docs import depmap as doc_depmap
 from maestro.docs import upcoming as doc_upcoming
-from maestro.hitl.telegram import notify_telegram, notify_telegram_with_map
+from maestro.hitl.telegram import delivery_note, notify_telegram, notify_telegram_with_map
 from maestro.paths import Paths
 from maestro.state import append_journal, read_state, write_state
 
@@ -83,6 +88,10 @@ def _call_main(module, argv: list[str], swallow: bool = True) -> None:
         sys.argv = old_argv
 
 
+#: The last render failure journaled by `run_dep_map`, so a persistent one is logged once.
+_LAST_RENDER_FAILURE: str | None = None
+
+
 def run_dep_map() -> None:
     """Regenerate the dependency map .md AND re-render the .png.
 
@@ -93,11 +102,26 @@ def run_dep_map() -> None:
     tool call), so we must render the .png explicitly here — otherwise
     notify_telegram_with_map ships a stale PNG from the last interactive edit/commit.
     """
+    global _LAST_RENDER_FAILURE
     _call_main(doc_depmap, [])
+    # The render's own stderr is captured: the loop used to print "no mermaid block found"
+    # on every refresh while nothing noticed that no map had ever been drawn. A failure is
+    # journaled instead, once per distinct reason, and a stale PNG is then not sent as
+    # current (`notify_telegram_with_map`).
+    err = io.StringIO()
     try:
-        doc_depmap.render_png()
-    except BaseException:
-        pass
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(err):
+            doc_depmap.render_png()
+        _LAST_RENDER_FAILURE = None
+    except BaseException as exc:
+        reason = (err.getvalue().strip() or f"{type(exc).__name__}: {exc}")[:200]
+        # No ROADMAP means no map is expected (a fresh or sandboxed tree): nothing to report.
+        if reason != _LAST_RENDER_FAILURE and ROADMAP_FILE.exists():
+            _LAST_RENDER_FAILURE = reason
+            try:
+                append_journal("dep_map_render_failed", reason)
+            except Exception:
+                pass
     # Keep the human-facing docs/UPCOMING.md in lock-step with the same sources
     # (ROADMAP + live state). Deterministic/offline — no LLM here; the Opus-authored
     # prose is refreshed separately at graduation (see mark_roadmap_complete).
@@ -149,7 +173,7 @@ def maybe_push_roadmap_map_change() -> None:
     notify_telegram_with_map(  # writes LAST_MAP_SIG = sig on send → dedups next poll
         "🗺 *Roadmap updated* — dependency map refreshed.\n" + summary
     )
-    append_journal("roadmap_map_pushed", f"sig={sig[:12]}")
+    append_journal("roadmap_map_pushed", f"sig={sig[:12]}{delivery_note()}")
 
 
 def get_completed_task_ids() -> set[str]:
@@ -162,40 +186,51 @@ def get_completed_task_ids() -> set[str]:
 
 # ── ROADMAP parsing ──
 
+#: `unrunnable`'s reason for a task whose dependencies are not all complete.
+WAITS = "it waits for its dependencies"
+
+
+def pending_deps(task: dict, complete_ids) -> list[str]:
+    """The task's dependencies that are not complete, in its order."""
+    deps = task.get("deps") or []
+    if isinstance(deps, str):
+        deps = [deps] if deps else []
+    return [str(d) for d in deps if str(d) not in complete_ids]
+
+
+def unrunnable(task: dict, complete_ids, blocked=frozenset()) -> str:
+    """Why the loop does not run `task`, `""` when it does: the one predicate
+    `parse_runnable_tasks` applies, shared with the completion gate (P13 GDT-10), which
+    names the reason and follows `WAITS` into the dependencies."""
+    if str(task["id"]) in blocked:  # P02 drift / GDT-2 goal gate — see _drift_blocked_ids, _goal_blocked_ids
+        return "it is held (a ROADMAP drift conflict, the goals gate or a goal replan)"
+    if task.get("status") == "complete":
+        return "it is complete"
+    if task.get("mode") not in ("autonomous", "needs-dan"):
+        if not task.get("mode"):
+            return "it has no `mode:` (only autonomous and needs-dan tasks run)"
+        return f"its mode {task.get('mode')} is never dispatched"
+    if task.get("self_modifying"):  # Problem 10 — never auto-run self-modifying tasks
+        return "it is self_modifying (never auto-run)"
+    if task.get("hold"):  # human hold — excluded from auto-launch until the flag is cleared
+        return "it is on hold"
+    if task.get("dispatch") == "manual":  # B9: permanent non-dispatchable; Dan must perform the task
+        return "it is dispatch: manual (yours to perform)"
+    if pending_deps(task, complete_ids):
+        return WAITS
+    return ""
+
+
 def parse_runnable_tasks() -> list[dict]:
     """Return autonomous, non-self-modifying tasks whose deps are all complete."""
     content = ROADMAP_FILE.read_text(encoding="utf-8")
-    blocks  = re.findall(r"```yaml\n(.*?)```", content, re.DOTALL)
-    tasks: list[dict]      = []
+    tasks: list[dict]      = taskgraph.scan_tasks(content)
     complete_ids: set[str] = get_completed_task_ids()
-    for raw in blocks:
-        try:
-            task = _normalize_task(yaml.safe_load(raw))
-        except yaml.YAMLError:
-            continue
-        if not isinstance(task, dict) or not task.get("id"):
-            continue
-        tasks.append(task)
-        if task.get("status") == "complete":
-            complete_ids.add(str(task["id"]))
-    runnable: list[dict] = []
     for task in tasks:
         if task.get("status") == "complete":
-            continue
-        if task.get("mode") not in ("autonomous", "needs-dan"):
-            continue
-        if task.get("self_modifying"):  # Problem 10 — never auto-run self-modifying tasks
-            continue
-        if task.get("hold"):  # human hold — excluded from auto-launch until the flag is cleared
-            continue
-        if task.get("dispatch") == "manual":  # B9: permanent non-dispatchable; Dan must perform the task
-            continue
-        deps = task.get("deps") or []
-        if isinstance(deps, str):
-            deps = [deps] if deps else []
-        if all(str(d) in complete_ids for d in deps):
-            runnable.append(task)
-    return runnable
+            complete_ids.add(str(task["id"]))
+    blocked = _drift_blocked_ids() | _goal_blocked_ids(tasks) | _replan_blocked_ids(tasks)
+    return [task for task in tasks if not unrunnable(task, complete_ids, blocked)]
 
 
 def parse_prep_tasks() -> list[dict]:
@@ -208,19 +243,12 @@ def parse_prep_tasks() -> list[dict]:
     dedup/dep logic of parse_runnable_tasks (which deliberately *excludes* dispatch:manual).
     """
     content = ROADMAP_FILE.read_text(encoding="utf-8")
-    blocks  = re.findall(r"```yaml\n(.*?)```", content, re.DOTALL)
     complete_ids: set[str] = get_completed_task_ids()
-    tasks: list[dict] = []
-    for raw in blocks:
-        try:
-            task = _normalize_task(yaml.safe_load(raw))
-        except yaml.YAMLError:
-            continue
-        if not isinstance(task, dict) or not task.get("id"):
-            continue
-        tasks.append(task)
+    tasks: list[dict] = taskgraph.scan_tasks(content)
+    for task in tasks:
         if task.get("status") == "complete":
             complete_ids.add(str(task["id"]))
+    blocked    = _drift_blocked_ids() | _goal_blocked_ids(tasks) | _replan_blocked_ids(tasks)
     state      = read_state()
     parked_ids = {p.get("task_id") for p in state.get("waiting_on_dan", {}).values()}
     failed_parked = set(state.get("parked_tasks", []))  # B11: failed → needs /unpark first
@@ -233,6 +261,8 @@ def parse_prep_tasks() -> list[dict]:
         if task.get("hold") or task.get("self_modifying"):
             continue
         tid = str(task["id"])
+        if tid in blocked:                # P02 drift conflict / GDT-2 goal gate hold
+            continue
         if prep_actions.has_action(tid):  # prep already done, awaiting Dan's action
             continue
         if tid in parked_ids:             # already parked (e.g. seeded or mid-cycle)
@@ -247,26 +277,86 @@ def parse_prep_tasks() -> list[dict]:
     return prep
 
 
-def _normalize_task(task):
-    """needs-dan ⇒ auto-prep. A `mode: needs-dan` task with no explicit dispatch is
-    treated as `dispatch: manual`, so it flows through the B14 prep-and-hand pipeline
-    (one action + /ask + /approve) instead of being launched as a normal implementer,
-    failing the human step, and dead-parking. None-safe (yaml.safe_load may return None)."""
-    if isinstance(task, dict) and task.get("mode") == "needs-dan" and not task.get("dispatch"):
-        task["dispatch"] = "manual"
-    return task
+#: needs-dan ⇒ auto-prep. The rule itself now lives in `maestro.taskgraph` (P02), which
+#: is the one place the roadmap is read; this name stays bound because it is part of this
+#: module's surface and `tests/characterization/test_roadmap.py` exercises it directly.
+_normalize_task = taskgraph.normalize_legacy_task
+
+
+def _drift_blocked_ids() -> frozenset[str]:
+    """Task ids that a ROADMAP drift conflict forbids dispatching (P02).
+
+    If `docs/ROADMAP.md` was hand-edited while the controller is live, the edited tasks
+    and everything downstream of them are held back — the controller must never act on a
+    task whose definition moved under it, and must never resolve the conflict by
+    overwriting the edit. Everything else keeps running.
+
+    Empty, always, for a project that has not adopted the `[P2]` model: with no recorded
+    revision in `.orchestrator/roadmap_cas.json` there is nothing to have drifted from,
+    and the legacy behaviour is preserved byte-for-byte (`D08`).
+    """
+    return taskgraph.blocked_task_ids(REPO)
+
+
+#: repo -> the goal-held ids last journaled, so a hold is journaled once per change.
+_LAST_GOAL_HOLD: dict[str, frozenset[str]] = {}
+
+
+def _goal_blocked_ids(tasks: list[dict]) -> frozenset[str]:
+    """Task ids the goals contract's execution gate holds (P13 GDT-2, R31).
+
+    A task is held on its own goal problems (no `serves`, an unknown id) and on the
+    `docs/GOALS.md` gate problems whose ids it touches; everything else keeps running, like
+    a drift hold. Empty without `docs/GOALS.md`. Never raises: a gate that cannot read the
+    contract journals why and holds nothing, as the drift hold does.
+    """
+    from maestro.docs import goals as doc_goals
+
+    try:
+        doc = doc_goals.load(REPO)
+        holds = doc_goals.execution_holds(doc, tasks) if doc is not None else {}
+    except Exception as exc:  # noqa: BLE001 - dispatch must not die on the goals file
+        append_journal("goal_gate_error", f"{type(exc).__name__}: {exc}")
+        return frozenset()
+    held = frozenset(holds)
+    if held and _LAST_GOAL_HOLD.get(str(REPO)) != held:
+        append_journal("goal_gate_hold", doc_goals.describe_holds(holds))
+    _LAST_GOAL_HOLD[str(REPO)] = held
+    return held
+
+
+#: repo -> the replan-held ids last journaled, so a hold is journaled once per change.
+_LAST_REPLAN_HOLD: dict[str, frozenset[str]] = {}
+
+
+def _replan_blocked_ids(tasks: list[dict]) -> frozenset[str]:
+    """Task ids a goal replan holds (P13 GDT-8, R46): while Dan's answer waits, the goal's
+    own work and what depends on it; while an added task is open, the tasks waiting for
+    it (`goal_replan.held`). Independent work keeps running. Empty without the goals store.
+    Never raises: a store that cannot be read journals why and holds nothing."""
+    from maestro import goal_replan
+
+    try:
+        holds = goal_replan.held(REPO, tasks)
+    except Exception as exc:  # noqa: BLE001 - dispatch must not die on the goals store
+        append_journal("goal_replan_hold_error", f"{type(exc).__name__}: {exc}")
+        return frozenset()
+    held = frozenset(holds)
+    if held and _LAST_REPLAN_HOLD.get(str(REPO)) != held:
+        by: dict[str, list[str]] = {}
+        for tid, rp in holds.items():
+            by.setdefault(rp, []).append(tid)
+        append_journal("goal_replan_hold", "; ".join(
+            f"{rp} holds {', '.join(ids)}" for rp, ids in by.items()))
+    _LAST_REPLAN_HOLD[str(REPO)] = held
+    return held
 
 
 def get_task_by_id(task_id: str) -> dict | None:
     """Return the full task dict from ROADMAP.md, or None."""
     content = ROADMAP_FILE.read_text(encoding="utf-8")
-    blocks  = re.findall(r"```yaml\n(.*?)```", content, re.DOTALL)
-    for raw in blocks:
-        try:
-            task = _normalize_task(yaml.safe_load(raw))
-        except yaml.YAMLError:
-            continue
-        if isinstance(task, dict) and str(task.get("id", "")) == str(task_id):
+    for task in taskgraph.scan_tasks(content, require_id=False):
+        if str(task.get("id", "")) == str(task_id):
             return task
     return None
 
@@ -285,13 +375,109 @@ def _refresh_upcoming() -> None:
         _call_main(doc_upcoming, [])
 
 
-def mark_roadmap_complete(task_id: str) -> None:
+def _append_replan_tasks(tasks) -> list[str]:
+    """Append a replan's tasks (P13 GDT-8) to the ROADMAP as yaml blocks; an id already
+    there is skipped, so a retried graduation or answer adds nothing twice. Each block is
+    recorded in the `[P2]` CAS, as a queued follow-up task is. Returns the ids added."""
+    from maestro import goal_roadmap
+    from maestro.docs import followups as doc_followups
+
+    content = ROADMAP_FILE.read_text(encoding="utf-8")
+    present = {str(t.get("id")) for t in taskgraph.scan_tasks(content, require_id=False)}
+    new = [dict(t) for t in tasks if str(t.get("id")) not in present]
+    new = list({str(t["id"]): t for t in new}.values())
+    if not new:
+        return []
+    content = content.rstrip("\n") + "\n\n" + goal_roadmap.render_tasks(new).rstrip("\n") + "\n"
+    ROADMAP_FILE.write_text(content, encoding="utf-8")
+    ids = [str(t["id"]) for t in new]
+    for tid in ids:
+        doc_followups.register_in_cas(REPO, content, tid)
+    return ids
+
+
+def add_tasks(tasks, label: str, event: str, *, key: str | None = None) -> list[str]:
+    """Tasks maestro adds between graduations (a replan Dan approved, P13 GDT-8; a polish
+    stage, GDT-11): appended to the ROADMAP and committed (docs-only, the ROADMAP alone,
+    `roadmap: <label> adds <ids>`). Returns the ids added (`[]` when all were already
+    there). Journals `<event>_tasks_added`, `_tasks_uncommitted` or `_commit_failed`, each
+    detail starting `<key>: ` (the label by default).
+
+    A ROADMAP with uncommitted changes is Dan's edit in progress (as `reduce_roadmap_deps`
+    reads it): the tasks join the working tree, which dispatch reads, and are not committed
+    now, so his edit is never swept into a maestro commit; the next graduation commits the
+    ROADMAP. A failed `git add`/`commit` is journaled, never raised."""
+    key = label if key is None else key
+    rel = str(ROADMAP_FILE.relative_to(REPO))
+    dirty = subprocess.run(["git", "status", "--porcelain", "--", rel],
+                           cwd=str(REPO), capture_output=True, text=True)
+    ids = _append_replan_tasks(tasks)
+    if not ids:
+        return []
+    if dirty.returncode != 0 or (dirty.stdout or "").strip():
+        append_journal(f"{event}_tasks_uncommitted",
+                       f"{key}: {', '.join(ids)} added to {rel}, not committed: it holds "
+                       "uncommitted edits")
+        return ids
+    for cmd in (["git", "add", "--", rel],
+                ["git", "commit", "--no-verify", "-m",
+                 f"roadmap: {label} adds {', '.join(ids)}", "--", rel]):
+        proc = subprocess.run(cmd, cwd=str(REPO), capture_output=True, text=True)
+        if proc.returncode != 0:
+            append_journal(f"{event}_commit_failed",
+                           f"{key}: {', '.join(ids)} added to {rel}; git {cmd[1]} exited "
+                           f"{proc.returncode}: {(proc.stderr or proc.stdout or '').strip()}"
+                           [:300])
+            return ids
+    append_journal(f"{event}_tasks_added", f"{key}: {', '.join(ids)}")
+    return ids
+
+
+def add_replan_tasks(tasks, rp_id: str) -> list[str]:
+    """The tasks Dan's approval of replan `rp_id` adds (`add_tasks`)."""
+    return add_tasks(tasks, f"replan {rp_id}", "goal_replan", key=rp_id)
+
+
+def mark_roadmap_complete(task_id: str, follow_ups=(), replan_tasks=(), polish_tasks=()):
     """Remove task from ROADMAP.md, log to completed_tasks.json, and COMMIT the
     graduation artifacts so the caller's `git push origin main` actually persists
     them. `maestro.docs.complete.main()` only writes files (no commit), and every
     graduation site does `mark_roadmap_complete` → `git push` with nothing staged in
     between, so without this commit the strip + registry append live only in the
-    working tree and never reach git (P8B2/P8B3/P14 accumulated this way)."""
+    working tree and never reach git (P8B2/P8B3/P14 accumulated this way).
+
+    `follow_ups` (`maestro.docs.followups.FollowUp`s, from the graph path) are the
+    accepted run's review follow-ups: recorded in the backlog for the polish stage, or,
+    when marked `before_dependents` and a task depends on this one, queued as one
+    `<id>-followups` task before its dependents — in this same commit (P13 GDT-11).
+    Returns where they went (`followups.Recorded`), or None.
+
+    `replan_tasks` (P13 GDT-8) are the tasks a routine replan applied at this graduation:
+    appended to the ROADMAP in this same commit.
+
+    `polish_tasks` (P13 GDT-11) are the polish tasks a triage task's graduation grouped
+    its kept follow-ups into (`backlog.apply_triage`): appended in this same commit too."""
+    from maestro.docs import followups as doc_followups
+
+    recorded = None
+    for tasks, event in ((replan_tasks, "goal_replan_tasks"), (polish_tasks, "polish_tasks")):
+        if not tasks:
+            continue
+        try:
+            added = _append_replan_tasks(tasks)
+            if added:
+                append_journal(f"{event}_added", f"{task_id}: {', '.join(added)}")
+        except Exception as exc:  # noqa: BLE001 — added work never blocks a graduation
+            append_journal(f"{event}_not_added", f"{task_id}: {exc}")
+    if follow_ups:
+        # Before the strip, while the task's block is still there to read and to place
+        # the follow-up task after; the dep map and UPCOMING below then include it.
+        try:
+            recorded = doc_followups.record(
+                REPO, ROADMAP_FILE, get_task_by_id(task_id), follow_ups,
+                journal=append_journal)
+        except Exception as exc:  # noqa: BLE001 — follow-ups never block a graduation
+            append_journal("followups_not_recorded", f"{task_id}: {exc}")
     # --no-verify: the orchestrator already ran the verification gate on the worktree
     # before reaching here (run_verification_gate); re-gating REPO would be redundant and
     # mark_roadmap_complete ignores the rc anyway, so a spurious fail must not block graduation.
@@ -316,17 +502,80 @@ def mark_roadmap_complete(task_id: str) -> None:
         "docs/dependency_map.md", "docs/dependency_map.png", "docs/UPCOMING.md",
         ".orchestrator/upcoming_explanations.json",
     ]
+    # Only paths that exist: `git add` with one unmatched path stages nothing at all (P12
+    # pilot finding D18: a project without docs/AUTONOMOUS_SYSTEM.md never committed).
+    grad_files = [p for p in grad_files if (REPO / p).exists()]
     subprocess.run(["git", "add", *grad_files], cwd=str(REPO), capture_output=True)
-    # Only commit if something was actually staged (avoid an empty-commit error).
-    staged = subprocess.run(["git", "diff", "--cached", "--quiet"],
-                            cwd=str(REPO)).returncode != 0
+    # Only commit if something was actually staged (avoid an empty-commit error), and
+    # only those paths: whatever else the index holds is not graduation's to commit (P12
+    # pilot finding D8: a checkout left behind by a graph merge held a staged revert of
+    # it, and a whole-index commit here landed that revert on main).
+    staged = subprocess.run(
+        ["git", "diff", "--cached", "--name-only", "--", *grad_files],
+        cwd=str(REPO), capture_output=True, text=True,
+    ).stdout.split()
     if staged:
         subprocess.run(
             ["git", "commit", "--no-verify", "-m",
-             f"roadmap({task_id}): graduate to project docs + registry"],
+             f"roadmap({task_id}): graduate to project docs + registry", "--", *staged],
             cwd=str(REPO), capture_output=True,
         )
     append_journal("roadmap_task_removed", f"{task_id} removed from ROADMAP.md")
+    if recorded is not None:
+        append_journal("followups_recorded", f"{task_id}: {recorded.summary()}")
+    return recorded
+
+
+def reduce_roadmap_deps() -> dict[str, list[str]]:
+    """Rewrite transitively redundant deps out of ROADMAP.md (P12 finding D21).
+
+    Run once at graph-loop startup, before any task is opened. Deps of graduated tasks
+    (the completion registry) count as reachability. A minimal edit of the affected
+    `deps:` lines, journaled `roadmap_deps_reduced` and committed docs-only; a no-op —
+    no write, journal or commit — when nothing is redundant. A ROADMAP with uncommitted
+    changes is someone's edit in progress and is left alone until the next start.
+
+    Under the `[P2]` CAS the rewritten blocks are recorded as applied, as
+    `followups.register_in_cas` does for a queued block, so the rewrite is not read as a
+    hand edit; a block already drifted from the CAS is not touched, so its hand edit is
+    never laundered into the record. Returns `{task_id: [removed deps]}`.
+    """
+    try:
+        content = ROADMAP_FILE.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+    record = taskgraph.read_cas(REPO)
+    before = taskgraph.parse_document(content)
+    skip: set[str] = set()
+    if record is not None:
+        skip = {t for t, h in before.block_hashes().items() if record.tasks.get(t) != h}
+    new, removed = taskgraph.reduce_document_deps(
+        content, known=taskgraph.read_registry_deps(REPO), skip=skip)
+    if not removed:
+        return {}
+    rel = str(ROADMAP_FILE.relative_to(REPO))
+    dirty = subprocess.run(["git", "status", "--porcelain", "--", rel],
+                           cwd=str(REPO), capture_output=True, text=True)
+    if dirty.returncode != 0 or dirty.stdout.strip():
+        return {}
+    ROADMAP_FILE.write_text(new, encoding="utf-8")
+    if record is not None:
+        after = taskgraph.parse_document(new)
+        data = record.to_json()
+        hashes = after.block_hashes()
+        data["tasks"].update({t: hashes[t] for t in removed if t in hashes})
+        if record.document_hash == before.document_hash:
+            data["document_hash"] = after.document_hash
+        taskgraph._atomic_write(taskgraph.cas_path(REPO), json.dumps(data, indent=2) + "\n")
+    append_journal("roadmap_deps_reduced",
+                   "; ".join(f"{t}: -{', '.join(d)}" for t, d in removed.items()))
+    subprocess.run(["git", "add", "--", rel], cwd=str(REPO), capture_output=True)
+    subprocess.run(
+        ["git", "commit", "--no-verify", "-m",
+         f"roadmap: drop transitively redundant deps ({', '.join(removed)})", "--", rel],
+        cwd=str(REPO), capture_output=True,
+    )
+    return removed
 
 
 def _load_roadmap_tasks() -> list[dict]:
@@ -339,13 +588,4 @@ def _load_roadmap_tasks() -> list[dict]:
         content = ROADMAP_FILE.read_text(encoding="utf-8")
     except OSError:
         return []
-    blocks = re.findall(r"```yaml\n(.*?)```", content, re.DOTALL)
-    tasks: list[dict] = []
-    for raw in blocks:
-        try:
-            task = _normalize_task(yaml.safe_load(raw))
-        except yaml.YAMLError:
-            continue
-        if isinstance(task, dict) and task.get("id"):
-            tasks.append(task)
-    return tasks
+    return taskgraph.scan_tasks(content)

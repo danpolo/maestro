@@ -1,0 +1,3395 @@
+{
+  "schema_version": 1,
+  "phase": "P00",
+  "captured_at": "2026-09-11T06:09:26Z",
+  "lanes": {
+    "async_wait": {
+      "summary": {
+        "lane": "async_wait",
+        "events": 51,
+        "by_kind": {
+          "subprocess": 1,
+          "state_read": 15,
+          "reconcile": 3,
+          "report": 5,
+          "control_poll": 4,
+          "notify": 4,
+          "selfheal": 4,
+          "async_job_poll": 2,
+          "quota_switch": 2,
+          "usage_sample": 3,
+          "context_rotation": 2,
+          "async_job_launch": 2,
+          "worktree_create": 1,
+          "agent_call": 1,
+          "state_write": 2
+        },
+        "duplicate_agent_invocations": 0,
+        "unnecessary_test_reruns": 0,
+        "idle_wait_seconds": 60.0,
+        "active_compute_seconds": 120.0,
+        "state_reads": 15,
+        "state_writes": 2,
+        "observed_facts": 51,
+        "inferred_facts": 0
+      },
+      "events": [
+        {
+          "seq": 0,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "tmux has-session"
+        },
+        {
+          "seq": 1,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 2,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile_startup"
+        },
+        {
+          "seq": 3,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 4,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 5,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 6,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 7,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 8,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 9,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 10,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 11,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 12,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 13,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 14,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 15,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 16,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 17,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 18,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 19,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 20,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 21,
+          "kind": "async_job_launch",
+          "evidence": "observed",
+          "identity": "launch_async_job"
+        },
+        {
+          "seq": 22,
+          "kind": "worktree_create",
+          "evidence": "observed",
+          "identity": "create_worktree"
+        },
+        {
+          "seq": 23,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "implementer:TASK-005"
+        },
+        {
+          "seq": 24,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 25,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 26,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 27,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 28,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 29,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 30,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 31,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 32,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 33,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 34,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 35,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 36,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 37,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 38,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 39,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 40,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_under_usage_pressure"
+        },
+        {
+          "seq": 41,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 42,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 43,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 44,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 45,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 46,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 47,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 48,
+          "kind": "async_job_launch",
+          "evidence": "observed",
+          "identity": "launch_async_job"
+        },
+        {
+          "seq": 49,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 50,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        }
+      ]
+    },
+    "async_wait_parked": {
+      "summary": {
+        "lane": "async_wait_parked",
+        "events": 59,
+        "by_kind": {
+          "subprocess": 1,
+          "state_read": 15,
+          "reconcile": 4,
+          "report": 3,
+          "control_poll": 6,
+          "notify": 6,
+          "selfheal": 6,
+          "async_job_poll": 3,
+          "quota_switch": 3,
+          "usage_sample": 3,
+          "context_rotation": 3,
+          "heartbeat": 3,
+          "self_update": 3
+        },
+        "duplicate_agent_invocations": 0,
+        "unnecessary_test_reruns": 0,
+        "idle_wait_seconds": 90.0,
+        "active_compute_seconds": 0.0,
+        "state_reads": 15,
+        "state_writes": 0,
+        "observed_facts": 59,
+        "inferred_facts": 0
+      },
+      "events": [
+        {
+          "seq": 0,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "tmux has-session"
+        },
+        {
+          "seq": 1,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 2,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile_startup"
+        },
+        {
+          "seq": 3,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 4,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 5,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 6,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 7,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 8,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 9,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 10,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 11,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 12,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 13,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 14,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 15,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 16,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 17,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 18,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 19,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 20,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 21,
+          "kind": "heartbeat",
+          "evidence": "observed",
+          "identity": "_idle_heartbeat_maybe"
+        },
+        {
+          "seq": 22,
+          "kind": "self_update",
+          "evidence": "observed",
+          "identity": "_self_update_maybe"
+        },
+        {
+          "seq": 23,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 24,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 25,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 26,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 27,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 28,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 29,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 30,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 31,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 32,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 33,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 34,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 35,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 36,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 37,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 38,
+          "kind": "heartbeat",
+          "evidence": "observed",
+          "identity": "_idle_heartbeat_maybe"
+        },
+        {
+          "seq": 39,
+          "kind": "self_update",
+          "evidence": "observed",
+          "identity": "_self_update_maybe"
+        },
+        {
+          "seq": 40,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 41,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 42,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 43,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 44,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 45,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 46,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 47,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 48,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 49,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 50,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 51,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 52,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 53,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 54,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 55,
+          "kind": "heartbeat",
+          "evidence": "observed",
+          "identity": "_idle_heartbeat_maybe"
+        },
+        {
+          "seq": 56,
+          "kind": "self_update",
+          "evidence": "observed",
+          "identity": "_self_update_maybe"
+        },
+        {
+          "seq": 57,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 58,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        }
+      ]
+    },
+    "manual_preparation": {
+      "summary": {
+        "lane": "manual_preparation",
+        "events": 58,
+        "by_kind": {
+          "subprocess": 1,
+          "state_read": 18,
+          "reconcile": 3,
+          "report": 7,
+          "control_poll": 4,
+          "notify": 4,
+          "selfheal": 4,
+          "async_job_poll": 2,
+          "quota_switch": 2,
+          "usage_sample": 3,
+          "context_rotation": 2,
+          "worktree_create": 1,
+          "agent_call": 1,
+          "state_write": 4,
+          "heartbeat": 1,
+          "self_update": 1
+        },
+        "duplicate_agent_invocations": 0,
+        "unnecessary_test_reruns": 0,
+        "idle_wait_seconds": 60.0,
+        "active_compute_seconds": 120.0,
+        "state_reads": 18,
+        "state_writes": 4,
+        "observed_facts": 58,
+        "inferred_facts": 0
+      },
+      "events": [
+        {
+          "seq": 0,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "tmux has-session"
+        },
+        {
+          "seq": 1,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 2,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile_startup"
+        },
+        {
+          "seq": 3,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 4,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 5,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 6,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 7,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 8,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 9,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 10,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 11,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 12,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 13,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 14,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 15,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 16,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 17,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 18,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 19,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 20,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 21,
+          "kind": "worktree_create",
+          "evidence": "observed",
+          "identity": "create_worktree"
+        },
+        {
+          "seq": 22,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "implementer:TASK-003"
+        },
+        {
+          "seq": 23,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 24,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 25,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 26,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 27,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 28,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 29,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 30,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 31,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 32,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 33,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 34,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 35,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 36,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 37,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 38,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 39,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_under_usage_pressure"
+        },
+        {
+          "seq": 40,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 41,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 42,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 43,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 44,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 45,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 46,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 47,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 48,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 49,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 50,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 51,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 52,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 53,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 54,
+          "kind": "heartbeat",
+          "evidence": "observed",
+          "identity": "_idle_heartbeat_maybe"
+        },
+        {
+          "seq": 55,
+          "kind": "self_update",
+          "evidence": "observed",
+          "identity": "_self_update_maybe"
+        },
+        {
+          "seq": 56,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 57,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        }
+      ]
+    },
+    "ordinary_change": {
+      "summary": {
+        "lane": "ordinary_change",
+        "events": 69,
+        "by_kind": {
+          "subprocess": 2,
+          "state_read": 22,
+          "reconcile": 3,
+          "report": 7,
+          "control_poll": 4,
+          "notify": 6,
+          "selfheal": 4,
+          "async_job_poll": 2,
+          "quota_switch": 2,
+          "usage_sample": 3,
+          "context_rotation": 2,
+          "worktree_create": 1,
+          "agent_call": 2,
+          "state_write": 4,
+          "test_run": 2,
+          "worktree_remove": 1,
+          "roadmap_write": 1,
+          "repo_query": 1
+        },
+        "duplicate_agent_invocations": 0,
+        "unnecessary_test_reruns": 0,
+        "idle_wait_seconds": 60.0,
+        "active_compute_seconds": 280.0,
+        "state_reads": 22,
+        "state_writes": 4,
+        "observed_facts": 69,
+        "inferred_facts": 0
+      },
+      "events": [
+        {
+          "seq": 0,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "tmux has-session"
+        },
+        {
+          "seq": 1,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 2,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile_startup"
+        },
+        {
+          "seq": 3,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 4,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 5,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 6,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 7,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 8,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 9,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 10,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 11,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 12,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 13,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 14,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 15,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 16,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 17,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 18,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 19,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 20,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 21,
+          "kind": "worktree_create",
+          "evidence": "observed",
+          "identity": "create_worktree"
+        },
+        {
+          "seq": 22,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "implementer:TASK-001"
+        },
+        {
+          "seq": 23,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 24,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 25,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 26,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 27,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 28,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 29,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 30,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 31,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 32,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 33,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 34,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 35,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 36,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 37,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 38,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 39,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_under_usage_pressure"
+        },
+        {
+          "seq": 40,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 41,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 42,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 43,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 44,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 45,
+          "kind": "test_run",
+          "evidence": "observed",
+          "identity": "gate:TASK-001"
+        },
+        {
+          "seq": 46,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "review:TASK-001"
+        },
+        {
+          "seq": 47,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 48,
+          "kind": "test_run",
+          "evidence": "observed",
+          "identity": "smoke:TASK-001"
+        },
+        {
+          "seq": 49,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 50,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 51,
+          "kind": "worktree_remove",
+          "evidence": "observed",
+          "identity": "remove_worktree"
+        },
+        {
+          "seq": 52,
+          "kind": "roadmap_write",
+          "evidence": "observed",
+          "identity": "mark_complete"
+        },
+        {
+          "seq": 53,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 54,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 55,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 56,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "git push"
+        },
+        {
+          "seq": 57,
+          "kind": "repo_query",
+          "evidence": "observed",
+          "identity": "_touches_bot_files"
+        },
+        {
+          "seq": 58,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "phase_report"
+        },
+        {
+          "seq": 59,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 60,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 61,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 62,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 63,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 64,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 65,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 66,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_notify_proposal_test_due"
+        },
+        {
+          "seq": 67,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 68,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        }
+      ]
+    },
+    "quota_switch": {
+      "summary": {
+        "lane": "quota_switch",
+        "events": 17,
+        "by_kind": {
+          "subprocess": 1,
+          "state_read": 3,
+          "reconcile": 1,
+          "report": 3,
+          "control_poll": 2,
+          "notify": 2,
+          "selfheal": 2,
+          "async_job_poll": 1,
+          "quota_switch": 1,
+          "usage_sample": 1
+        },
+        "duplicate_agent_invocations": 0,
+        "unnecessary_test_reruns": 0,
+        "idle_wait_seconds": 0.0,
+        "active_compute_seconds": 0.0,
+        "state_reads": 3,
+        "state_writes": 0,
+        "observed_facts": 17,
+        "inferred_facts": 0
+      },
+      "events": [
+        {
+          "seq": 0,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "tmux has-session"
+        },
+        {
+          "seq": 1,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 2,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile_startup"
+        },
+        {
+          "seq": 3,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 4,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 5,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 6,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 7,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 8,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 9,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 10,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 11,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 12,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 13,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 14,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 15,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 16,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        }
+      ]
+    },
+    "quota_switch_ordering": {
+      "summary": {
+        "lane": "quota_switch_ordering",
+        "events": 33,
+        "by_kind": {
+          "subprocess": 1,
+          "state_read": 11,
+          "reconcile": 2,
+          "report": 5,
+          "control_poll": 2,
+          "notify": 2,
+          "selfheal": 2,
+          "async_job_poll": 1,
+          "quota_switch": 1,
+          "usage_sample": 1,
+          "context_rotation": 1,
+          "worktree_create": 1,
+          "agent_call": 1,
+          "state_write": 2
+        },
+        "duplicate_agent_invocations": 0,
+        "unnecessary_test_reruns": 0,
+        "idle_wait_seconds": 30.0,
+        "active_compute_seconds": 120.0,
+        "state_reads": 11,
+        "state_writes": 2,
+        "observed_facts": 33,
+        "inferred_facts": 0
+      },
+      "events": [
+        {
+          "seq": 0,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "tmux has-session"
+        },
+        {
+          "seq": 1,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 2,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile_startup"
+        },
+        {
+          "seq": 3,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 4,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 5,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 6,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 7,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 8,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 9,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 10,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 11,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 12,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 13,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 14,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 15,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 16,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 17,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 18,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 19,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 20,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 21,
+          "kind": "worktree_create",
+          "evidence": "observed",
+          "identity": "create_worktree"
+        },
+        {
+          "seq": 22,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "implementer:TASK-007"
+        },
+        {
+          "seq": 23,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 24,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 25,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 26,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 27,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 28,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 29,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 30,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 31,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 32,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        }
+      ]
+    },
+    "resumable_work": {
+      "summary": {
+        "lane": "resumable_work",
+        "events": 58,
+        "by_kind": {
+          "subprocess": 1,
+          "state_read": 17,
+          "reconcile": 3,
+          "report": 5,
+          "control_poll": 4,
+          "notify": 4,
+          "selfheal": 4,
+          "async_job_poll": 2,
+          "quota_switch": 2,
+          "usage_sample": 3,
+          "context_rotation": 2,
+          "worktree_create": 1,
+          "agent_call": 1,
+          "state_write": 4,
+          "test_run": 1,
+          "merge_partial": 1,
+          "worktree_remove": 1,
+          "heartbeat": 1,
+          "self_update": 1
+        },
+        "duplicate_agent_invocations": 0,
+        "unnecessary_test_reruns": 0,
+        "idle_wait_seconds": 60.0,
+        "active_compute_seconds": 140.0,
+        "state_reads": 17,
+        "state_writes": 4,
+        "observed_facts": 58,
+        "inferred_facts": 0
+      },
+      "events": [
+        {
+          "seq": 0,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "tmux has-session"
+        },
+        {
+          "seq": 1,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 2,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile_startup"
+        },
+        {
+          "seq": 3,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 4,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 5,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 6,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 7,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 8,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 9,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 10,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 11,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 12,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 13,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 14,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 15,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 16,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 17,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 18,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 19,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 20,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 21,
+          "kind": "worktree_create",
+          "evidence": "observed",
+          "identity": "create_worktree"
+        },
+        {
+          "seq": 22,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "implementer:TASK-006"
+        },
+        {
+          "seq": 23,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 24,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 25,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 26,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 27,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 28,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 29,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 30,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 31,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 32,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 33,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 34,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 35,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 36,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 37,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 38,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 39,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_under_usage_pressure"
+        },
+        {
+          "seq": 40,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 41,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 42,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 43,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 44,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 45,
+          "kind": "test_run",
+          "evidence": "observed",
+          "identity": "gate:TASK-006"
+        },
+        {
+          "seq": 46,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 47,
+          "kind": "merge_partial",
+          "evidence": "observed",
+          "identity": "_merge_data_only"
+        },
+        {
+          "seq": 48,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 49,
+          "kind": "worktree_remove",
+          "evidence": "observed",
+          "identity": "remove_worktree"
+        },
+        {
+          "seq": 50,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 51,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 52,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 53,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 54,
+          "kind": "heartbeat",
+          "evidence": "observed",
+          "identity": "_idle_heartbeat_maybe"
+        },
+        {
+          "seq": 55,
+          "kind": "self_update",
+          "evidence": "observed",
+          "identity": "_self_update_maybe"
+        },
+        {
+          "seq": 56,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 57,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        }
+      ]
+    },
+    "risky_proof_review": {
+      "summary": {
+        "lane": "risky_proof_review",
+        "events": 100,
+        "by_kind": {
+          "subprocess": 1,
+          "state_read": 27,
+          "reconcile": 5,
+          "report": 5,
+          "control_poll": 8,
+          "notify": 8,
+          "selfheal": 8,
+          "async_job_poll": 4,
+          "quota_switch": 4,
+          "usage_sample": 6,
+          "context_rotation": 4,
+          "worktree_create": 2,
+          "agent_call": 6,
+          "state_write": 5,
+          "test_run": 2,
+          "dan_request": 1,
+          "heartbeat": 2,
+          "self_update": 2
+        },
+        "duplicate_agent_invocations": 3,
+        "unnecessary_test_reruns": 1,
+        "idle_wait_seconds": 120.0,
+        "active_compute_seconds": 760.0,
+        "state_reads": 27,
+        "state_writes": 5,
+        "observed_facts": 100,
+        "inferred_facts": 0
+      },
+      "events": [
+        {
+          "seq": 0,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "tmux has-session"
+        },
+        {
+          "seq": 1,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 2,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile_startup"
+        },
+        {
+          "seq": 3,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 4,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 5,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 6,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 7,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 8,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 9,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 10,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 11,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 12,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 13,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 14,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 15,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 16,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 17,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 18,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 19,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 20,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 21,
+          "kind": "worktree_create",
+          "evidence": "observed",
+          "identity": "create_worktree"
+        },
+        {
+          "seq": 22,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "implementer:TASK-008"
+        },
+        {
+          "seq": 23,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 24,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 25,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 26,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 27,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 28,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 29,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 30,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 31,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 32,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 33,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 34,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 35,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 36,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 37,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 38,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 39,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_under_usage_pressure"
+        },
+        {
+          "seq": 40,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 41,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 42,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 43,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 44,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 45,
+          "kind": "test_run",
+          "evidence": "observed",
+          "identity": "gate:TASK-008"
+        },
+        {
+          "seq": 46,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "review:TASK-008"
+        },
+        {
+          "seq": 47,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "implementer:TASK-008"
+        },
+        {
+          "seq": 48,
+          "kind": "worktree_create",
+          "evidence": "observed",
+          "identity": "create_worktree"
+        },
+        {
+          "seq": 49,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "implementer:TASK-008"
+        },
+        {
+          "seq": 50,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 51,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 52,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 53,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 54,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 55,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 56,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 57,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 58,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 59,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 60,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 61,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 62,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_under_usage_pressure"
+        },
+        {
+          "seq": 63,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 64,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 65,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 66,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 67,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 68,
+          "kind": "test_run",
+          "evidence": "observed",
+          "identity": "gate:TASK-008"
+        },
+        {
+          "seq": 69,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "review:TASK-008"
+        },
+        {
+          "seq": 70,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 71,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 72,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 73,
+          "kind": "dan_request",
+          "evidence": "observed",
+          "identity": "_danreq"
+        },
+        {
+          "seq": 74,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "ask:diagnoser"
+        },
+        {
+          "seq": 75,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 76,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 77,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 78,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 79,
+          "kind": "heartbeat",
+          "evidence": "observed",
+          "identity": "_idle_heartbeat_maybe"
+        },
+        {
+          "seq": 80,
+          "kind": "self_update",
+          "evidence": "observed",
+          "identity": "_self_update_maybe"
+        },
+        {
+          "seq": 81,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 82,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 83,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 84,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 85,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 86,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 87,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 88,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 89,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 90,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 91,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 92,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 93,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 94,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 95,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 96,
+          "kind": "heartbeat",
+          "evidence": "observed",
+          "identity": "_idle_heartbeat_maybe"
+        },
+        {
+          "seq": 97,
+          "kind": "self_update",
+          "evidence": "observed",
+          "identity": "_self_update_maybe"
+        },
+        {
+          "seq": 98,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 99,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        }
+      ]
+    },
+    "script_noop": {
+      "summary": {
+        "lane": "script_noop",
+        "events": 69,
+        "by_kind": {
+          "subprocess": 4,
+          "state_read": 19,
+          "reconcile": 3,
+          "report": 9,
+          "control_poll": 4,
+          "notify": 4,
+          "selfheal": 4,
+          "async_job_poll": 2,
+          "quota_switch": 2,
+          "usage_sample": 3,
+          "context_rotation": 2,
+          "worktree_create": 1,
+          "state_write": 4,
+          "test_run": 2,
+          "agent_call": 2,
+          "dan_request": 1,
+          "worktree_remove": 1,
+          "heartbeat": 1,
+          "self_update": 1
+        },
+        "duplicate_agent_invocations": 0,
+        "unnecessary_test_reruns": 0,
+        "idle_wait_seconds": 60.0,
+        "active_compute_seconds": 280.0,
+        "state_reads": 19,
+        "state_writes": 4,
+        "observed_facts": 69,
+        "inferred_facts": 0
+      },
+      "events": [
+        {
+          "seq": 0,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "tmux has-session"
+        },
+        {
+          "seq": 1,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 2,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile_startup"
+        },
+        {
+          "seq": 3,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 4,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 5,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 6,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 7,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 8,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 9,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 10,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 11,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 12,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 13,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 14,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 15,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 16,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 17,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 18,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 19,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 20,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 21,
+          "kind": "worktree_create",
+          "evidence": "observed",
+          "identity": "create_worktree"
+        },
+        {
+          "seq": 22,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "true"
+        },
+        {
+          "seq": 23,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "git -C"
+        },
+        {
+          "seq": 24,
+          "kind": "subprocess",
+          "evidence": "observed",
+          "identity": "git -C"
+        },
+        {
+          "seq": 25,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 26,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 27,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 28,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 29,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 30,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 31,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 32,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 33,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 34,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_control_commands"
+        },
+        {
+          "seq": 35,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "_send_hitl_reminders"
+        },
+        {
+          "seq": 36,
+          "kind": "control_poll",
+          "evidence": "observed",
+          "identity": "poll_proposal_answer"
+        },
+        {
+          "seq": 37,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_self_fixes"
+        },
+        {
+          "seq": 38,
+          "kind": "selfheal",
+          "evidence": "observed",
+          "identity": "apply_ready_redo"
+        },
+        {
+          "seq": 39,
+          "kind": "async_job_poll",
+          "evidence": "observed",
+          "identity": "poll_awaiting_verifications"
+        },
+        {
+          "seq": 40,
+          "kind": "notify",
+          "evidence": "observed",
+          "identity": "maybe_push_roadmap_map_change"
+        },
+        {
+          "seq": 41,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 42,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 43,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_under_usage_pressure"
+        },
+        {
+          "seq": 44,
+          "kind": "quota_switch",
+          "evidence": "observed",
+          "identity": "_threshold_switches"
+        },
+        {
+          "seq": 45,
+          "kind": "usage_sample",
+          "evidence": "observed",
+          "identity": "_write_usage_sample"
+        },
+        {
+          "seq": 46,
+          "kind": "context_rotation",
+          "evidence": "observed",
+          "identity": "_context_rotations"
+        },
+        {
+          "seq": 47,
+          "kind": "reconcile",
+          "evidence": "observed",
+          "identity": "reconcile"
+        },
+        {
+          "seq": 48,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 49,
+          "kind": "test_run",
+          "evidence": "observed",
+          "identity": "gate:TASK-002"
+        },
+        {
+          "seq": 50,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "review:TASK-002"
+        },
+        {
+          "seq": 51,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 52,
+          "kind": "test_run",
+          "evidence": "observed",
+          "identity": "smoke:TASK-002"
+        },
+        {
+          "seq": 53,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 54,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 55,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 56,
+          "kind": "state_write",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 57,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 58,
+          "kind": "dan_request",
+          "evidence": "observed",
+          "identity": "_danreq"
+        },
+        {
+          "seq": 59,
+          "kind": "agent_call",
+          "evidence": "observed",
+          "identity": "ask:diagnoser"
+        },
+        {
+          "seq": 60,
+          "kind": "worktree_remove",
+          "evidence": "observed",
+          "identity": "remove_worktree"
+        },
+        {
+          "seq": 61,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_dep_map"
+        },
+        {
+          "seq": 62,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        },
+        {
+          "seq": 63,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 64,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 65,
+          "kind": "heartbeat",
+          "evidence": "observed",
+          "identity": "_idle_heartbeat_maybe"
+        },
+        {
+          "seq": 66,
+          "kind": "self_update",
+          "evidence": "observed",
+          "identity": "_self_update_maybe"
+        },
+        {
+          "seq": 67,
+          "kind": "state_read",
+          "evidence": "observed",
+          "identity": ""
+        },
+        {
+          "seq": 68,
+          "kind": "report",
+          "evidence": "observed",
+          "identity": "run_status"
+        }
+      ]
+    }
+  }
+}

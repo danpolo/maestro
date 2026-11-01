@@ -35,7 +35,7 @@ REPO                  = _PATHS.repo
 # to whichever backend actually answered. Kept as the documented fallback for a project
 # that configures no model for the role at all — `roles.DEFAULT_MODELS` carries the same
 # value for `ROLE_DIAGNOSER`, and `tests/test_roles.py` pins the two together.
-JUDGE_MODEL = "claude-opus-5"
+JUDGE_MODEL = "claude-opus-5-5"
 
 # Skeptic guard (#2): before an UNATTENDED self-fix edits Maestro's own code, run a
 # second, INDEPENDENT pass framed to argue the failure is normal/transient. _diagnose_failure
@@ -76,6 +76,10 @@ def _judge_complete(system: str, user: str, model: str = "", timeout: int = 240,
     return answer.text
 
 
+from maestro.model_policy import with_task_models
+
+
+@with_task_models
 def _diagnose_failure(task_id: str, reason: str, impl_tail: str,
                       journal_ctx: str) -> dict:
     """One bounded judgment pass returning a STRUCTURED diagnosis. Best-effort: {} on
@@ -117,6 +121,7 @@ def _diagnose_failure(task_id: str, reason: str, impl_tail: str,
         return {}
 
 
+@with_task_models
 def _failure_looks_normal(task_id: str, reason: str, impl_tail: str,
                           journal_ctx: str) -> dict:
     """Independent skeptic pass that COUNTERWEIGHTS the diagnosis's action bias.

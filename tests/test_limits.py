@@ -17,8 +17,18 @@ import pytest
 
 from maestro import limits
 
-CLAUDE_TABLE = Path.home() / ".claude" / "model_context_limits.md"
-CODEX_TABLE = Path.home() / ".codex" / "model_context_limits.md"
+# Pinned copies of Dan's live tables (taken 2026-09-13). The live files are edited as
+# model guidance changes, so only `test_the_live_agent_tables_parse_cleanly` reads them.
+FIXTURES = Path(__file__).parent / "fixtures" / "model_limits"
+CLAUDE_TABLE = FIXTURES / "claude.md"
+CODEX_TABLE = FIXTURES / "codex.md"
+AGY_TABLE = FIXTURES / "antigravity.md"  # taken 2026-09-14
+
+DEFAULT_PATHS = [
+    Path.home() / ".claude" / "model_context_limits.md",
+    Path.home() / ".codex" / "model_context_limits.md",
+    Path.home() / ".gemini" / "model_context_limits.md",
+]
 
 REAL_MODEL_NAMES = [
     "Claude Sonnet 5",
@@ -46,23 +56,30 @@ def _no_project_yaml_override(monkeypatch):
     monkeypatch.setattr(_config, "load_project_yaml", lambda: {})
 
 
-# ── parse_limits_table: the two real files ──
+# ── parse_limits_table: the fixture copies of the real files ──
 
 def test_parses_the_real_claude_table():
     text = CLAUDE_TABLE.read_text(encoding="utf-8")
     models = limits.parse_limits_table(text)
 
     assert models["Claude Sonnet 5"] == limits.ModelLimits(
-        "Claude Sonnet 5", 90_000, 100_000, 120_000, 140_000, 180_000
+        "Claude Sonnet 5", 120_000, 130_000, 150_000, 170_000, 250_000
     )
     assert models["Claude Opus 5"] == limits.ModelLimits(
-        "Claude Opus 5", 100_000, 120_000, 150_000, 180_000, 240_000
+        "Claude Opus 5", 160_000, 180_000, 200_000, 220_000, 300_000
     )
 
 
 def test_parses_the_real_codex_table():
     text = CODEX_TABLE.read_text(encoding="utf-8")
     models = limits.parse_limits_table(text)
+
+    assert models["GPT-6 Astra"] == limits.ModelLimits(
+        "GPT-6 Astra", 160_000, 200_000, 230_000, 270_000, 350_000
+    )
+    assert models["GPT-5.4 Mini"] == limits.ModelLimits(
+        "GPT-5.4 Mini", 40_000, 60_000, 70_000, 90_000, 110_000
+    )
 
     assert models["GPT-5.6 Luna"] == limits.ModelLimits(
         "GPT-5.6 Luna", 70_000, 90_000, 100_000, 120_000, 150_000
@@ -75,9 +92,23 @@ def test_parses_the_real_codex_table():
     )
 
 
+@pytest.mark.parametrize("agent", sorted(limits.AGENT_TABLE_DIRS))
+def test_the_live_agent_tables_parse_cleanly(agent):
+    """Smoke test on the live files: shape only, never numbers, since they get edited."""
+    live = Path.home() / limits.AGENT_TABLE_DIRS[agent] / limits.TABLE_FILENAME
+    if not live.is_file():
+        pytest.skip(f"no live table for {agent} at {live}")
+
+    result = limits.load_limits([live])
+
+    assert not any("unparseable row" in w for w in result.warnings), result.warnings
+    assert not any("shipped defaults" in w for w in result.warnings), result.warnings
+    prefix = limits.AGENT_MODEL_PREFIX.get(agent, "")
+    assert all(name.startswith(prefix) for name in result.models), sorted(result.models)
+
+
 def test_real_tables_are_read_only_never_written(monkeypatch):
-    """Belt-and-braces: prove this test file never mutates the two live global-config
-    tables it reads from, regardless of what `load_limits()` internally does."""
+    """Belt-and-braces: prove `load_limits()` never mutates the tables it reads from."""
     before_claude = CLAUDE_TABLE.read_bytes()
     before_codex = CODEX_TABLE.read_bytes()
 
@@ -107,6 +138,17 @@ def test_tolerates_hyphen_ranges_and_k_on_both_sides():
     )
     models = limits.parse_limits_table(text)
     assert models["Other Model"] == limits.ModelLimits("Other Model", 70_000, 90_000, 100_000, 120_000, 150_000)
+
+
+def test_a_single_value_cell_reads_as_a_range_of_one():
+    # The live Claude table's "Model unknown" row states single values, not ranges.
+    text = (
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---:|---:|---:|---:|\n"
+        "| Model unknown | 100K | 120K | 150K |\n"
+    )
+    models = limits.parse_limits_table(text)
+    assert models["Model unknown"] == limits.ModelLimits("Model unknown", 100_000, 100_000, 120_000, 120_000, 150_000)
 
 
 def test_a_row_with_no_pipes_or_wrong_cell_count_is_ignored_not_a_crash():
@@ -225,9 +267,63 @@ def test_load_limits_writes_the_merged_cache_to_disk(tmp_path):
 
 # ── default_table_paths ──
 
-def test_default_table_paths_is_the_two_global_config_locations():
+def test_default_table_paths_is_every_agents_global_config_location():
     paths = limits.default_table_paths()
-    assert paths == [CLAUDE_TABLE, CODEX_TABLE]
+    assert paths == DEFAULT_PATHS
+
+
+def _fake_home(monkeypatch, tmp_path, installed):
+    """Point `Path.home()` at `tmp_path`, creating a config dir for each `installed` agent."""
+    home = tmp_path / "home"
+    for agent in installed:
+        (home / limits.AGENT_TABLE_DIRS[agent]).mkdir(parents=True)
+    monkeypatch.setattr(limits.Path, "home", classmethod(lambda cls: home))
+    return home
+
+
+def test_a_missing_default_table_for_an_uninstalled_agent_is_silent(monkeypatch, tmp_path):
+    home = _fake_home(monkeypatch, tmp_path, installed=["claude"])
+    (home / ".claude" / limits.TABLE_FILENAME).write_bytes(CLAUDE_TABLE.read_bytes())
+
+    result = limits.load_limits()
+
+    assert result.warnings == []
+    assert result.get("claude-opus-5").exception_ceiling == 300_000
+
+
+def test_a_missing_default_table_for_an_installed_agent_still_warns(monkeypatch, tmp_path):
+    home = _fake_home(monkeypatch, tmp_path, installed=["claude", "antigravity"])
+    (home / ".claude" / limits.TABLE_FILENAME).write_bytes(CLAUDE_TABLE.read_bytes())
+
+    result = limits.load_limits()
+
+    assert result.warnings == [f"model limits file missing: {home / '.gemini' / limits.TABLE_FILENAME}"]
+
+
+def test_a_missing_table_named_in_project_yaml_still_warns(monkeypatch, tmp_path):
+    from maestro import config as _config
+
+    _fake_home(monkeypatch, tmp_path, installed=[])
+    named = tmp_path / "nowhere" / "limits.md"
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: {"model_limits": {"claude": str(named)}})
+
+    result = limits.load_limits()
+
+    assert any(str(named) in w for w in result.warnings)
+
+
+def test_resolve_picks_up_an_edited_table_without_a_restart(monkeypatch, tmp_path):
+    """Nothing caches a parse between calls: an edit to the table shows on the next resolve."""
+    from maestro import config as _config
+
+    table = tmp_path / "claude.md"
+    table.write_bytes(CLAUDE_TABLE.read_bytes())
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: {"model_limits": {"claude": str(table)}})
+    assert limits.resolve("claude-opus-5").exception_ceiling == 300_000
+
+    table.write_text(table.read_text(encoding="utf-8").replace("| 300K |", "| 320K |"), encoding="utf-8")
+
+    assert limits.resolve("claude-opus-5").exception_ceiling == 320_000
 
 
 def test_default_table_paths_is_overridable_via_project_yaml(monkeypatch, tmp_path):
@@ -275,7 +371,7 @@ def test_default_table_paths_legacy_model_limits_paths_key_is_ignored_with_a_war
     with pytest.warns(UserWarning, match="model_limits_paths"):
         paths = limits.default_table_paths()
 
-    assert paths == [CLAUDE_TABLE, CODEX_TABLE]
+    assert paths == DEFAULT_PATHS
     assert custom not in paths
 
 
@@ -322,7 +418,7 @@ def test_default_table_paths_warns_when_model_limits_reuses_the_deleted_list_sha
     with pytest.warns(UserWarning, match="model_limits"):
         paths = limits.default_table_paths()
 
-    assert paths == [CLAUDE_TABLE, CODEX_TABLE]
+    assert paths == DEFAULT_PATHS
     assert custom not in paths
 
 
@@ -338,7 +434,7 @@ def test_default_table_paths_warns_on_an_empty_model_limits_mapping(monkeypatch)
     with pytest.warns(UserWarning, match="model_limits"):
         paths = limits.default_table_paths()
 
-    assert paths == [CLAUDE_TABLE, CODEX_TABLE]
+    assert paths == DEFAULT_PATHS
 
 
 # ── resolve / resolve_all ──
@@ -372,8 +468,8 @@ def test_resolve_finds_a_model_present_in_the_table(tmp_path):
 
 
 def test_resolve_all_against_the_real_shipped_tables():
-    """The M3 plan's Done-when item 2: `resolve_all()` against the two real files at
-    `~/.claude/model_context_limits.md` and `~/.codex/model_context_limits.md` resolves
+    """The M3 plan's Done-when item 2: `resolve_all()` against (fixture copies of) the two
+    real files at `~/.claude/model_context_limits.md` and `~/.codex/model_context_limits.md` resolves
     all 5 real model names to a non-None ModelLimits. Stands in for `doctor` resolving
     every model in both tables, until M4 builds `doctor` itself."""
     resolved = limits.resolve_all(REAL_MODEL_NAMES, [CLAUDE_TABLE, CODEX_TABLE])
@@ -384,7 +480,11 @@ def test_resolve_all_against_the_real_shipped_tables():
         assert isinstance(resolved[name], limits.ModelLimits)
 
 
-def test_resolve_all_uses_the_defaults_when_paths_omitted():
+def test_resolve_all_uses_the_defaults_when_paths_omitted(monkeypatch, tmp_path):
+    home = _fake_home(monkeypatch, tmp_path, installed=["claude", "codex"])
+    (home / ".claude" / limits.TABLE_FILENAME).write_bytes(CLAUDE_TABLE.read_bytes())
+    (home / ".codex" / limits.TABLE_FILENAME).write_bytes(CODEX_TABLE.read_bytes())
+
     resolved = limits.resolve_all(REAL_MODEL_NAMES)
     for name in REAL_MODEL_NAMES:
         assert resolved[name] is not None, f"{name} did not resolve"
@@ -624,3 +724,81 @@ def test_limits_result_get_is_tolerant_of_both_spellings(tmp_path):
     assert result.get("no-such-model") is None
     # `.models` itself is untouched: still the raw, display-name-keyed table.
     assert list(result.models) == ["Known Model"]
+
+
+# ── the antigravity table: harness-prefixed rows ──
+
+def test_parses_the_real_antigravity_table_with_its_harness_prefix():
+    models = limits.parse_limits_table(AGY_TABLE.read_text(encoding="utf-8"))
+
+    assert models["agy/Gemini 3.8 Flash"] == limits.ModelLimits(
+        "agy/Gemini 3.8 Flash", 115_000, 120_000, 125_000, 130_000, 135_000
+    )
+    assert len(models) == 7  # the two-column "Boundary basis" table is not rows
+    assert all(name.startswith("agy/") for name in models)
+
+
+def test_an_agy_row_never_answers_another_harness_lookup(tmp_path):
+    claude = tmp_path / "claude.md"
+    claude.write_text(
+        "| Model | Prepare handoff | Normally start fresh | Exception ceiling |\n"
+        "|---|---:|---:|---:|\n"
+        "| Claude Opus 4.6 (Thinking) | 150-160K | 180-190K | 250K |\n"
+    )
+    paths = [claude, AGY_TABLE]
+
+    assert limits.resolve("Claude Opus 4.6 (Thinking)", paths).exception_ceiling == 250_000
+    agy = limits.resolve("Claude Opus 4.6 (Thinking)", paths, backend="antigravity")
+    assert agy.model == "agy/Claude Opus 4.6 (Thinking)" and agy.exception_ceiling == 135_000
+    with pytest.warns(UserWarning):
+        assert limits.resolve("Gemini 3.8 Flash", [AGY_TABLE]) is None
+    assert limits.resolve("gemini-3-8-flash", [AGY_TABLE], backend="antigravity").model == "agy/Gemini 3.8 Flash"
+
+
+def test_scoped_model_name_is_idempotent_and_backend_specific():
+    assert limits.scoped_model_name("Gemini 3.8 Flash", "antigravity") == "agy/Gemini 3.8 Flash"
+    assert limits.scoped_model_name("agy/Gemini 3.8 Flash", "antigravity") == "agy/Gemini 3.8 Flash"
+    assert limits.scoped_model_name("Claude Opus 5", "claude") == "Claude Opus 5"
+    assert limits.scoped_model_name("Claude Opus 5") == "Claude Opus 5"
+
+
+# ── agy variant ids fold onto their family row, only under the agy/ prefix ──
+
+AGY_PROBE = Path(__file__).resolve().parents[1] / "artifacts" / "graph-engineering" / "p07b-agy-1.2.2-probe.json"
+AGY_FAMILY = {
+    "gemini-3.8-flash": "agy/Gemini 3.8 Flash",
+    "gemini-3.7-flash": "agy/Gemini 3.7 Flash",
+    "gemini-3.6-flash": "agy/Gemini 3.6 Flash",
+    "gemini-3.1-pro": "agy/Gemini 3.1 Pro",
+    "claude-sonnet-4-6": "agy/Claude Sonnet 4.6 (Thinking)",
+    "claude-opus-4-6": "agy/Claude Opus 4.6 (Thinking)",
+    "gpt-oss-120b": "agy/GPT-OSS 120B (Medium)",
+}
+
+
+def _agy_ids():
+    return json.loads(AGY_PROBE.read_text(encoding="utf-8"))["models_listed"]["ids"]
+
+
+@pytest.mark.parametrize("model_id", _agy_ids())
+def test_every_listed_agy_id_resolves_its_agy_family_row(model_id):
+    row = limits.resolve(model_id, [AGY_TABLE], backend="antigravity")
+    assert row is not None
+    family = next(v for k, v in AGY_FAMILY.items() if model_id.startswith(k))
+    assert row.model == family
+
+
+def test_the_status_lines_display_form_resolves_too():
+    row = limits.resolve("Gemini 3.8 Flash (High)", [AGY_TABLE], backend="antigravity")
+    assert row.model == "agy/Gemini 3.8 Flash"
+
+
+def test_an_unknown_agy_id_is_none_with_a_warning_never_an_invented_row():
+    with pytest.warns(UserWarning):
+        assert limits.resolve("gemini-9.9-flash-high", [AGY_TABLE], backend="antigravity") is None
+
+
+@pytest.mark.parametrize("model_id", ["Gemini 3.8 Flash", "gemini-3.8-flash-high", "claude-opus-4-6-thinking"])
+def test_a_backend_less_lookup_never_reaches_an_agy_row(model_id):
+    with pytest.warns(UserWarning):
+        assert limits.resolve(model_id, [AGY_TABLE]) is None

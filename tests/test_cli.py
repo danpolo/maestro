@@ -52,6 +52,8 @@ from pathlib import Path
 import pytest
 import yaml
 
+from tests.hang_bound import HANG_SECONDS
+
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -77,12 +79,16 @@ def _run_cli(*args: str, cwd: Path | None = None, timeout: int = 60,
         parts.insert(0, str(REPO_ROOT))
     env["PYTHONPATH"] = os.pathsep.join(parts)
     env["MAESTRO_TOKEN_FILE"] = "/nonexistent/maestro-test-token-file-does-not-exist"
+    # The CLI's self-check hang bounds (init's loop check, doctor's adapter check) are raised
+    # so a loaded suite never decides the outcome; `timeout` below still bounds the call.
+    env["MAESTRO_CHECK_TIMEOUT_S"] = "540"
     if extra_env:
         env.update(extra_env)
     return subprocess.run(
         [sys.executable, "-m", "maestro.cli", *args],
         cwd=str(cwd) if cwd else None, env=env,
-        capture_output=True, text=True, timeout=timeout,
+        # A hang bound only (no test here asserts a CLI timing out), so never below 600 s.
+        capture_output=True, text=True, timeout=max(timeout, 600),
     )
 
 
@@ -168,6 +174,15 @@ def test_init_scaffolds_every_component_b_template(_healthy_project):
     assert venv_python.is_symlink(), "the .venv/bin/python3 landmine workaround must be a symlink"
 
     assert "Telegram setup: skipped" in proc.stdout
+
+
+@pytest.mark.slow
+def test_init_registers_the_project_for_shared_model_policy(_healthy_project):
+    """Future projects join the explicit registry at init (session-isolated models home)."""
+    root, proc = _healthy_project
+    registry = json.loads((Path(os.environ["MAESTRO_MODELS_HOME"]) / "projects.json").read_text())
+    assert {"repo": str(root), "name": root.name} in registry["projects"]
+    assert "shared model policy: registered" in proc.stdout
 
 
 @pytest.mark.slow
@@ -263,15 +278,51 @@ def test_doctor_healthy_project_passes_once_a_real_test_adapter_exists(_healthy_
     tests_dir = root / "tests"
     tests_dir.mkdir(exist_ok=True)
     (tests_dir / "test_smoke.py").write_text("def test_ok():\n    assert True\n")
+    adapter = root / "adapters" / "test"
+    unwired_adapter = adapter.read_text(encoding="utf-8")
+    command = json.dumps([str(root / ".venv" / "bin" / "python3"), "-m", "pytest", "-q"])
+    wired_adapter = unwired_adapter.replace("TEST_COMMAND = []", f"TEST_COMMAND = {command}")
+    assert wired_adapter != unwired_adapter
+    adapter.write_text(wired_adapter, encoding="utf-8")
     try:
-        proc = _run_cli("doctor", "--repo", str(root), "--pre-commit", timeout=60)
+        # doctor runs the wired adapter (a real pytest) — ~25 s on a quiet host, past the
+        # 60 s adapter-check default under a loaded suite (82 s measured in an I/O stall), so
+        # the test raises the check's bound: a bound on a hang, not a speed assertion.
+        proc = _run_cli("doctor", "--repo", str(root), "--pre-commit", timeout=600)
         assert proc.returncode == 0, proc.stdout + proc.stderr
         assert "[OK  ] adapter:test:" in proc.stdout
     finally:
+        adapter.write_text(unwired_adapter, encoding="utf-8")
         # the adapter genuinely ran pytest inside tests_dir, which leaves __pycache__ /
         # .pytest_cache behind — rmtree, not a plain rmdir, to actually clean it up.
         import shutil
         shutil.rmtree(tests_dir)
+
+
+def test_self_check_hang_bounds_keep_their_defaults_and_the_environment_may_only_raise_them(
+        tmp_path, monkeypatch):
+    """The doctor's adapter check (60 s) and init's loop check (120 s) bound a hang, never
+    speed: `$MAESTRO_CHECK_TIMEOUT_S` raises them on a loaded host, never lowers them."""
+    from maestro import adapters, cli
+
+    seen = []
+    monkeypatch.setattr(adapters, "run_adapter",
+                        lambda kind, root, payload, timeout_s: seen.append(timeout_s)
+                        or adapters.AdapterResult(kind=kind, status="absent"))
+    loop = []
+    monkeypatch.setattr(cli, "_ensure_agents_tmux_session", lambda **k: True)
+    monkeypatch.setattr(cli.subprocess, "run", lambda *a, timeout, **k: loop.append(timeout)
+                        or subprocess.CompletedProcess(a, 0, "", ""))
+    for value in (None, "540", "10", "junk"):
+        if value is None:
+            monkeypatch.delenv("MAESTRO_CHECK_TIMEOUT_S", raising=False)
+        else:
+            monkeypatch.setenv("MAESTRO_CHECK_TIMEOUT_S", value)
+        cli._check_adapters(tmp_path)
+        cli._run_noop_supervised_loop_check(tmp_path)
+    n = len(adapters.KNOWN_KINDS)
+    assert seen == [60] * n + [540] * n + [60] * n + [60] * n
+    assert loop == [120, 540, 120, 120]
 
 
 @pytest.mark.slow
@@ -292,6 +343,83 @@ def test_doctor_help_advertises_pre_commit_flag():
     assert "--pre-commit" in proc.stdout
 
 
+def test_doctor_help_advertises_the_third_party_gate():
+    """The integration gate (DESIGN.md §15) is only usable if it is discoverable."""
+    proc = _run_cli("doctor", "--help", timeout=30)
+    assert "--thirdparty" in proc.stdout
+
+
+@pytest.mark.slow
+def test_doctor_thirdparty_runs_only_the_gate_and_needs_no_project(tmp_path):
+    """The gate asks about *installed software*, not about a project.
+
+    Deliberately pointed at an empty directory: an implementing agent runs this after
+    touching a backend adapter or `pyproject.toml`, and it must not be entangled with
+    whether some project has a ROADMAP.md.
+    """
+    root = tmp_path / "not-a-project"
+    root.mkdir()
+    proc = _run_cli("doctor", "--repo", str(root), "--thirdparty", timeout=60)
+    assert "thirdparty:" in proc.stdout
+    assert "docs:" not in proc.stdout
+    assert "adapter:test:" not in proc.stdout
+    # The exit code tracks whether the installed CLIs match maestro/thirdparty.json, which
+    # moves whenever a CLI auto-updates; the drift failure itself is pinned in-process by
+    # test_doctor_thirdparty_fails_when_an_installed_version_has_drifted.
+    expected = 1 if "[FAIL] thirdparty" in proc.stdout else 0
+    assert proc.returncode == expected, proc.stdout
+
+
+def test_doctor_refuses_to_run_both_subsets_at_once():
+    proc = _run_cli("doctor", "--pre-commit", "--thirdparty", timeout=30)
+    assert proc.returncode != 0
+    assert "pick one" in (proc.stderr + proc.stdout)
+
+
+def test_doctor_thirdparty_fails_when_an_installed_version_has_drifted(monkeypatch, capsys):
+    """The behaviour the whole gate exists for, exercised in-process with a fake host.
+
+    `_check_thirdparty` must turn a drifted subject into a *required* failure under
+    `--thirdparty`, so an implementing agent cannot mark an integration complete against a
+    version nobody verified.
+    """
+    from maestro import cli, thirdparty
+
+    real_audit = thirdparty.audit
+    monkeypatch.setattr(
+        thirdparty, "audit",
+        lambda **kw: real_audit(binary_version=lambda name: "9.9.9-nobody-verified-this",
+                                distribution_version=thirdparty.installed_distribution_version,
+                                binary_help=lambda name: "no recorded controls here"),
+    )
+    check = cli._check_thirdparty(required=True)
+
+    assert not check.ok and check.required
+    assert "re-verify" in check.detail
+
+
+def test_doctor_thirdparty_passes_an_auto_updated_backend_whose_controls_are_unchanged(
+    monkeypatch,
+):
+    """A harness auto-update that kept every recorded control passes, and says so."""
+    from maestro import cli, thirdparty
+
+    register = thirdparty.load_register()
+    real_audit = thirdparty.audit
+    monkeypatch.setattr(
+        thirdparty, "audit",
+        lambda **kw: real_audit(
+            binary_version=lambda name: register[name].verified_version + "-bumped",
+            distribution_version=thirdparty.installed_distribution_version,
+            binary_help=lambda name: " ".join(register[name].findings["controls_observed"]),
+        ),
+    )
+    check = cli._check_thirdparty(required=True)
+
+    assert check.ok, check.detail
+    assert "reobserved" in check.detail
+
+
 def test_doctor_broken_project_reports_missing_docs_and_missing_required_adapter(tmp_path):
     root = tmp_path / "broken"
     root.mkdir()
@@ -302,7 +430,7 @@ def test_doctor_broken_project_reports_missing_docs_and_missing_required_adapter
     assert "status=absent" in proc.stdout
 
 
-def test_doctor_telegram_check_never_touches_the_real_network(tmp_path):
+def test_doctor_telegram_check_never_touches_the_real_network(tmp_path, monkeypatch):
     """`cmd_doctor`'s `http_get` parameter is the injectable seam DESIGN.md's scope decision
     requires. Called in-process here (safe: `_check_telegram` has no `Paths.from_env()`
     dependency of its own) with a stub that would fail the test if it were ever the real
@@ -312,6 +440,7 @@ def test_doctor_telegram_check_never_touches_the_real_network(tmp_path):
     root = tmp_path / "proj"
     root.mkdir()
     (root / ".env").write_text("TELEGRAM_BOT_TOKEN=fake-test-token\n")
+    monkeypatch.setenv('MAESTRO_TELEGRAM_ENV', str(root / '.env'))
 
     calls = []
 
@@ -390,12 +519,12 @@ def _clean_backend_binary_cache():
     backend_registry.clear_binary_cache()
 
 
-def test_check_backends_probes_the_full_fallback_chain(monkeypatch, _clean_backend_binary_cache):
-    """All-claude `roles:` plus `fallback_chain: [claude, codex]` — the scaffolded
-    template's actual shape (C5/G8) — must report the missing `codex` binary. Before this
-    fix, `_check_backends` only looked at names written in `roles:`, so a machine with no
-    `codex` binary passed `doctor` cleanly and the gap only surfaced later as a backend
-    switch that silently didn't happen.
+@pytest.mark.parametrize("cfg", [{}, {"routing": {"harness_order": ["claude", "codex"]}}])
+def test_check_backends_probes_every_harness_in_the_order(cfg, monkeypatch, _clean_backend_binary_cache):
+    """A role names no backend (DESIGN.md §17.2): every harness in `routing.harness_order`,
+    or in the default chain when the key is absent, must have a binary (C5/G8). A machine
+    with no `codex` binary used to pass `doctor` cleanly and the gap only surfaced later as
+    a backend switch that silently didn't happen.
 
     `_probe_version` and `find_binaries` are stubbed rather than left to scan the real
     `PATH` — per `maestro/backends/registry.py`'s docstring, no test may execute a real
@@ -404,14 +533,6 @@ def test_check_backends_probes_the_full_fallback_chain(monkeypatch, _clean_backe
     from maestro import config as _config
     from maestro.backends import registry as backend_registry
 
-    cfg = {
-        "roles": {
-            "implementer": {"backend": "claude"},
-            "judge": {"backend": "claude"},
-            "diagnoser": {"backend": "claude"},
-        },
-        "fallback_chain": ["claude", "codex"],
-    }
     monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
     monkeypatch.setattr(backend_registry, "_probe_version", lambda path: "1.0.0")
     monkeypatch.setattr(
@@ -424,18 +545,38 @@ def test_check_backends_probes_the_full_fallback_chain(monkeypatch, _clean_backe
     assert "codex" in check.detail
 
 
-def test_check_backends_passes_when_every_chain_backend_is_present(monkeypatch, _clean_backend_binary_cache):
-    """The companion green path: once `codex` is also on `PATH`, the same all-claude
-    `roles:` plus `fallback_chain: [claude, codex]` passes cleanly."""
+def test_check_backends_checks_all_targets_even_with_a_retired_order(monkeypatch, _clean_backend_binary_cache):
+    """The retired `fallback_chain` and a role's `backend` name nothing any more: with
+    `harness_order: [claude]` a missing `codex` binary is not a failure."""
     from maestro import cli
     from maestro import config as _config
     from maestro.backends import registry as backend_registry
 
     cfg = {
-        "roles": {"implementer": {"backend": "claude"}},
+        "roles": {"implementer": {"backend": "codex"}},
         "fallback_chain": ["claude", "codex"],
+        "routing": {"harness_order": ["claude"]},
     }
     monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+    monkeypatch.setattr(backend_registry, "_probe_version", lambda path: "1.0.0")
+    monkeypatch.setattr(
+        backend_registry, "find_binaries",
+        lambda tool, path_env=None: [Path(f"/fake/bin/{tool}")] if tool == "claude" else [],
+    )
+
+    check = cli._check_backends(Path("/unused"))
+    assert not check.ok and 'codex' in check.detail
+    assert check.detail == "binary not found on PATH for: codex"
+
+
+def test_check_backends_passes_when_every_chain_backend_is_present(monkeypatch, _clean_backend_binary_cache):
+    """The companion green path: once `codex` is also on `PATH`, the default chain passes
+    cleanly."""
+    from maestro import cli
+    from maestro import config as _config
+    from maestro.backends import registry as backend_registry
+
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: {})
     monkeypatch.setattr(backend_registry, "_probe_version", lambda path: "1.0.0")
     monkeypatch.setattr(
         backend_registry, "find_binaries",
@@ -451,11 +592,21 @@ def test_check_backends_passes_when_every_chain_backend_is_present(monkeypatch, 
 #
 # `_check_model_limits` only ever checked that a ceiling-table *row* exists for a
 # configured model — it never asked the backend's own CLI whether the model id itself is
-# one it recognises, so a typo in project.yaml's `roles:` block passed `doctor` cleanly
-# and only surfaced later as `claude -p --model <typo>` crashing an implementer mid-task.
-# `_check_model_ids` closes that gap. No test here may execute a real agent CLI
+# one it recognises, so a bad id passed `doctor` cleanly and only surfaced later as
+# `claude -p --model <id>` crashing an implementer mid-task. `_check_model_ids` closes
+# that gap. A role states no model now (DESIGN.md §17.2), so it probes the derived pairs
+# (`model_policy.runtime_roles`). No test here may execute a real agent CLI
 # (`maestro/backends/registry.py`'s rule) — `_probe_model_id`'s `run` parameter is the
 # injectable seam, exactly like `_probe_version`.
+
+
+def _derived_models(monkeypatch, **role_models):
+    """Stand in for the derivation: each role runs the given `{backend: model}` table."""
+    from maestro import model_policy
+
+    derived = {"roles": {role: {"models": models} for role, models in role_models.items()}}
+    monkeypatch.setattr(model_policy, "runtime_roles", lambda project, repo: derived)
+
 
 def test_probe_model_id_reports_invalid_when_the_cli_prints_its_own_rejection_marker():
     """The offline-safe signal this probe is built on: both real CLIs print a
@@ -499,16 +650,10 @@ def test_probe_model_id_skips_cleanly_for_a_backend_with_no_probe_defined():
     assert "carrier-pigeon" in detail
 
 
-def test_check_model_ids_fails_when_a_configured_model_is_rejected_by_its_own_cli(monkeypatch):
+def test_check_model_ids_fails_when_a_role_model_is_rejected_by_its_own_cli(monkeypatch):
     from maestro import cli
-    from maestro import config as _config
 
-    cfg = {
-        "roles": {
-            "implementer": {"backend": "claude", "models": {"claude": "claude-sonnet-5-typo"}},
-        },
-    }
-    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+    _derived_models(monkeypatch, implementer={"claude": "claude-sonnet-5-typo"})
 
     def fake_run(argv, *, timeout):
         return "[claude-code:unrecognized_model]"
@@ -520,16 +665,11 @@ def test_check_model_ids_fails_when_a_configured_model_is_rejected_by_its_own_cl
 
 def test_check_model_ids_passes_and_probes_every_backend_model_pair(monkeypatch):
     from maestro import cli
-    from maestro import config as _config
 
-    cfg = {
-        "roles": {
-            "implementer": {"backend": "claude", "models": {"claude": "claude-sonnet-5"}},
-            "judge": {"backend": "claude", "models": {"claude": "claude-sonnet-5"}},
-            "diagnoser": {"backend": "codex", "models": {"codex": "gpt-5.6-sol"}},
-        },
-    }
-    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+    _derived_models(monkeypatch,
+                    implementer={"claude": "claude-sonnet-5"},
+                    judge={"claude": "claude-sonnet-5"},
+                    diagnoser={"codex": "gpt-5.6-sol"})
 
     seen = []
 
@@ -543,14 +683,36 @@ def test_check_model_ids_passes_and_probes_every_backend_model_pair(monkeypatch)
     assert len(seen) == 2
 
 
-def test_check_model_ids_passes_cleanly_with_no_models_declared(monkeypatch):
+def test_check_model_ids_probes_the_models_the_roles_derive(monkeypatch, tmp_path):
+    """No stand-in here: an unconfigured project derives its models from the shipped
+    policy, and the retired `models:` map of a role names nothing to probe."""
     from maestro import cli
     from maestro import config as _config
 
-    def _fail_if_called(argv, *, timeout):
-        raise AssertionError("nothing configured -- must not probe anything")
+    cfg = {"roles": {"implementer": {"backend": "claude", "models": {"claude": "a-typo"}}}}
+    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+    seen = []
 
-    monkeypatch.setattr(_config, "load_project_yaml", lambda: {})
+    def fake_run(argv, *, timeout):
+        seen.append(argv[-1] if "a-typo" in argv else " ".join(argv))
+        return ""
+
+    check = cli._check_model_ids(tmp_path, run=fake_run)
+    assert check.ok
+    assert "a-typo" not in " ".join(seen)
+    for model in ("claude-opus-5-5", "gpt-6.1-sol"):
+        assert any(model in argv for argv in seen)
+    # agy has no probe, so its derived model is left out instead of noted on every run.
+    assert "note(s)" not in check.detail
+
+
+def test_check_model_ids_passes_cleanly_when_no_role_has_a_probed_model(monkeypatch):
+    from maestro import cli
+
+    def _fail_if_called(argv, *, timeout):
+        raise AssertionError("nothing to probe -- must not probe anything")
+
+    _derived_models(monkeypatch, implementer={"antigravity": "gemini-3.8-flash-high"}, judge={})
 
     check = cli._check_model_ids(Path("/unused"), run=_fail_if_called)
     assert check.ok
@@ -570,17 +732,10 @@ def test_check_model_ids_passes_cleanly_with_no_models_declared(monkeypatch):
 
 def test_check_model_ids_stops_probing_once_the_aggregate_time_budget_is_exhausted(monkeypatch):
     from maestro import cli
-    from maestro import config as _config
     import time as _time
 
-    cfg = {
-        "roles": {
-            "implementer": {"backend": "claude", "models": {"claude": "model-a"}},
-            "judge": {"backend": "claude", "models": {"claude": "model-b"}},
-            "diagnoser": {"backend": "codex", "models": {"codex": "model-c"}},
-        },
-    }
-    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+    _derived_models(monkeypatch, implementer={"claude": "model-a"},
+                    judge={"claude": "model-b"}, diagnoser={"codex": "model-c"})
     monkeypatch.setattr(cli, "MODEL_PROBE_BUDGET_SEC", 0.05)
 
     calls = []
@@ -604,10 +759,8 @@ def test_check_model_ids_never_claims_a_clean_result_confirms_a_model_works(monk
     confirmations, but a marker-less result only ever means "this CLI did not (yet) say
     it's bad" -- it is never proof the model works. The wording must say so."""
     from maestro import cli
-    from maestro import config as _config
 
-    cfg = {"roles": {"implementer": {"backend": "claude", "models": {"claude": "claude-sonnet-5"}}}}
-    monkeypatch.setattr(_config, "load_project_yaml", lambda: cfg)
+    _derived_models(monkeypatch, implementer={"claude": "claude-sonnet-5"})
 
     check = cli._check_model_ids(Path("/unused"), run=lambda argv, *, timeout: "")
     assert check.ok
@@ -719,6 +872,118 @@ def test_ctl_dispatch_verbs_are_safe_no_ops_against_a_nonexistent_id(_healthy_pr
     assert "dispatched to hitl.commands." in proc.stdout
 
 
+@pytest.fixture
+def _project_with_a_live_controller(tmp_path):
+    """A project whose control DB is owned by another live process, as while `maestro run`
+    is going. The owner is a `sleep`, so nothing here ever runs a real loop."""
+    root = tmp_path / "proj"
+    (root / ".orchestrator").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    state = {"paused_by_user": False, "hitl_mode": False, "parked_tasks": ["T1"]}
+    (root / ".orchestrator" / "state.json").write_text(json.dumps(state))
+    owner = subprocess.Popen(["sleep", "120"])
+    subprocess.run(
+        [sys.executable, "-c",
+         "import sys; from pathlib import Path; from maestro.control.store import ControlStore;"
+         "s = ControlStore.open_controller(Path(sys.argv[1]), pid=int(sys.argv[2])); s.conn.close()",
+         str(root / ".orchestrator" / "control.sqlite3"), str(owner.pid)],
+        check=True, cwd=str(REPO_ROOT),
+    )
+    yield root
+    owner.kill()
+    owner.wait()
+
+
+def test_ctl_halt_stops_a_running_loop_instead_of_crashing(_project_with_a_live_controller):
+    """P12 pilot finding D5: `ctl halt` is the documented clean stop, but its journal line
+    tried to take the controller lock the running loop holds, so it died with a traceback
+    (the HALT file happened to be written first). An external actor journals the text
+    line only, as the watchdog does."""
+    root = _project_with_a_live_controller
+    proc = _run_cli("ctl", "--repo", str(root), "halt", timeout=30)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert (root / ".orchestrator" / "HALT").exists()
+    lines = (root / ".orchestrator" / "journal.ndjson").read_text().splitlines()
+    assert json.loads(lines[-1])["event"] == "control_halt"
+
+
+@pytest.mark.parametrize("verb,extra", [("pause", []), ("resume", []), ("hitl", ["on"]),
+                                        ("unpark", ["T1"]), ("remerge", ["T1"])])
+def test_ctl_state_verbs_refuse_cleanly_while_a_loop_runs(_project_with_a_live_controller,
+                                                          verb, extra):
+    """The running controller is the only writer of the state document (INV-01), so these
+    verbs cannot apply from outside it. They refuse with a pointer, not a traceback, and
+    change nothing."""
+    root = _project_with_a_live_controller
+    before = (root / ".orchestrator" / "state.json").read_text()
+    proc = _run_cli("ctl", "--repo", str(root), verb, *extra, timeout=30)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "Traceback" not in proc.stderr
+    assert "loop is running" in proc.stdout
+    assert (root / ".orchestrator" / "state.json").read_text() == before
+
+
+@pytest.fixture
+def _project_with_a_failed_merge(tmp_path):
+    """A stopped project whose one graph run failed at merge after an approving review."""
+    from maestro.control.lifecycle import Lifecycle
+    from maestro.control.store import ControlStore
+    from maestro.taskgraph import normalize_spec
+    from maestro.workflows import runner
+    from maestro.workflows.compiler import compile_workflow
+
+    root = tmp_path / "proj"
+    (root / ".orchestrator").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    (root / ".orchestrator" / "state.json").write_text(json.dumps({"parked_tasks": []}))
+    spec = normalize_spec({"id": "t-01", "title": "t", "status": "pending", "deps": []})
+    revision = compile_workflow(spec, workflow_id="wf_t-01", code_base_sha="d", escalation=True)
+    with ControlStore.open_controller(root / ".orchestrator" / "control.sqlite3") as store:
+        runner.start_run(store, revision, repo=root, run_id="run_old")
+        life = Lifecycle(store)
+        for node_id, phase in (("implementer", "succeeded"), ("gate", "succeeded"),
+                               ("proof_review", "succeeded"), ("merge", "failed")):
+            attempt = f"att_{node_id}_01"
+            life.claim_attempt(attempt, run_id="run_old", node_id=node_id, lease_epoch=1)
+            for step in ("ready", "claimed", "running", phase):
+                life.set_node_phase("run_old", node_id, step, attempt_id=attempt,
+                                    attempt_index=1)
+            life.finish_attempt(attempt, run_id="run_old", status=phase)
+        life.finish_run("t-01", "run_old", "failed")
+    return root
+
+
+def test_ctl_remerge_opens_the_successor_run_of_a_failed_merge(_project_with_a_failed_merge):
+    root = _project_with_a_failed_merge
+    proc = _run_cli("ctl", "--repo", str(root), "remerge", "t-01", timeout=30)
+    assert proc.returncode == 0, proc.stdout + proc.stderr
+    assert "t-01 remerge: run_old (failed)" in proc.stdout
+    assert "merge, accept" in proc.stdout
+    import sqlite3
+
+    conn = sqlite3.connect(root / ".orchestrator" / "control.sqlite3")
+    runs = conn.execute("SELECT run_id, status, workflow_revision FROM task_runs ORDER BY rowid")
+    runs = runs.fetchall()
+    assert [(r[1], r[2]) for r in runs] == [("failed", 1), ("running", 2)]
+    # The lock is released on exit, so the loop can start afterwards.
+    assert conn.execute("SELECT COUNT(*) FROM writer_leases WHERE resource_id = 'controller'"
+                        ).fetchone()[0] == 0
+    conn.close()
+    lines = (root / ".orchestrator" / "journal.ndjson").read_text().splitlines()
+    assert json.loads(lines[-1])["event"] == "graph_run_remerge"
+    # Idempotent in effect: a second remerge finds the successor running and refuses.
+    again = _run_cli("ctl", "--repo", str(root), "remerge", "t-01", timeout=30)
+    assert again.returncode == 1 and "remerge refused" in again.stdout
+
+
+def test_ctl_remerge_refuses_a_task_with_no_run(_project_with_a_failed_merge):
+    proc = _run_cli("ctl", "--repo", str(_project_with_a_failed_merge), "remerge", "nope",
+                    timeout=30)
+    assert proc.returncode == 1, proc.stdout + proc.stderr
+    assert "remerge refused: nope has no graph run" in proc.stdout
+    assert "Traceback" not in proc.stderr
+
+
 @pytest.mark.slow
 def test_ctl_unknown_verb_is_reported_not_crashed(_healthy_project):
     root, _ = _healthy_project
@@ -817,7 +1082,7 @@ def test_run_requires_the_shared_agents_tmux_session(tmp_path):
         proc = subprocess.run(
             [sys.executable, "-m", "maestro.cli", "run", "--repo", str(root)],
             cwd=str(root), env={**env, "PYTHONPATH": str(REPO_ROOT)},
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, timeout=HANG_SECONDS,
         )
         assert proc.returncode == 1
         assert "agents" in (proc.stdout + proc.stderr)
@@ -981,3 +1246,382 @@ def test_pyproject_declares_the_maestro_console_script():
     import tomllib
     data = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text())
     assert data["project"]["scripts"]["maestro"] == "maestro.cli:main"
+
+
+def test_doctor_model_limits_scopes_each_model_to_its_backends_table(monkeypatch, tmp_path):
+    """A role's derived table maps backend -> model; an agy model is looked up as `agy/...`."""
+    from maestro import cli
+    from maestro import limits
+
+    _derived_models(monkeypatch, implementer={
+        "claude": "claude-sonnet-5", "antigravity": "gemini-3.8-flash-high"})
+    asked = []
+    monkeypatch.setattr(limits, "resolve_all", lambda names: asked.extend(names) or {n: object() for n in names})
+    assert cli._check_model_limits(tmp_path).ok
+    assert sorted(asked) == ["agy/gemini-3.8-flash-high", "claude-sonnet-5"]
+
+
+# ── init/doctor: P00 DuetFlow rehearsal defects (P12A W12, F2–F5) ──
+#
+# In-process and fast on purpose: each defect lives in one helper, and the ~60 s `init`
+# subprocess would only re-prove the wiring `_healthy_project` already covers.
+
+
+def test_derived_test_command_stays_inside_the_virtualenv(tmp_path):
+    """F2: `.venv/bin/python3` is a symlink to the base interpreter; resolving it ran the
+    gate outside the venv."""
+    from maestro import cli
+
+    root = _git_repo(tmp_path / "proj")
+    (root / "pyproject.toml").write_text('[project]\nname = "p"\ndependencies = ["pytest"]\n')
+    (root / "tests").mkdir()
+    venv_python = root / ".venv" / "bin" / "python3"
+    venv_python.parent.mkdir(parents=True)
+    venv_python.symlink_to(sys.executable)
+
+    argv = cli._derive_repo_facts(root)["test_command_argv"]
+
+    assert argv == [str(root.resolve() / ".venv" / "bin" / "python3"), "-m", "pytest", "-q"]
+
+
+def test_existing_state_json_is_runtime_state_not_a_scaffold(tmp_path):
+    """F3: a state.json written by an earlier init's loop check (or a live controller) must
+    not come back as a `state.json.new` holding `{}`."""
+    from maestro import cli
+
+    root = tmp_path / "proj"
+    assert [o.action for o in cli._ensure_orchestrator_dirs(root)] == ["created"]
+    state_json = root / ".orchestrator" / "state.json"
+    state_json.write_text('{"in_flight": [], "phase": {"status": "idle"}}\n')
+
+    assert [o.action for o in cli._ensure_orchestrator_dirs(root)] == ["unchanged"]
+    assert not (root / ".orchestrator" / "state.json.new").exists()
+    assert state_json.read_text() == '{"in_flight": [], "phase": {"status": "idle"}}\n'
+
+
+def test_gitignore_proposal_only_appends_the_missing_lines(tmp_path):
+    """F4: against the rehearsal's 56-line `.gitignore`, the proposal keeps every existing
+    line and its diff has no deletions."""
+    from maestro import cli
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    existing = [f"secret-{i}.token" for i in range(51)] + [
+        ".venv/", "config.yaml", "tokens/", "*.db", "data/",
+    ]
+    assert len(existing) == 56
+    gitignore = root / ".gitignore"
+    gitignore.write_text("\n".join(existing) + "\n")
+
+    outcome = cli._scaffold_gitignore(gitignore)
+
+    assert outcome.action == "new_written"
+    assert gitignore.read_text() == "\n".join(existing) + "\n"
+    proposal = (root / ".gitignore.new").read_text().splitlines()
+    assert proposal[:56] == existing
+    assert ".orchestrator/" in proposal
+    assert proposal.count(".venv/") == 1, "an entry the file already has is not repeated"
+    changed = [
+        line for line in outcome.diff.splitlines()
+        if line[:1] in "+-" and not line.startswith(("+++", "---"))
+    ]
+    assert changed and all(line.startswith("+") for line in changed)
+
+    gitignore.write_text((root / ".gitignore.new").read_text())
+    (root / ".gitignore.new").unlink()
+    assert cli._scaffold_gitignore(gitignore).action == "unchanged"
+    assert not (root / ".gitignore.new").exists()
+
+
+def test_preamble_deny_list_renders_from_project_yaml_or_doctor_fails(tmp_path, monkeypatch, capsys):
+    """F5: init renders the configured list; while the placeholder outlives a configured
+    list, doctor exits non-zero. An empty list keeps the placeholder and passes."""
+    from maestro import cli
+
+    root = tmp_path / "proj"
+    root.mkdir()
+    preamble = root / "operating_preamble.md"
+    template = "## The deny list\n\n```\n{{ deny_list }}\n```\n"
+
+    (root / "project.yaml").write_text("risky_set: []\ndeny_list_extra: []\n")
+    assert cli._deny_list_block(root) == cli._DENY_LIST_PLACEHOLDER
+    preamble.write_text(cli._render(template, {"deny_list": cli._deny_list_block(root)}))
+    assert cli._check_preamble_deny_list(root).ok
+
+    (root / "project.yaml").write_text(
+        "risky_set:\n  - maestro/merge.py\ndeny_list_extra:\n  - 'rm\\s+-rf'\n"
+    )
+    failing = cli._check_preamble_deny_list(root)
+    assert not failing.ok and failing.required
+
+    ok = cli.Check("stub", True, "stub", required=True)
+    for name in ("_check_docs", "_check_model_limits", "_check_model_ids", "_check_backends",
+                 "_check_mermaid", "_check_telegram", "_check_systemd_unit", "_check_gate",
+                 "_check_adopted_code", "_check_journal_and_version", "_check_thirdparty",
+                 "_check_meta_branch"):
+        monkeypatch.setattr(cli, name, lambda *a, **k: ok)
+    monkeypatch.setattr(cli, "_check_adapters", lambda *a, **k: [ok])
+    monkeypatch.setenv("MAESTRO_REPO", str(root))
+    no_network = lambda url: pytest.fail(f"doctor reached the network: {url}")
+
+    assert cli.cmd_doctor(root, http_get=no_network) == 1
+    assert "[FAIL] preamble_deny_list:" in capsys.readouterr().out
+
+    rendered = cli._render(template, {"deny_list": cli._deny_list_block(root)})
+    assert "maestro/merge.py\nrm\\s+-rf" in rendered
+    assert cli._DENY_LIST_PLACEHOLDER not in rendered
+    preamble.write_text(rendered)
+    assert cli.cmd_doctor(root, http_get=no_network) == 0
+
+
+# ── P12A W11: `maestro workflow runs` ──
+
+
+def test_workflow_runs_lists_both_runs_of_a_repaired_task_in_start_order(tmp_path):
+    """Two `start_run`s in the same second: insertion order, not the run id, decides."""
+    from maestro.control.lifecycle import Lifecycle
+    from maestro.control.store import ControlStore
+
+    repo = _git_repo(tmp_path / "repo")
+    (repo / ".orchestrator").mkdir()
+    store = ControlStore.open_controller(repo / ".orchestrator" / "control.sqlite3")
+    try:
+        store.register_task("T-9", spec_revision=1)
+        life = Lifecycle(store)
+        stamp = "2026-09-16T10:00:00Z"
+        life.start_run("T-9", "run_z_first", workflow_id="wf_T9", workflow_revision=1, at=stamp)
+        life.finish_run("T-9", "run_z_first", "failed", at=stamp)
+        life.start_run("T-9", "run_a_repaired", workflow_id="wf_T9", workflow_revision=2,
+                       at=stamp)
+    finally:
+        store.close()
+
+    text = _run_cli("workflow", "--repo", str(repo), "runs", "T-9")
+    assert text.returncode == 0, text.stderr
+    assert text.stdout.index("run_z_first") < text.stdout.index("run_a_repaired")
+
+    as_json = _run_cli("workflow", "--repo", str(repo), "runs", "T-9", "--json")
+    assert as_json.returncode == 0, as_json.stderr
+    rows = json.loads(as_json.stdout)
+    assert [(r["run_id"], r["workflow_revision"], r["status"]) for r in rows] == [
+        ("run_z_first", 1, "failed"), ("run_a_repaired", 2, "running"),
+    ]
+
+
+# ── P12 B15: the retention default ──
+
+
+def test_retention_defaults_to_keep_everything_and_refuses_what_it_cannot_read():
+    from maestro import config
+
+    assert config.retention({}) == {"prune": False, "warn_bytes": 1 << 30}
+    assert config.retention({"retention": {"warn_bytes": 5}}) == {"prune": False, "warn_bytes": 5}
+    for bad in ({"retention": []}, {"retention": {"warn_bytes": -1}},
+                {"retention": {"warn_bytes": True}}, {"retention": {"prune": "yes"}},
+                {"retention": {"prune": True}}):
+        with pytest.raises(config.ConfigError):
+            config.retention(bad)
+
+
+def test_doctor_warns_when_the_orchestrator_dir_outgrows_the_retention_threshold(
+    tmp_path, monkeypatch
+):
+    from maestro import cli
+
+    root = tmp_path / "proj"
+    orch = root / ".orchestrator"
+    (orch / "attempts" / "a1").mkdir(parents=True)
+    (orch / "attempts" / "a1" / "result.json").write_bytes(b"x" * 64)
+    # A released task tree is not evidence and is not counted.
+    (orch / "worktrees" / "T-1").mkdir(parents=True)
+    (orch / "worktrees" / "T-1" / "big.bin").write_bytes(b"x" * 4096)
+    monkeypatch.setenv("MAESTRO_REPO", str(root))
+
+    (root / "project.yaml").write_text("retention: {warn_bytes: 1000}\n")
+    under = cli._check_retention(root)
+    assert under.ok and not under.required and "64 bytes" in under.detail
+
+    (root / "project.yaml").write_text("retention: {warn_bytes: 10}\n")
+    over = cli._check_retention(root)
+    assert not over.ok and not over.required
+    assert "64 bytes" in over.detail and "warn_bytes=10" in over.detail
+
+
+# P12 pilot finding (session 3f): the watchdog launches `maestro run` with `tmux new-window`,
+# which inherits the tmux *server's* environment, not the watchdog's. `launch.sh` sourcing
+# `.env` therefore never reached the loop: every Telegram notice was silently skipped while the
+# journal said `graph_run_failed_notified`. Both entry points now load the project's `.env`
+# themselves, as the reference `orchestrator_run.py` did (`load_dotenv(..., override=True)`).
+
+
+def _stub_module(monkeypatch, name: str) -> dict:
+    import types
+
+    seen: dict = {}
+    stub = types.ModuleType(name)
+
+    def main() -> int:
+        seen["token"] = os.environ.get("TELEGRAM_BOT_TOKEN")
+        seen["chat"] = os.environ.get("TELEGRAM_ALERT_CHAT_ID")
+        return 0
+
+    stub.main = main
+    monkeypatch.setitem(sys.modules, name, stub)
+    return seen
+
+
+@pytest.mark.parametrize("command,module", [
+    ("cmd_run", "maestro.orchestrator"),
+    ("cmd_watchdog", "maestro.watchdog"),
+])
+def test_entry_points_load_the_project_env_over_the_inherited_one(
+    tmp_path, monkeypatch, command, module
+):
+    from maestro import cli
+
+    # A stale value from the tmux server (another project's bot) must not win.
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "server-token")
+    monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "server-chat")
+    (tmp_path / ".env").write_text("TELEGRAM_BOT_TOKEN=project-token\nTELEGRAM_ALERT_CHAT_ID=42\n")
+    shared = tmp_path / 'shared.env'
+    shared.write_text('TELEGRAM_BOT_TOKEN=shared-token\nTELEGRAM_ALERT_CHAT_ID=42\n')
+    monkeypatch.setenv('MAESTRO_TELEGRAM_ENV', str(shared))
+    monkeypatch.setenv('MAESTRO_HOME', str(tmp_path / 'shared-home'))
+    seen = _stub_module(monkeypatch, module)
+
+    assert getattr(cli, command)(tmp_path) == 0
+    assert seen == {"token": "shared-token", "chat": "42"}
+
+
+@pytest.mark.parametrize("command,module", [
+    ("cmd_run", "maestro.orchestrator"),
+    ("cmd_watchdog", "maestro.watchdog"),
+])
+def test_entry_points_without_shared_config_clear_inherited_project_credentials(
+    tmp_path, monkeypatch, command, module
+):
+    from maestro import cli
+
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "inherited")
+    monkeypatch.delenv("TELEGRAM_ALERT_CHAT_ID", raising=False)
+    seen = _stub_module(monkeypatch, module)
+
+    assert getattr(cli, command)(tmp_path) == 0
+    assert seen == {"token": None, "chat": None}
+
+
+def test_goals_status_in_a_fresh_process_shows_revision_baseline_and_observations(tmp_path):
+    """P13 GDT-9 (R35, C28): a fresh process resumes from what is on disk: the contract
+    revision, the stored baseline, each criterion's state with where it was observed, what
+    is unmet and the next work; never a done verdict, and it writes nothing."""
+    from maestro import acceptance, goal_state, goal_store
+    from maestro.docs import goals
+
+    from .test_goals import _project
+    from .test_goals_contract import V2
+
+    task = {"id": "T2", "status": "open", "serves": ["G2"], "contribution": "direct",
+            "criteria": ["AC-03"]}
+    project = _project(tmp_path, goals_md=V2, tasks=[task])
+    doc = goals.load(project)
+    acceptance.store(project, doc, [
+        acceptance.Result(id="AC-01", state=acceptance.RED, reason="assert", revision=2),
+        acceptance.Result(id="AC-03", state=acceptance.RED, reason="assert", revision=2)])
+    goal_state.record_gate(project, doc, {"acceptance": {"AC-01": acceptance.GREEN},
+                                          "snapshot": "abc1234def"},
+                           task="T1", run_id="run-T1", at="2099-01-01T00:00:00+00:00")
+    before = goal_store.path_for(project).read_text(encoding="utf-8")
+
+    run = _run_cli("goals", "status", str(project), "--json")
+    assert run.returncode == 0, run.stderr
+    shown = json.loads(run.stdout)
+    assert (shown["revision"], shown["baseline"]["revision"], shown["baseline"]["stale"]) == (
+        2, 2, False)
+    assert shown["baseline"]["ran_at"]
+    by_id = {c["id"]: c for c in shown["criteria"]}
+    assert (by_id["AC-01"]["state"], by_id["AC-01"]["source"], by_id["AC-01"]["task"],
+            by_id["AC-01"]["commit"]) == (acceptance.GREEN, "gate", "T1", "abc1234def")
+    assert (by_id["AC-03"]["state"], by_id["AC-03"]["source"]) == (acceptance.RED, "baseline")
+    assert "AC-03" in shown["unmet"] and "AC-01" not in shown["unmet"]
+    assert {"task": "T2", "criteria": ["AC-03"]} in shown["next_work"]
+    assert "done" not in shown
+
+    text = _run_cli("goals", "status", str(project))
+    assert text.returncode == 0, text.stderr
+    assert "revision 2" in text.stdout and "AC-01" in text.stdout and "gate" in text.stdout
+    assert "T1" in text.stdout and "unmet" in text.stdout.lower()
+    assert goal_store.path_for(project).read_text(encoding="utf-8") == before
+
+    missing = _run_cli("goals", "status", str(tmp_path / "nowhere"))
+    assert missing.returncode == 1
+
+
+def test_goals_finish_prints_the_verdict_and_exits_1_unless_complete(tmp_path, capsys):
+    """P13 GDT-10 (R53, R56): `maestro goals finish` reruns every mandatory criterion on the
+    checkout at (contract revision, HEAD), writes the outcome report and prints it; exit 0
+    only for `complete`. It never asks Dan, adds tasks or notifies."""
+    from maestro import cli, goal_completion as gc, goal_store
+
+    from .test_goal_completion import _commit, _project
+
+    repo = _project(tmp_path)
+    (repo / "app.py").write_text("print('uncommitted')\n", encoding="utf-8")
+    assert cli.cmd_goals(repo, verb="finish") == 1
+    out = capsys.readouterr().out
+    assert "Verdict: blocked" in out and "uncommitted changes: app.py" in out
+    assert (repo / gc.REPORT_MD).is_file()
+
+    _commit(repo, "app.py", "print('ledger 2')\n")
+    assert cli.cmd_goals(repo, verb="finish", as_json=True) == 0
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["verdict"] == "complete" and shown["revision"] == 2
+    assert shown["commit"] == subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo,
+                                             capture_output=True, text=True).stdout.strip()
+    assert all(r.get("trigger", {}).get("kind") != "finish_gap"
+               for r in goal_store.read(repo)["replans"])
+
+
+def test_goals_check_json_without_goals_md_is_one_question(tmp_path, capsys):
+    """GDT-13 (R12): setup's Step 2c reads `"ask"`; with no contract there is exactly one
+    thing to ask Dan (the contract), not one line per section the empty parse lacks."""
+    from maestro import cli
+
+    assert cli.cmd_goals(tmp_path, as_json=True) == 1
+    shown = json.loads(capsys.readouterr().out)
+    assert shown["exists"] is False
+    assert shown["issues"] == [{"severity": "gate", "ids": [], "ask": True,
+                                "text": f"no docs/GOALS.md at {tmp_path / 'docs' / 'GOALS.md'}"}]
+
+
+def test_goals_finish_without_goals_md_or_with_format_one_exits_1(tmp_path, capsys):
+    from maestro import cli
+
+    from .test_goals import SKILL_STYLE
+
+    assert cli.cmd_goals(tmp_path / "nowhere", verb="finish") == 1
+    assert "no docs/GOALS.md" in capsys.readouterr().err
+    (tmp_path / "docs").mkdir()
+    (tmp_path / "docs" / "GOALS.md").write_text(SKILL_STYLE, encoding="utf-8")
+    assert cli.cmd_goals(tmp_path, verb="finish") == 1
+    err = capsys.readouterr().err
+    assert "format 1 has no criteria to verify" in err and "maestro goals migrate" in err
+
+
+def test_goals_finish_in_a_fresh_process_reads_the_stored_row(tmp_path):
+    """The verification run is stored per (revision, commit): a second process at the same
+    key reprints the verdict without running any criterion again (R35)."""
+    from .test_goal_completion import NO_OP, VALID, _commit, _project
+
+    count = "python tests/acceptance/count.py"
+    repo = _project(tmp_path, NO_OP.replace(f"`{VALID}`", f"`{count}`"))
+    _commit(repo, "tests/acceptance/count.py",
+            "from pathlib import Path\n\nmark = Path('.orchestrator') / 'count'\n"
+            "mark.parent.mkdir(exist_ok=True)\n"
+            "mark.write_text(str(int(mark.read_text()) + 1 if mark.exists() else 1))\n")
+    first = _run_cli("goals", "finish", str(repo))
+    assert first.returncode == 0, first.stdout + first.stderr
+    assert "Verdict: complete" in first.stdout
+    second = _run_cli("goals", "finish", str(repo), "--json")
+    assert second.returncode == 0, second.stderr
+    assert json.loads(second.stdout)["verdict"] == "complete"
+    assert (repo / ".orchestrator" / "count").read_text() == "1"

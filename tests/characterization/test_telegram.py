@@ -371,7 +371,7 @@ def test_notify_telegram_target_sends_chat_id_and_text_in_the_payload(
     subject.notify_telegram("hello world")
     payload = _post_payload(post.calls[0])
     assert str(payload.get("chat_id")) == "555"
-    assert payload.get("text") == "hello world"
+    assert payload.get("text") == "[repo] hello world"
 
 
 def test_notify_telegram_target_passes_a_multiline_message_through(
@@ -381,7 +381,7 @@ def test_notify_telegram_target_passes_a_multiline_message_through(
     monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "555")
     post = _stub_post(monkeypatch)
     subject.notify_telegram("line one\nline two")
-    assert _post_payload(post.calls[0]).get("text") == "line one\nline two"
+    assert _post_payload(post.calls[0]).get("text") == "[repo] line one\nline two"
 
 
 def test_notify_telegram_target_bounds_the_call_with_a_short_timeout(
@@ -978,8 +978,8 @@ def test_pending_danreqs_sorts_timestamps_as_text_not_as_instants(subject, sandb
 
     `offset` here is 2026-01-01T01:00+05:00 = 2025-12-31T20:00Z — an hour *older* than
     `zulu` (2026-01-01T00:00Z) — yet "…T01:00:00+05:00" > "…T00:00:00Z" as text, so the
-    reference reports the older record as "newest first". `_route_freetext_answer` then
-    hands an untargeted free-text reply to `pend[0]`, i.e. to the wrong request.
+    reference reports the older record as "newest first". P13 W1 retains this sort but
+    refuses ambiguous free-text replies, so order can no longer select the wrong request.
     """
     _write_req(subject, sandbox, "zulu", ts="2026-01-01T00:00:00Z")
     _write_req(subject, sandbox, "offset", ts="2026-01-01T01:00:00+05:00")
@@ -1614,29 +1614,49 @@ def test_route_freetext_answer_prefers_the_replied_to_request(subject, sandbox, 
     assert not _answer_file(subject, sandbox, "new").exists()
 
 
-def test_route_freetext_answer_falls_back_to_the_newest_pending_request(
+def test_route_freetext_answer_refuses_several_unthreaded_pending_requests(
     subject, sandbox, monkeypatch
 ):
-    """FOUND_BUGS: with several requests open and no reply-threading the free text is
-    silently attributed to the newest one — Dan answering the older question in a plain
-    message answers the wrong request, with a confirmation that names the wrong id."""
+    """P13 W1 closes the historical newest-request fallback: several pending requests
+    require an exact reply target."""
     _spy_notify(monkeypatch, subject)
     _write_req(subject, sandbox, "old", ts="2026-01-01T00:00:00Z")
     _write_req(subject, sandbox, "new", ts="2026-03-01T00:00:00Z")
     subject._route_freetext_answer("revert", None)
-    assert _answer_file(subject, sandbox, "new").read_text(encoding="utf-8") == "revert\n"
+    assert not _answer_file(subject, sandbox, "new").exists()
     assert not _answer_file(subject, sandbox, "old").exists()
 
 
-def test_route_freetext_answer_falls_back_when_the_reply_target_is_unknown(
+def test_route_freetext_answer_skips_questions_that_hold_nothing(subject, sandbox, monkeypatch):
+    """GDT-12 review M4b: an improvement question (`holds: False`) may stay unanswered for
+    days. It is no candidate for an unthreaded answer: plain text goes to the one request
+    that holds work, and with only such questions pending it is refused (no stray text
+    becomes a decline note). A reply to its exact message still answers it."""
+    notify = _spy_notify(monkeypatch, subject)
+    _write_req(subject, sandbox, "dq-improve-IP-0001", holds=False, message_id=11,
+               ts="2026-03-01T00:00:00Z")
+    _write_req(subject, sandbox, "real", ts="2026-01-01T00:00:00Z", message_id=22)
+    subject._route_freetext_answer("use sonnet", None)
+    assert _answer_file(subject, sandbox, "real").read_text(encoding="utf-8") == "use sonnet\n"
+    assert not _answer_file(subject, sandbox, "dq-improve-IP-0001").exists()
+    # Only the improvement question is pending: unthreaded text is not its answer.
+    subject._route_freetext_answer("hello", None)
+    assert not _answer_file(subject, sandbox, "dq-improve-IP-0001").exists()
+    assert "Reply to the exact pending request message" in notify[-1][0][0]
+    # A reply to its own message answers it.
+    subject._route_freetext_answer("only for parser tasks", {"message_id": 11})
+    assert _answer_file(subject, sandbox, "dq-improve-IP-0001").read_text(
+        encoding="utf-8") == "only for parser tasks\n"
+
+
+def test_route_freetext_answer_refuses_an_unknown_reply_target(
     subject, sandbox, monkeypatch
 ):
-    """FOUND_BUGS: replying to an unrelated bot message routes the answer to the newest
-    pending request rather than being refused."""
+    """P13 W1 refuses unrelated replies instead of answering a pending request."""
     _spy_notify(monkeypatch, subject)
     _write_req(subject, sandbox, "r1", message_id=11)
     subject._route_freetext_answer("yes", {"message_id": 999})
-    assert _answer_file(subject, sandbox, "r1").read_text(encoding="utf-8") == "yes\n"
+    assert not _answer_file(subject, sandbox, "r1").exists()
 
 
 def test_route_freetext_answer_falls_back_for_a_reply_without_a_message_id(
@@ -1648,13 +1668,13 @@ def test_route_freetext_answer_falls_back_for_a_reply_without_a_message_id(
     assert _answer_file(subject, sandbox, "r1").read_text(encoding="utf-8") == "yes\n"
 
 
-def test_route_freetext_answer_falls_back_for_a_null_reply_message_id(
+def test_route_freetext_answer_refuses_a_null_reply_message_id(
     subject, sandbox, monkeypatch
 ):
     _spy_notify(monkeypatch, subject)
     _write_req(subject, sandbox, "r1")
     subject._route_freetext_answer("yes", {"message_id": None})
-    assert _answer_file(subject, sandbox, "r1").read_text(encoding="utf-8") == "yes\n"
+    assert not _answer_file(subject, sandbox, "r1").exists()
 
 
 def test_route_freetext_answer_message_id_match_is_by_identity_of_type(
@@ -1662,12 +1682,12 @@ def test_route_freetext_answer_message_id_match_is_by_identity_of_type(
 ):
     """FOUND_BUGS: the match is `r.get("message_id") == mid` with no coercion, so a
     record that stored its message_id as a string never matches the integer Telegram
-    sends and the reply falls through to the newest-pending default."""
+    sends; P13 W1 refuses that unmatched reply instead of guessing another request."""
     _spy_notify(monkeypatch, subject)
     _write_req(subject, sandbox, "old", ts="2026-01-01T00:00:00Z", message_id="11")
     _write_req(subject, sandbox, "new", ts="2026-03-01T00:00:00Z")
     subject._route_freetext_answer("yes", {"message_id": 11})
-    assert _answer_file(subject, sandbox, "new").read_text(encoding="utf-8") == "yes\n"
+    assert not _answer_file(subject, sandbox, "new").exists()
 
 
 def test_route_freetext_answer_records_a_zero_message_id_target(
@@ -1729,7 +1749,7 @@ def test_route_freetext_answer_records_the_answer_before_confirming(
     assert _answer_file(subject, sandbox, "r1").read_text(encoding="utf-8") == "yes\n"
 
 
-def test_route_freetext_answer_answers_only_one_request(subject, sandbox, monkeypatch):
+def test_route_freetext_answer_answers_no_ambiguous_request(subject, sandbox, monkeypatch):
     _spy_notify(monkeypatch, subject)
     _write_req(subject, sandbox, "a", ts="2026-01-01T00:00:00Z")
     _write_req(subject, sandbox, "b", ts="2026-02-01T00:00:00Z")
@@ -1738,7 +1758,7 @@ def test_route_freetext_answer_answers_only_one_request(subject, sandbox, monkey
     answered = [
         r for r in ("a", "b", "c") if _answer_file(subject, sandbox, r).exists()
     ]
-    assert answered == ["c"]
+    assert answered == []
 
 
 def test_route_freetext_answer_returns_none(subject, sandbox, monkeypatch):
@@ -1961,6 +1981,32 @@ def _waiting(parked_at: str, task_id: str = "T1", **extra) -> dict:
     item = {"task_id": task_id, "parked_at": parked_at}
     item.update(extra)
     return item
+
+
+@pytest.mark.parametrize('kind', ['operator-verification', 'post-merge-checking',
+                                  'post-merge-repair', 'post-merge-failed',
+                                  'verification-drift', 'operator-failed'])
+def test_integrated_waits_never_advertise_numeric_merge_or_branch_reject(
+    subject, sandbox, monkeypatch, kind
+):
+    notify = _spy_notify(monkeypatch, subject)
+    _write_state(subject, sandbox, {'1': _waiting(_ago(hours=25), kind=kind)})
+    subject._send_hitl_reminders()
+    assert not notify  # typed observation requests own their reminders
+
+
+def test_typed_operator_reminder_uses_pass_fail_after_execution(subject, sandbox, monkeypatch):
+    notify = _spy_notify(monkeypatch, subject)
+    state = {'awaiting_dan_verification': {'T1': {
+        'kind': 'operator', 'sent': True, 'request_id': 'req-T1',
+        'requested_at': _ago(hours=25),
+    }}}
+    subject._remind_dan_verifications(state)
+    assert len(notify) == 1
+    text = notify[0][0][0]
+    assert 'Pass/Fail' in text
+    assert '/verify T1 pass' in text and '/verify T1 fail' in text
+    assert 'nothing merges' not in text
 
 
 def test_send_hitl_reminders_no_waiting_items(subject, sandbox, monkeypatch):
@@ -2436,6 +2482,16 @@ def test_phase_report_no_decisions_leaves_a_blank_line(subject, sandbox, report)
     assert lines[2] == ""
 
 
+def test_phase_report_says_where_the_review_follow_ups_went(subject, sandbox, report):
+    """Review follow-ups (Dan, 2026-09-26): one line before "Next:", only when there are any."""
+    subject.phase_report(
+        "T1", {}, {}, follow_ups="2 review follow-up(s): 2 in the backlog for the polish stage")
+    lines = _msg(report).splitlines()
+    assert len(lines) == 5
+    assert lines[3] == "🧾 2 review follow-up(s): 2 in the backlog for the polish stage"
+    assert lines[4].startswith("▶ Next:")
+
+
 def test_phase_report_decisions_block(subject, sandbox, report):
     subject.phase_report("T1", {"decisions_made": "chose plan B"}, {})
     lines = _msg(report).splitlines()
@@ -2595,3 +2651,15 @@ def test_phase_report_full_message_shape(subject, sandbox, report, monkeypatch):
     assert lines[3] == f"{CLIPBOARD} *Decisions made:* chose B"
     assert lines[4] == f"{HOURGLASS} Veto window: 24 h"
     assert lines[5] == f"{NEXT} Next: T2"
+
+
+# P12 pilot (session 3f): a `*_notified` journal line must say when nothing could be sent.
+def test_delivery_note_flags_a_missing_token_or_chat(subject, monkeypatch):
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "t")
+    monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "c")
+    assert subject.delivery_note() == ""
+    monkeypatch.delenv("TELEGRAM_ALERT_CHAT_ID")
+    assert subject.delivery_note() == " telegram=unconfigured"
+    monkeypatch.setenv("TELEGRAM_ALERT_CHAT_ID", "c")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "")
+    assert subject.delivery_note() == " telegram=unconfigured"

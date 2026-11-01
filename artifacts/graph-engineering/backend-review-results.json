@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "task": {
+    "id": "receipt-store-review",
+    "project": "maestro",
+    "source": "tests/graph_engineering/fixtures/backend_review/candidate.py",
+    "spec": "tests/graph_engineering/fixtures/backend_review/SPEC.md",
+    "mode": "read-only seeded-defect review",
+    "criteria_fixed_before_runs": [
+      {"id": "lost-ack-uncertain", "weight": 5},
+      {"id": "concurrent-writer-race", "weight": 4},
+      {"id": "path-prefix-escape", "weight": 4},
+      {"id": "corrupt-state-fail-open", "weight": 3},
+      {"id": "empty-operation-id", "weight": 1}
+    ]
+  },
+  "verification": {
+    "criteria_fixed_before_runs": true,
+    "classification_method": "manual mapping from the structured CLI responses observed during the run",
+    "raw_model_outputs_retained": false,
+    "exact_invocations_retained": false,
+    "status": "provisional-not-independently-reproducible"
+  },
+  "runs": [
+    {
+      "backend": "Claude Code",
+      "cli_version": "2.1.263",
+      "model": "claude-sonnet-4-6",
+      "effort": "low",
+      "execution_controls": ["--restricted", "--permission-mode=dontAsk", "--permission-prompts=none", "--no-session-persistence"],
+      "exit_code": 0,
+      "criteria": {
+        "lost-ack-uncertain": true,
+        "concurrent-writer-race": true,
+        "path-prefix-escape": true,
+        "corrupt-state-fail-open": true,
+        "empty-operation-id": true
+      },
+      "provisional_weighted_score": {"earned": 17, "possible": 17, "ratio": 1.0},
+      "reported_findings": 5,
+      "observable_call_usage": {
+        "input_tokens": 4,
+        "cache_creation_input_tokens": 11324,
+        "cache_read_input_tokens": 10588,
+        "output_tokens": 869,
+        "thinking_tokens": 18,
+        "reported_list_cost_usd": 0.0852174,
+        "subscription_charge": "unknown",
+        "auxiliary_model_observed": "claude-haiku-4-5"
+      }
+    },
+    {
+      "backend": "Antigravity CLI",
+      "cli_version": "1.1.27",
+      "model": "gemini-3.8-flash-low",
+      "effort": "low",
+      "execution_controls": ["--sandbox", "--mode=plan"],
+      "exit_code": 0,
+      "criteria": {
+        "lost-ack-uncertain": true,
+        "concurrent-writer-race": true,
+        "path-prefix-escape": true,
+        "corrupt-state-fail-open": true,
+        "empty-operation-id": true
+      },
+      "provisional_weighted_score": {"earned": 17, "possible": 17, "ratio": 1.0},
+      "reported_findings": 6,
+      "additional_finding": "non-atomic state write compounds corrupt-state loss",
+      "observable_call_usage": {
+        "input_tokens": 40126,
+        "cache_read_tokens": 73496,
+        "output_tokens": 3557,
+        "thinking_tokens": 1602,
+        "reported_total_tokens": 43683,
+        "five_hour": "unknown",
+        "weekly": "unknown"
+      }
+    },
+    {
+      "backend": "Codex CLI",
+      "cli_version": "0.153.4",
+      "model": "gpt-5.6-sol",
+      "effort": "high (configured default; no task launched)",
+      "exit_code": null,
+      "status": "not-run-quota-conservation",
+      "provisional_weighted_score": null
+    }
+  ],
+  "subscription_window_samples": {
+    "before": {
+      "sampled_at": "2026-09-07T23:40:27Z",
+      "claude": {"five_hour_used_pct": 10, "weekly_used_pct": null, "sample_model": null, "sample_updated_at": ""},
+      "codex": {"five_hour_used_pct": 84, "weekly_used_pct": 82, "sample_updated_at": "2026-09-07T23:40:27Z"},
+      "antigravity": {"five_hour_used_pct": null, "weekly_used_pct": null}
+    },
+    "after": {
+      "sampled_at": "2026-09-07T23:52:37Z",
+      "claude": {"five_hour_used_pct": 13, "weekly_used_pct": 49, "sample_model": "Opus 5", "sample_updated_at": "2026-09-07T23:41:19Z"},
+      "codex": {"five_hour_used_pct": 89, "weekly_used_pct": 82, "sample_updated_at": "2026-09-07T23:52:37Z"},
+      "antigravity": {"five_hour_used_pct": null, "weekly_used_pct": null}
+    },
+    "attribution": {
+      "kind": "unknown",
+      "reason": "Codex five-hour usage increased by five points although no Codex task was launched, and the post-run Claude sample names Opus 5 rather than the review's Sonnet 4.6. The account-level samples therefore cannot be attributed to these calls."
+    }
+  },
+  "limits": [
+    "Two successful reviews of one seeded recovery fixture do not calibrate general coding quality or stopping limits.",
+    "Antigravity exposed call token counts but no 5-hour or weekly subscription signal.",
+    "Claude's reported USD value is a CLI list-cost estimate, not evidence of a subscription charge.",
+    "Codex was deliberately not run because its pre-sample was already 84% in the five-hour window and 82% in the weekly window.",
+    "Raw Claude and Antigravity responses and exact command lines were not retained, so the mapped defect scores are provisional and cannot be independently reproduced."
+  ]
+}

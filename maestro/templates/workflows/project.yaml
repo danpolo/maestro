@@ -1,0 +1,218 @@
+# workflows/project.yaml — this project's ENGINEERING policy (P5, D03, D05).
+#
+# Not to be confused with the `project.yaml` at the repository root, which is the
+# operational config (backends, models, quota thresholds, deny list). This file answers a
+# different question: what shape is a workflow for this project allowed to have?
+#
+# `maestro init` scaffolds this file and never overwrites an edited one — a changed copy
+# arrives as `project.yaml.new` with a diff, the same contract every other scaffolded file
+# gets. Every value below is read by `maestro/workflows/policy.py`; a key this file does
+# not know is a load-time error rather than a setting that silently does nothing.
+schema_version: 1
+
+# D05's two optimisation objectives, one runtime.
+#   paid_efficiency — minimise subscription usage per verified outcome. Minimal sufficient
+#                     graph: one implementer, no planner or reviewer for routine work.
+#   free_quality    — inference is free, so buy quality with it: planner, independent test
+#                     designer and reviewer on every task.
+# The objective selects which conditional stages below switch on; it never removes a
+# quality gate, because gates are a floor and this is a dial.
+objective: paid_efficiency
+
+# ── templates ────────────────────────────────────────────────────────────────────────
+#
+# [INV-A06]: a template is composed from named, versioned fragments, never written out as
+# a monolithic graph. `fragment: gate@1.0.0` cites a shape the compiler owns; if that
+# shape changes, the version changes and this file stops compiling rather than silently
+# acquiring a different gate.
+#
+# A stage with no `include_when` is unconditional. A stage with one is included when ANY
+# of its conditions holds. Conditions come from a closed set (policy.CONDITIONS):
+#   always · never · high_risk · low_risk · touches_tests · touches_risky_paths ·
+#   self_modifying · free_quality_mode · paid_efficiency_mode · free_quality_nontrivial
+#
+# `fan_out` widens one position into several parallel nodes when `free_quality` below
+# calls for it: `candidates` emits one isolated implementer per candidate ([INV-06]),
+# `review_lenses` one reviewer per lens. The WIDTH is not stated here — the policy
+# computes it, and it is 1 in paid mode and on low-risk tasks, which is why the stages
+# below are the same stages either mode compiles.
+#
+# `on_failure` names a sink the stage's failure edge points at. `required_criteria` is the
+# floor the COMPOSED graph must satisfy — the compiler checks the nodes it actually built
+# against it and refuses to emit a graph that omits one.
+templates:
+
+  ordinary:
+    version: "1.0.0"
+    stages:
+      - fragment: planner@1.0.0
+        include_when: [high_risk, free_quality_mode]
+        on_failure: park
+      - fragment: test_designer@1.0.0
+        # Before the implementer, not after: tests derived from the acceptance criteria
+        # are independent evidence; tests written against a diff already in front of you
+        # are a description of it (D06).
+        include_when: [free_quality_mode]
+        on_failure: park
+      - fragment: implementer@1.0.0
+        # One implementer in paid mode; one isolated candidate per `free_quality.candidates`
+        # under the free objective on anything above low risk. Each candidate gets its own
+        # worktree, its own `impl/<task>/c<n>` branch and its own writer lease ([INV-06]).
+        fan_out: candidates
+        on_failure: park
+      - fragment: candidate_select@1.0.0
+        # The join. Present only where the implementer actually fanned out, and then
+        # mandatory: a widened lane without it would leave N patches and no winner, which
+        # is the mixing [INV-06] forbids. The compiler checks for it and refuses to emit a
+        # fanned-out graph that omits it.
+        include_when: [free_quality_nontrivial]
+        on_failure: park
+      - fragment: gate@1.0.0
+        on_failure: park
+      - fragment: proof_review@1.0.0
+        # D05: "Reviewer triggered only by high risk or test changes" under paid
+        # efficiency; always under free quality. quality_gates.review_required_when below
+        # is the floor that makes the high-risk half of that non-negotiable.
+        include_when: [high_risk, touches_risky_paths, touches_tests, self_modifying, free_quality_mode]
+        # Free mode buys diversity rather than repetition: one reviewer per lens, each
+        # told which lens it holds, instead of three agents asked the same question.
+        fan_out: review_lenses
+        on_failure: park
+      - fragment: merge@1.0.0
+      - fragment: accept@1.0.0
+    sinks:
+      - fragment: park@1.0.0
+    terminals: [accept]
+    required_criteria: [implementation, verification_gate, controller_merge, acceptance]
+
+  script:
+    version: "1.0.0"
+    stages:
+      - fragment: script@1.0.0
+        on_failure: park
+      - fragment: gate@1.0.0
+        on_failure: park
+      - fragment: proof_review@1.0.0
+        include_when: [high_risk, touches_risky_paths, touches_tests, self_modifying, free_quality_mode]
+        on_failure: park
+      - fragment: merge@1.0.0
+      - fragment: accept@1.0.0
+    sinks:
+      - fragment: park@1.0.0
+    terminals: [accept]
+    required_criteria: [verification_gate, controller_merge, acceptance]
+
+  manual:
+    version: "1.1.0"
+    stages:
+      # An implementer fragment under a different node id: the prep agent does everything
+      # automatable and stops. `human_action` has no failure sink — a person declining to
+      # act is not a failed node, it is a node still waiting.
+      - fragment: implementer@1.0.0
+        node_id: prep
+        on_failure: park
+      - fragment: human_action@1.0.0
+      - fragment: gate@1.0.0
+        on_failure: park
+      - fragment: proof_review@1.0.0
+        include_when: [high_risk, touches_risky_paths, touches_tests, self_modifying, free_quality_mode]
+        on_failure: park
+      # The prep commits land only after Dan's action and the gate (G7, DESIGN §16).
+      - fragment: merge@1.0.0
+      - fragment: accept@1.0.0
+    sinks:
+      - fragment: park@1.0.0
+    terminals: [human_action, accept]
+    required_criteria: [human_receipt, verification_gate, controller_merge, acceptance]
+
+  async:
+    version: "1.0.0"
+    stages:
+      - fragment: async_launch@1.0.0
+        on_failure: park
+      - fragment: await_job@1.0.0
+      - fragment: gate@1.0.0
+        on_failure: park
+      - fragment: proof_review@1.0.0
+        include_when: [high_risk, touches_risky_paths, touches_tests, self_modifying, free_quality_mode]
+        on_failure: park
+      - fragment: accept@1.0.0
+    sinks:
+      - fragment: park@1.0.0
+    terminals: [accept]
+    required_criteria: [verification_gate, acceptance]
+
+  resumable:
+    version: "1.0.0"
+    stages:
+      - fragment: implementer@1.0.0
+        on_failure: park
+      - fragment: gate@1.0.0
+        # The lane's distinguishing edge: for a resumable task a failed gate is a sitting
+        # that made partial progress, so it cools down and re-queues instead of parking.
+        on_failure: cooldown
+      - fragment: proof_review@1.0.0
+        include_when: [high_risk, touches_risky_paths, touches_tests, self_modifying, free_quality_mode]
+        on_failure: park
+      - fragment: merge@1.0.0
+      - fragment: accept@1.0.0
+    sinks:
+      - fragment: cooldown@1.0.0
+      - fragment: park@1.0.0
+    terminals: [accept]
+    required_criteria: [implementation, verification_gate, controller_merge, acceptance]
+
+# ── free quality & hybrid (D05 §3, §3.1) ─────────────────────────────────────────────
+#
+# What `objective: free_quality` actually buys. Read under BOTH objectives — switching
+# mode is a one-line change to `objective:` above, not a rewrite of this file — and
+# applied only where a stage declared a matching `fan_out`.
+free_quality:
+  # Isolated implementer candidates per non-trivial task. 1 disables exploration; the
+  # ceiling is 8, because past that the constraint is host disk and writer leases, not
+  # quality. Every candidate is a separate worktree and a separate branch.
+  candidates: 2
+  # One reviewer per lens, each given its lens as a parameter. Rename or extend these to
+  # the review your project actually wants; the names are data, not compiler cases.
+  review_lenses: [logic, security, architecture]
+
+# §3.1: hybrid is an ELIGIBILITY OVERLAY, not a third objective. Under free_quality the
+# router permits free-tier capacity only; roles named here may additionally spend the
+# categories below, so a subscription can be reserved for the high-leverage nodes
+# (architectural planning, critical debugging) while implementation, candidate generation
+# and test design stay free. Empty means pure free mode — nothing spends paid capacity.
+hybrid:
+  paid_roles: []
+  billing_categories: [subscription]
+
+# ── quality gates ────────────────────────────────────────────────────────────────────
+#
+# The floor, checked against the composed graph. Separate from `include_when` on purpose:
+# a stage condition is an optimisation ("do not pay for a reviewer on a typo fix") and
+# gets tuned for cost; this is the line that tuning may not cross. A task that trips one
+# of these and whose template composed no matching node does not compile.
+quality_gates:
+  # Conditions under which the graph MUST contain an independent (write-less) reviewer.
+  review_required_when: [high_risk, touches_risky_paths, self_modifying]
+  # Conditions under which a PlanProposal must precede implementation. Empty by default:
+  # a planner on every task is exactly the paid-mode waste D05 rules out.
+  planning_required_when: []
+  # Conditions under which tests must come from a separate designer, not the implementer.
+  independent_tests_required_when: []
+  # A reviewer holding write tools is not independent; loading such a role fails closed.
+  independent_review: true
+  # Globs, matched against a task's declared `scope:`. Widen these to your own
+  # migrations, schemas, deploy scripts and anything with a blast radius.
+  risky_paths: []
+  test_paths: ["tests/*", "test/*", "*_test.py", "test_*.py", "*.test.*", "*.spec.*"]
+
+# ── permissions ──────────────────────────────────────────────────────────────────────
+#
+# Role -> permission boundary the compiler stamps onto that role's nodes. These names are
+# enforced by the runner's confinement, not by the agent's good intentions (§4.2).
+permissions:
+  implementer:   task_worktree_writer
+  planner:       frozen_snapshot_reader
+  reviewer:      frozen_snapshot_reader
+  test_designer: scratch_workspace_writer
+  diagnoser:     frozen_snapshot_reader

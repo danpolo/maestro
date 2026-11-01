@@ -46,6 +46,7 @@ from maestro.backends.base import Capabilities, ExitVerdict, Usage, WindowUsage
 from maestro.backends.registry import get_backend as real_get_backend
 from maestro.hitl import commands
 from maestro.limits import ModelLimits
+from maestro.model_policy import PolicyError
 from maestro.switch import (
     REASON_CONTEXT,
     REASON_QUOTA,
@@ -253,6 +254,8 @@ def test_both_implementer_launch_sites_record_a_backend_and_a_model():
     The `model` key is what D4 measures a task's context ceiling against. Since C1 the
     role table is not that answer — a task's own `model:` overrides it — so the launch
     has to record what it resolved, exactly as it already records the backend.
+    `model_policy_revision` (shared model policy) records the revision the task is bound
+    to; a retry keeps it, a fresh launch renews it.
     """
     sites = _launch_site_entries()
     assert len(sites) == 2, "expected exactly the retry and the main-loop launch sites"
@@ -261,6 +264,7 @@ def test_both_implementer_launch_sites_record_a_backend_and_a_model():
         assert keys == [
             "session_id", "task_id", "role", "worktree", "window",
             "branch", "started_at", "status", "backend", "model",
+            "model_policy_revision",
         ]
 
 
@@ -278,15 +282,20 @@ def _retry_box(monkeypatch, tmp_path, *, default_backend=CODEX):
     monkeypatch.setattr(orchestrator, "read_state", lambda: state)
     monkeypatch.setattr(orchestrator, "write_state", lambda new: state.update(new))
     monkeypatch.setattr(orchestrator, "_launch_backend", lambda: default_backend)
+    # The model policy binding writes under the project's `.orchestrator/`; it has its
+    # own tests (`test_model_task_freeze.py`), so it is kept out of this checkout here.
+    monkeypatch.setattr(orchestrator, "_legacy_bind_model_policy",
+                        lambda task_id, renew=False: None)
     # The retry's entry now records a model too, and that resolution reads the role
     # table. Pinned here rather than left to the repository's own `project.yaml`, so no
-    # test in this helper depends on a file outside its sandbox.
+    # test in this helper depends on a file outside its sandbox. A role names no backend
+    # and no model (`docs/DESIGN.md` §17.2): the harness order puts `default_backend`
+    # first, and the table holds the model the role's strength derives on each backend.
+    other = CLAUDE if default_backend == CODEX else CODEX
     monkeypatch.setattr(
         config_module,
         "load_project_yaml",
-        lambda: {"roles": {"implementer": {"backend": default_backend,
-                                           "models": {CLAUDE: "claude-sonnet-5",
-                                                      CODEX: "gpt-5-codex"}}}},
+        lambda: {"routing": {"harness_order": [default_backend, other]}},
     )
     return seen
 
@@ -306,7 +315,8 @@ def test_do_retry_records_the_backend_the_retry_runs_on(monkeypatch, tmp_path):
     assert new["window"] == "impl-T1"
     # Re-baselined from `list(new)[-1] == "backend"` when `model` joined it: both new
     # keys are appended, in order, and nothing before them moved.
-    assert list(new)[-2:] == ["backend", "model"]
+    # And again when `model_policy_revision` joined them.
+    assert list(new)[-3:] == ["backend", "model", "model_policy_revision"]
 
 
 def test_do_retry_stays_on_the_backend_the_dying_attempt_was_running_on(monkeypatch, tmp_path):
@@ -339,8 +349,11 @@ def test_do_retry_records_the_model_it_resolves_for_the_backend_it_carries(
     in_flight = [old]
     orchestrator._do_retry("T1", old, "boom", {}, in_flight)
 
+    table = roles_module.role_config(roles_module.ROLE_IMPLEMENTER).models
+    assert table[CODEX] != table[CLAUDE]
+
     assert in_flight[-1]["backend"] == CODEX
-    assert in_flight[-1]["model"] == "gpt-5-codex"
+    assert in_flight[-1]["model"] == table[CODEX]
 
 
 def test_do_retry_records_the_tasks_own_model_override(monkeypatch, tmp_path):
@@ -376,11 +389,7 @@ def test_launch_model_degrades_to_empty_on_a_malformed_task_model(monkeypatch):
     """A non-string `model:` raises out of `resolve_implementer_model` by design (R2's
     documented edge). The *record* must not take the process down with it — the launch
     that would have raised for real ran first."""
-    monkeypatch.setattr(
-        config_module,
-        "load_project_yaml",
-        lambda: {"roles": {"implementer": {"backend": CLAUDE, "models": {}}}},
-    )
+    monkeypatch.setattr(config_module, "load_project_yaml", lambda: {})
     assert orchestrator._launch_model({"id": "T1", "model": 7}, CLAUDE) == ""
 
 
@@ -541,18 +550,20 @@ def test_the_backend_recorded_and_the_backend_launched_cannot_drift(monkeypatch,
     monkeypatch.setattr(
         config_module,
         "load_project_yaml",
-        lambda: {"roles": {"implementer": {"backend": CLAUDE, "models": {CODEX: "gpt-5-codex"}}}},
+        lambda: {"routing": {"harness_order": [CLAUDE, CODEX]}},
     )
 
     _state_file(monkeypatch, tmp_path, **{commands.BACKEND_KEY: CODEX})
     assert orchestrator._launch_backend() == CODEX
     backend, models = implementer._implementer_backend()
     assert backend == CODEX
-    assert models == {CODEX: "gpt-5-codex"}     # the role's own table, one column of it
+    # The role's own table, one column of it: the pin picks a backend, not a model.
+    assert models == roles_module.role_config(roles_module.ROLE_IMPLEMENTER).models
+    assert models[CODEX]
 
     _state_file(monkeypatch, tmp_path)          # the operator has chosen nothing
-    assert orchestrator._launch_backend() == CLAUDE
-    assert implementer._implementer_backend()[0] == CLAUDE
+    assert orchestrator._launch_backend() == CODEX
+    assert implementer._implementer_backend()[0] == CODEX
 
 
 # =======================================================================================
@@ -578,10 +589,7 @@ def test_the_three_backend_resolution_sites_all_skip_a_recorded_exhaustion(
     monkeypatch.setattr(
         config_module,
         "load_project_yaml",
-        lambda: {
-            "roles": {"implementer": {"backend": CLAUDE}},
-            "fallback_chain": [CLAUDE, CODEX],
-        },
+        lambda: {"routing": {"harness_order": [CLAUDE, CODEX]}},
     )
     _state_file(
         monkeypatch, tmp_path,
@@ -599,10 +607,7 @@ def test_an_exhausted_pin_is_skipped_by_the_launch_path(monkeypatch, tmp_path, n
     monkeypatch.setattr(
         config_module,
         "load_project_yaml",
-        lambda: {
-            "roles": {"implementer": {"backend": CLAUDE}},
-            "fallback_chain": [CLAUDE, CODEX],
-        },
+        lambda: {"routing": {"harness_order": [CLAUDE, CODEX]}},
     )
     _state_file(
         monkeypatch, tmp_path,
@@ -636,10 +641,7 @@ def test_an_expired_exhaustion_record_no_longer_suppresses_the_pin(monkeypatch, 
     monkeypatch.setattr(
         config_module,
         "load_project_yaml",
-        lambda: {
-            "roles": {"implementer": {"backend": CLAUDE}},
-            "fallback_chain": [CLAUDE, CODEX],
-        },
+        lambda: {"routing": {"harness_order": [CLAUDE, CODEX]}},
     )
     _state_file(
         monkeypatch, tmp_path,
@@ -652,19 +654,24 @@ def test_an_expired_exhaustion_record_no_longer_suppresses_the_pin(monkeypatch, 
     assert implementer._implementer_backend()[0] == CLAUDE
 
 
-def test_an_exhausted_pin_with_no_fallback_still_reports_the_pin(monkeypatch, tmp_path, no_probing):
+def test_an_exhausted_pin_with_no_fallback_is_recorded_as_the_pin_and_refused_at_launch(
+    monkeypatch, tmp_path, no_probing
+):
     """`roles.resolve` returns the preferred backend, marked unusable, when nothing in
-    the chain can run — the caller's cue to keep waiting rather than switch. A single
-    exhausted entry with no configured fallback must behave exactly the same way, not
-    raise and not silently invent a different backend."""
+    the chain can run. A single exhausted harness with no other in `routing.harness_order`
+    must not silently invent a different backend: the record still names the pin, and the
+    launch itself is refused.
+
+    Re-baselined for `docs/DESIGN.md` §17.2: `_implementer_backend` used to hand the pin
+    back here (it refused an unusable resolution only under an adopted shared policy). A
+    role's models are now always derived from a policy, so the refusal holds in every
+    project."""
     monkeypatch.setattr(
         config_module,
         "load_project_yaml",
-        lambda: {
-            "roles": {"implementer": {"backend": CLAUDE}},
-            "fallback_chain": [CLAUDE],
-        },
+        lambda: {"routing": {"harness_order": [CLAUDE]}},
     )
+    monkeypatch.setattr(roles_module, "default_chain", lambda: (CLAUDE,))
     _state_file(
         monkeypatch, tmp_path,
         **{
@@ -673,7 +680,8 @@ def test_an_exhausted_pin_with_no_fallback_still_reports_the_pin(monkeypatch, tm
         },
     )
     assert orchestrator._launch_backend() == CLAUDE
-    assert implementer._implementer_backend()[0] == CLAUDE
+    with pytest.raises(PolicyError, match=f"no eligible implementer route: {CLAUDE} exhausted"):
+        implementer._implementer_backend()
 
 
 def test_the_observable_acceptance_scenario_end_to_end(monkeypatch, tmp_path, no_probing):
@@ -692,10 +700,7 @@ def test_the_observable_acceptance_scenario_end_to_end(monkeypatch, tmp_path, no
     monkeypatch.setattr(
         config_module,
         "load_project_yaml",
-        lambda: {
-            "roles": {"implementer": {"backend": CLAUDE}},
-            "fallback_chain": [CLAUDE, CODEX],
-        },
+        lambda: {"routing": {"harness_order": [CLAUDE, CODEX]}},
     )
     _state_file(monkeypatch, tmp_path, **{commands.BACKEND_KEY: CLAUDE})
 
@@ -761,12 +766,18 @@ def test_the_model_recorded_and_the_model_launched_cannot_drift(
     standing as the other. They are one function, and this asserts it against the value
     a real launch actually hands the driver.
     """
+    # A role states a strength, not a model (`docs/DESIGN.md` §17.2). `strong` moves the
+    # model the role derives off the hardcoded default, so a launch with no task override
+    # is seen to run the role's model rather than a fallback that happens to match it.
     monkeypatch.setattr(
         config_module,
         "load_project_yaml",
-        lambda: {"roles": {"implementer": {"backend": CLAUDE,
-                                           "models": {CLAUDE: "claude-sonnet-5"}}}},
+        lambda: {"roles": {"implementer": {"strength": "strong"}}},
     )
+    monkeypatch.setattr(orchestrator, "operator_backend", lambda: CLAUDE)
+    monkeypatch.setattr(implementer, "operator_backend", lambda: CLAUDE)
+    role_model = roles_module.role_config(roles_module.ROLE_IMPLEMENTER).models[CLAUDE]
+    assert role_model != implementer._DEFAULT_IMPLEMENTER_MODEL
     monkeypatch.setattr(implementer, "append_journal", lambda *a, **k: None)
     driver = _SpecRecorder()
     monkeypatch.setattr(implementer, "_implementer_driver", lambda backend, uuid_: driver)
@@ -782,6 +793,8 @@ def test_the_model_recorded_and_the_model_launched_cannot_drift(
     assert driver.specs[0].model == orchestrator._launch_model(task, CLAUDE)
     # …and it is a real answer, not two empties agreeing with each other.
     assert driver.specs[0].model
+    if not task_model:
+        assert driver.specs[0].model == role_model
 
 
 # =======================================================================================
@@ -858,10 +871,7 @@ def test_a_switch_avoids_a_backend_recorded_globally_exhausted_by_a_different_ta
     above, not a switch onto a backend already known to be spent."""
     monkeypatch.setattr(
         config_module, "load_project_yaml",
-        lambda: {
-            "roles": {"implementer": {"backend": CLAUDE}},
-            "fallback_chain": [CLAUDE, CODEX],
-        },
+        lambda: {"routing": {"harness_order": [CLAUDE, CODEX]}},
     )
     _state_file(
         monkeypatch, tmp_path,
@@ -1138,10 +1148,7 @@ def test_a_backend_less_entrys_exhaustion_never_reaches_the_real_record(
     monkeypatch.setattr(orchestrator, "WORKSPACES", tmp_path / "workspaces")
     monkeypatch.setattr(
         config_module, "load_project_yaml",
-        lambda: {
-            "roles": {"implementer": {"backend": CLAUDE}},
-            "fallback_chain": [CLAUDE, CODEX],
-        },
+        lambda: {"routing": {"harness_order": [CLAUDE, CODEX]}},
     )
     _state_file(
         monkeypatch, tmp_path,
@@ -1184,10 +1191,9 @@ def test_a_startup_reconcile_write_survives_the_final_state_merge(monkeypatch, t
     monkeypatch.setattr(orchestrator, "WORKSPACES", tmp_path / "workspaces")
     monkeypatch.setattr(
         config_module, "load_project_yaml",
-        lambda: {
-            "roles": {"implementer": {"backend": CLAUDE}},
-            "fallback_chain": [CLAUDE],   # deliberately no fallback -> forces the pause
-        },
+        # No fallback in the order either: with only `claude` installed (above) there
+        # is nowhere to switch to, which is what forces the pause.
+        lambda: {"routing": {"harness_order": [CLAUDE]}},
     )
     # `_pause_for_usage_limit` runs for real (not stubbed): rebase the two path globals
     # it reaches beyond `STATE_JSON` so it never touches anything outside `tmp_path`,

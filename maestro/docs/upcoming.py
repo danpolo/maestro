@@ -59,7 +59,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from maestro import agentcall
+from maestro import agentcall, taskgraph
 from maestro import prep_actions as prepared_actions
 from maestro.config import load_project_yaml
 from maestro.docs import depmap as gdm
@@ -172,7 +172,7 @@ def _detail_paths(roadmap_text: str) -> dict[str, str]:
     follows its yaml block in ROADMAP.md (the deep archived brief)."""
     out: dict[str, str] = {}
     for seg in re.split(r"(?=```yaml)", roadmap_text):
-        block = re.search(r"```yaml\s*\n(.*?)```", seg, re.DOTALL)
+        block = taskgraph.search_yaml_block(seg)
         if not block:
             continue
         idm = re.search(r"^id:\s*(\S+)", block.group(1), re.MULTILINE)
@@ -224,7 +224,8 @@ def task_status(task: dict, state: dict, completed: set[str]) -> dict:
 
     in_flight = {
         row.get("task_id")
-        for row in (state.get("in_flight") or [])
+        # The graph runner's live runs (G4) run the task just as an in-flight session does.
+        for row in [*(state.get("in_flight") or []), *(state.get("graph_runs") or [])]
         if isinstance(row, dict)
     }
 

@@ -9,9 +9,10 @@ that apply regardless of task: what you may never touch, and how a mid-work swit
 
 - Never commit directly to `{{ main_branch }}`. Work happens on a branch or in the
   worktree maestro gave you; merging back is maestro's job, not yours.
-- Never touch anything on the deny list below. If a task appears to require it, stop and
-  say so instead of proceeding — a task brief that conflicts with the deny list is a bug
-  in the task, not something to route around.
+- Never make a change the deny list below forbids (its `deny_list_extra` patterns and
+  `secrets`). If a task appears to require it, stop and say so instead of proceeding — a
+  task brief that conflicts with the deny list is a bug in the task, not something to
+  route around. Its `risky_set` files are different: see below.
 - Never read, print, log, or exfiltrate anything under `secrets:` in `project.yaml`
   (`.env`, `.env.local`, `*.pem`, `*credentials*.json` by default) — not even to explain
   why you can't use it.
@@ -31,9 +32,16 @@ that apply regardless of task: what you may never touch, and how a mid-work swit
 {{ deny_list }}
 ```
 
-This is `risky_set` + `deny_list_extra` from `project.yaml`, merged. Nothing on it may be
-edited, deleted, or have its behaviour changed by an autonomous task — full stop, no
-exceptions for "just this once" or "the task said to".
+This is `risky_set` + `deny_list_extra` from `project.yaml`, merged. The two lists work
+differently:
+
+- **`risky_set` files may be edited** when the task needs it. The change is then gated by
+  the proof review: a model stronger than the implementer reviews the tree, is told which
+  risky files the diff touched, and must scrutinize exactly those changes. Nothing merges
+  without its approval. Keep risky-file changes to what the task requires, and say in your
+  report which risky files you changed and why.
+- **`deny_list_extra` and `secrets` are absolute.** A diff that matches them never merges —
+  no exceptions for "just this once" or "the task said to".
 
 ## Mid-work switching — the SWITCH sentinel (DESIGN.md §7)
 

@@ -1,0 +1,901 @@
+{
+  "audit_ok": true,
+  "backend_calls_started": 0,
+  "generated_at": "2026-09-13T02:50:27Z",
+  "observations": {
+    "backend_review": {
+      "limits": [
+        "Two successful reviews of one seeded recovery fixture do not calibrate general coding quality or stopping limits.",
+        "Antigravity exposed call token counts but no 5-hour or weekly subscription signal.",
+        "Claude's reported USD value is a CLI list-cost estimate, not evidence of a subscription charge.",
+        "Codex was deliberately not run because its pre-sample was already 84% in the five-hour window and 82% in the weekly window.",
+        "Raw Claude and Antigravity responses and exact command lines were not retained, so the mapped defect scores are provisional and cannot be independently reproduced."
+      ],
+      "runs": [
+        {
+          "backend": "Claude Code",
+          "cli_version": "2.1.263",
+          "criteria": {
+            "concurrent-writer-race": true,
+            "corrupt-state-fail-open": true,
+            "empty-operation-id": true,
+            "lost-ack-uncertain": true,
+            "path-prefix-escape": true
+          },
+          "effort": "low",
+          "execution_controls": [
+            "--restricted",
+            "--permission-mode=dontAsk",
+            "--permission-prompts=none",
+            "--no-session-persistence"
+          ],
+          "exit_code": 0,
+          "model": "claude-sonnet-4-6",
+          "observable_call_usage": {
+            "auxiliary_model_observed": "claude-haiku-4-5",
+            "cache_creation_input_tokens": 11324,
+            "cache_read_input_tokens": 10588,
+            "input_tokens": 4,
+            "output_tokens": 869,
+            "reported_list_cost_usd": 0.0852174,
+            "subscription_charge": "unknown",
+            "thinking_tokens": 18
+          },
+          "provisional_weighted_score": {
+            "earned": 17,
+            "possible": 17,
+            "ratio": 1.0
+          },
+          "reported_findings": 5
+        },
+        {
+          "additional_finding": "non-atomic state write compounds corrupt-state loss",
+          "backend": "Antigravity CLI",
+          "cli_version": "1.1.27",
+          "criteria": {
+            "concurrent-writer-race": true,
+            "corrupt-state-fail-open": true,
+            "empty-operation-id": true,
+            "lost-ack-uncertain": true,
+            "path-prefix-escape": true
+          },
+          "effort": "low",
+          "execution_controls": [
+            "--sandbox",
+            "--mode=plan"
+          ],
+          "exit_code": 0,
+          "model": "gemini-3.8-flash-low",
+          "observable_call_usage": {
+            "cache_read_tokens": 73496,
+            "five_hour": "unknown",
+            "input_tokens": 40126,
+            "output_tokens": 3557,
+            "reported_total_tokens": 43683,
+            "thinking_tokens": 1602,
+            "weekly": "unknown"
+          },
+          "provisional_weighted_score": {
+            "earned": 17,
+            "possible": 17,
+            "ratio": 1.0
+          },
+          "reported_findings": 6
+        },
+        {
+          "backend": "Codex CLI",
+          "cli_version": "0.153.4",
+          "effort": "high (configured default; no task launched)",
+          "exit_code": null,
+          "model": "gpt-5.6-sol",
+          "provisional_weighted_score": null,
+          "status": "not-run-quota-conservation"
+        }
+      ],
+      "schema_version": 1,
+      "subscription_window_samples": {
+        "after": {
+          "antigravity": {
+            "five_hour_used_pct": null,
+            "weekly_used_pct": null
+          },
+          "claude": {
+            "five_hour_used_pct": 13,
+            "sample_model": "Opus 5",
+            "sample_updated_at": "2026-09-07T23:41:19Z",
+            "weekly_used_pct": 49
+          },
+          "codex": {
+            "five_hour_used_pct": 89,
+            "sample_updated_at": "2026-09-07T23:52:37Z",
+            "weekly_used_pct": 82
+          },
+          "sampled_at": "2026-09-07T23:52:37Z"
+        },
+        "attribution": {
+          "kind": "unknown",
+          "reason": "Codex five-hour usage increased by five points although no Codex task was launched, and the post-run Claude sample names Opus 5 rather than the review's Sonnet 4.6. The account-level samples therefore cannot be attributed to these calls."
+        },
+        "before": {
+          "antigravity": {
+            "five_hour_used_pct": null,
+            "weekly_used_pct": null
+          },
+          "claude": {
+            "five_hour_used_pct": 10,
+            "sample_model": null,
+            "sample_updated_at": "",
+            "weekly_used_pct": null
+          },
+          "codex": {
+            "five_hour_used_pct": 84,
+            "sample_updated_at": "2026-09-07T23:40:27Z",
+            "weekly_used_pct": 82
+          },
+          "sampled_at": "2026-09-07T23:40:27Z"
+        }
+      },
+      "task": {
+        "criteria_fixed_before_runs": [
+          {
+            "id": "lost-ack-uncertain",
+            "weight": 5
+          },
+          {
+            "id": "concurrent-writer-race",
+            "weight": 4
+          },
+          {
+            "id": "path-prefix-escape",
+            "weight": 4
+          },
+          {
+            "id": "corrupt-state-fail-open",
+            "weight": 3
+          },
+          {
+            "id": "empty-operation-id",
+            "weight": 1
+          }
+        ],
+        "id": "receipt-store-review",
+        "mode": "read-only seeded-defect review",
+        "project": "maestro",
+        "source": "tests/graph_engineering/fixtures/backend_review/candidate.py",
+        "spec": "tests/graph_engineering/fixtures/backend_review/SPEC.md"
+      },
+      "verification": {
+        "classification_method": "manual mapping from the structured CLI responses observed during the run",
+        "criteria_fixed_before_runs": true,
+        "exact_invocations_retained": false,
+        "raw_model_outputs_retained": false,
+        "status": "provisional-not-independently-reproducible"
+      }
+    },
+    "backends": {
+      "agy": {
+        "help_controls": {
+          "--conversation": true,
+          "--effort": true,
+          "--model": true,
+          "--sandbox": true
+        },
+        "maestro_driver": false,
+        "path": "/home/dan/.local/bin/agy",
+        "usage": null,
+        "usage_note": "no usage surface observed in installed CLI help or Maestro",
+        "version": "1.2.2"
+      },
+      "claude": {
+        "help_controls": {
+          "--effort": true,
+          "--model": true,
+          "--restricted": true,
+          "--resume": true
+        },
+        "maestro_capabilities": {
+          "native_resume": true,
+          "sandbox": false,
+          "system_prompt_file": true,
+          "usage_telemetry": true
+        },
+        "maestro_driver": true,
+        "path": "/home/dan/.local/bin/claude",
+        "usage": {
+          "context_total_input_tokens": 79046,
+          "context_used_pct": 8.0,
+          "five_hour": {
+            "resets_at": 1789284000,
+            "used_pct": 7
+          },
+          "model": "Opus 5",
+          "seven_day": {
+            "resets_at": 1789477200,
+            "used_pct": 65
+          },
+          "updated_at": "2026-09-13T02:50:19Z",
+          "windows": {
+            "10080": {
+              "resets_at": 1789477200,
+              "used_pct": 65
+            },
+            "300": {
+              "resets_at": 1789284000,
+              "used_pct": 7
+            }
+          }
+        },
+        "version": "2.1.270 (Claude Code)"
+      },
+      "codex": {
+        "configured_tuple": {
+          "effort": "medium",
+          "model": "gpt-5.6-sol"
+        },
+        "help_controls": {
+          "--config": true,
+          "--model": true,
+          "--sandbox": true,
+          "resume": true
+        },
+        "maestro_capabilities": {
+          "native_resume": true,
+          "sandbox": true,
+          "system_prompt_file": false,
+          "usage_telemetry": true
+        },
+        "maestro_driver": true,
+        "path": "/home/dan/.local/bin/codex",
+        "usage": {
+          "context_total_input_tokens": 0,
+          "context_used_pct": null,
+          "five_hour": {
+            "resets_at": 1789285827,
+            "used_pct": 0
+          },
+          "model": null,
+          "seven_day": {
+            "resets_at": 1789806446,
+            "used_pct": 13
+          },
+          "updated_at": "2026-09-13T02:50:27Z",
+          "windows": {
+            "10080": {
+              "resets_at": 1789806446,
+              "used_pct": 13
+            },
+            "300": {
+              "resets_at": 1789285827,
+              "used_pct": 0
+            }
+          }
+        },
+        "version": "codex-cli 0.154.0"
+      }
+    },
+    "bwrap_confinement": {
+      "available": true,
+      "child_outside_write": false,
+      "detail": "unprivileged bwrap profile executed",
+      "inside_write": true,
+      "linked_worktree_git_commit": false,
+      "linked_worktree_git_commit_detail": "fatal: Unable to create '/tmp/maestro-graph-audit-zzayrfko/bwrap/repo/.git/worktrees/worktree/index.lock': Read-only file system",
+      "linked_worktree_git_status": true,
+      "linked_worktree_git_status_detail": "?? inside.txt",
+      "outside_read": false,
+      "outside_write": false
+    },
+    "concurrency": {
+      "parallel": {
+        "concurrency": 2,
+        "elapsed_ms": 341.575,
+        "exit_codes": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "max_queue_delay_ms": 176.485,
+        "peak_rss_kib": 23408,
+        "rss_scope": "direct child processes only",
+        "task_count": 4
+      },
+      "serial": {
+        "concurrency": 1,
+        "elapsed_ms": 699.913,
+        "exit_codes": [
+          0,
+          0,
+          0,
+          0
+        ],
+        "max_queue_delay_ms": 531.962,
+        "peak_rss_kib": 11716,
+        "rss_scope": "direct child processes only",
+        "task_count": 4
+      },
+      "sqlite": {
+        "busy_errors": 0,
+        "claimed_jobs": 12,
+        "duplicate_claims": 0,
+        "jobs": 12,
+        "max_writer_wait_ms": 104.501,
+        "workers": 4,
+        "writer_attempts": 16
+      }
+    },
+    "detached_process": {
+      "child_alive_after_launcher_exit": true,
+      "child_cleaned_up": true,
+      "launcher_exit_code": 0
+    },
+    "exclusive_writer": {
+      "concurrent_replacement_acquired": false,
+      "owner_acquired": true,
+      "post_exit_replacement_acquired": true
+    },
+    "external_action": {
+      "blind_retry": {
+        "effect_count": 2,
+        "operation_id": "deploy-42",
+        "reconciled": false
+      },
+      "receipt_first": {
+        "effect_count": 1,
+        "operation_id": "deploy-42",
+        "reconciled": false
+      },
+      "receipt_retry": {
+        "effect_count": 1,
+        "operation_id": "deploy-42",
+        "reconciled": true
+      }
+    },
+    "init_rehearsal": {
+      "backend_calls_started": 0,
+      "generated_at": "2026-09-08T11:05:33Z",
+      "projects": [
+        {
+          "adapter_output_tail": "{\"pass\": true, \"summary\": \".                                                                        [100%]\\n1 passed in 0.01s\"}\n",
+          "detected_test_command": "[init] detected test command: /tmp/maestro-init-rehearsal-sdtmifub/python/.venv/bin/python3 -m pytest -q (pip)",
+          "halt_respected": true,
+          "init_exit_code": 0,
+          "init_output_tail": "[init] project='python' repo=/tmp/maestro-init-rehearsal-sdtmifub/python branch='master' remote=(none)\n[init] detected test command: /tmp/maestro-init-rehearsal-sdtmifub/python/.venv/bin/python3 -m pytest -q (pip)\n[init] scaffold: 19 created, 0 unchanged, 0 written as .new (nothing already present was overwritten)\n[init] Telegram setup: skipped (ERROR: no token file at /tmp/maestro-init-rehearsal-sdtmifub/python/absent-telegram-token)\n[init] mermaid-cli (dependency-map PNG rendering): [ensure_mermaid] already installed (global): /home/dan/.local/bin/mmdc\n\n[init] dry-run `maestro status`:\nPhase: ? (?)\nIn-flight: 0  (none)\nHalted: False   Paused: False\n\n[init] no-op supervised loop check (empty roadmap, zero runnable tasks)...\n[init] no-op supervised loop completed cleanly (returncode 0).\n\n[init] done. To install the systemd unit for real (requires root \u2014 this tool never runs sudo itself):\n    sudo cp /tmp/maestro-init-rehearsal-sdtmifub/python/systemd/python-watchdog.service /etc/systemd/system/\n    sudo systemctl daemon-reload\n    sudo systemctl enable --now python-watchdog.service\n",
+          "kind": "python",
+          "queue_exhausted": true,
+          "service_direct_tmux": true,
+          "service_type_forking": true,
+          "test_adapter_exit_code": 0
+        },
+        {
+          "adapter_output_tail": "{\"pass\": true, \"summary\": \"> test\\n> node --test\\n\\nTAP version 13\\n# Subtest: ok\\nok 1 - ok\\n  ---\\n  duration_ms: 1.067931\\n  type: 'test'\\n  ...\\n1..1\\n# tests 1\\n# suites 0\\n# pass 1\\n# fail 0\\n# cancelled 0\\n# skipped 0\\n# todo 0\\n# duration_ms 97.551006\"}\n",
+          "detected_test_command": "[init] detected test command: npm test (npm)",
+          "halt_respected": true,
+          "init_exit_code": 0,
+          "init_output_tail": "[init] project='node' repo=/tmp/maestro-init-rehearsal-sdtmifub/node branch='master' remote=(none)\n[init] detected test command: npm test (npm)\n[init] scaffold: 19 created, 0 unchanged, 0 written as .new (nothing already present was overwritten)\n[init] Telegram setup: skipped (ERROR: no token file at /tmp/maestro-init-rehearsal-sdtmifub/node/absent-telegram-token)\n[init] mermaid-cli (dependency-map PNG rendering): [ensure_mermaid] already installed (global): /home/dan/.local/bin/mmdc\n\n[init] dry-run `maestro status`:\nPhase: ? (?)\nIn-flight: 0  (none)\nHalted: False   Paused: False\n\n[init] no-op supervised loop check (empty roadmap, zero runnable tasks)...\n[init] no-op supervised loop completed cleanly (returncode 0).\n\n[init] done. To install the systemd unit for real (requires root \u2014 this tool never runs sudo itself):\n    sudo cp /tmp/maestro-init-rehearsal-sdtmifub/node/systemd/node-watchdog.service /etc/systemd/system/\n    sudo systemctl daemon-reload\n    sudo systemctl enable --now node-watchdog.service\n",
+          "kind": "node",
+          "queue_exhausted": true,
+          "service_direct_tmux": true,
+          "service_type_forking": true,
+          "test_adapter_exit_code": 0
+        }
+      ],
+      "schema_version": 1,
+      "scope": "disposable-local-projects"
+    },
+    "init_rehearsal_valid": true,
+    "logical_confinement": {
+      "accepted": true,
+      "reason": "ok"
+    },
+    "project_policy": {
+      "case_count": 8,
+      "cases": [
+        {
+          "case": "node-root",
+          "expected": [
+            "test"
+          ],
+          "false": [],
+          "missed": [],
+          "observed": [
+            "test"
+          ]
+        },
+        {
+          "case": "node-no-test",
+          "expected": [],
+          "false": [],
+          "missed": [],
+          "observed": []
+        },
+        {
+          "case": "python-root",
+          "expected": [
+            "test"
+          ],
+          "false": [],
+          "missed": [],
+          "observed": [
+            "test"
+          ]
+        },
+        {
+          "case": "python-no-test",
+          "expected": [],
+          "false": [],
+          "missed": [],
+          "observed": []
+        },
+        {
+          "case": "go-root",
+          "expected": [
+            "test"
+          ],
+          "false": [],
+          "missed": [],
+          "observed": [
+            "test"
+          ]
+        },
+        {
+          "case": "mixed-monorepo",
+          "expected": [
+            "subproject-test"
+          ],
+          "false": [],
+          "missed": [
+            "subproject-test"
+          ],
+          "observed": []
+        },
+        {
+          "case": "generated-assets",
+          "expected": [
+            "generated-assets"
+          ],
+          "false": [],
+          "missed": [
+            "generated-assets"
+          ],
+          "observed": []
+        },
+        {
+          "case": "service-dependency",
+          "expected": [
+            "service-dependency"
+          ],
+          "false": [],
+          "missed": [
+            "service-dependency"
+          ],
+          "observed": []
+        }
+      ],
+      "false": 0,
+      "missed": 3
+    },
+    "service_ownership": {
+      "current_pointer": "/home/dan/.maestro/current",
+      "generated_service": "Type=forking/direct named TMUX session",
+      "pointer_scope": "machine-global"
+    },
+    "storage": {
+      "json_enospc": {
+        "injected_errno": 28,
+        "previous_document": {
+          "generation": 1
+        },
+        "temp_file_exists": false
+      },
+      "online_backup": {
+        "missing_artifact_ids": [
+          "artifact-missing"
+        ],
+        "quick_check": "ok",
+        "restored_rows": [
+          [
+            1,
+            "accepted"
+          ]
+        ]
+      },
+      "schema_rollback": {
+        "columns": [
+          "id",
+          "status"
+        ],
+        "rows": [
+          [
+            1,
+            "waiting"
+          ]
+        ],
+        "user_version": 1
+      }
+    },
+    "validation_dependency_fixture": {
+      "case_count": 6,
+      "cases": [
+        {
+          "changed": [
+            "pricing.py"
+          ],
+          "declaration_signatures_after": [
+            "def discount"
+          ],
+          "declaration_signatures_before": [
+            "def discount"
+          ],
+          "dependency_kind": "behavior-with-unchanged-signature",
+          "full_suite_caught_mutation": true,
+          "full_suite_exit_code": 1,
+          "id": "dep-behavior",
+          "must_run": [
+            "acceptance/verify_checkout.py"
+          ],
+          "must_run_present": true,
+          "output_tail": "  [100%]\u001b[0m\n=================================== FAILURES ===================================\n\u001b[31m\u001b[1m__________________________ test_large_order_discount ___________________________\u001b[0m\n\n    \u001b[0m\u001b[94mdef\u001b[39;49;00m\u001b[90m \u001b[39;49;00m\u001b[92mtest_large_order_discount\u001b[39;49;00m():\u001b[90m\u001b[39;49;00m\n>       \u001b[94massert\u001b[39;49;00m discount(\u001b[94m100\u001b[39;49;00m) == \u001b[94m10\u001b[39;49;00m\u001b[90m\u001b[39;49;00m\n\u001b[1m\u001b[31mE       assert 0 == 10\u001b[0m\n\u001b[1m\u001b[31mE        +  where 0 = discount(100)\u001b[0m\n\n\u001b[1m\u001b[31macceptance/verify_checkout.py\u001b[0m:5: AssertionError\n\u001b[36m\u001b[1m=========================== short test summary info ============================\u001b[0m\n\u001b[31mFAILED\u001b[0m acceptance/verify_checkout.py::\u001b[1mtest_large_order_discount\u001b[0m - assert 0 == 10\n\u001b[31m\u001b[31m\u001b[1m1 failed\u001b[0m, \u001b[32m4 passed\u001b[0m\u001b[31m in 0.07s\u001b[0m\u001b[0m\n",
+          "signature_only_selected": false
+        },
+        {
+          "changed": [
+            "plugins/il.py"
+          ],
+          "declaration_signatures_after": [],
+          "declaration_signatures_before": [],
+          "dependency_kind": "dynamic-import",
+          "full_suite_caught_mutation": true,
+          "full_suite_exit_code": 1,
+          "id": "dep-dynamic",
+          "must_run": [
+            "acceptance/verify_dynamic_plugin.py"
+          ],
+          "must_run_present": true,
+          "output_tail": "=========\n\u001b[31m\u001b[1m____________________________ test_israel_tax_plugin ____________________________\u001b[0m\n\n    \u001b[0m\u001b[94mdef\u001b[39;49;00m\u001b[90m \u001b[39;49;00m\u001b[92mtest_israel_tax_plugin\u001b[39;49;00m():\u001b[90m\u001b[39;49;00m\n>       \u001b[94massert\u001b[39;49;00m tax_rate(\u001b[33m\"\u001b[39;49;00m\u001b[33mIL\u001b[39;49;00m\u001b[33m\"\u001b[39;49;00m) == \u001b[94m0.17\u001b[39;49;00m\u001b[90m\u001b[39;49;00m\n\u001b[1m\u001b[31mE       AssertionError: assert 0.2 == 0.17\u001b[0m\n\u001b[1m\u001b[31mE        +  where 0.2 = tax_rate('IL')\u001b[0m\n\n\u001b[1m\u001b[31macceptance/verify_dynamic_plugin.py\u001b[0m:5: AssertionError\n\u001b[36m\u001b[1m=========================== short test summary info ============================\u001b[0m\n\u001b[31mFAILED\u001b[0m acceptance/verify_dynamic_plugin.py::\u001b[1mtest_israel_tax_plugin\u001b[0m - AssertionError: assert 0.2 == 0.17\n\u001b[31m\u001b[31m\u001b[1m1 failed\u001b[0m, \u001b[32m4 passed\u001b[0m\u001b[31m in 0.07s\u001b[0m\u001b[0m\n",
+          "signature_only_selected": false
+        },
+        {
+          "changed": [
+            "data/country_codes.json"
+          ],
+          "declaration_signatures_after": [],
+          "declaration_signatures_before": [],
+          "dependency_kind": "data-file",
+          "full_suite_caught_mutation": true,
+          "full_suite_exit_code": 1,
+          "id": "dep-data",
+          "must_run": [
+            "acceptance/verify_data.py"
+          ],
+          "must_run_present": true,
+          "output_tail": "_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\ncountry = 'IL'\n\n    \u001b[0m\u001b[94mdef\u001b[39;49;00m\u001b[90m \u001b[39;49;00m\u001b[92mdial_code\u001b[39;49;00m(country):\u001b[90m\u001b[39;49;00m\n        data = json.loads((Path(\u001b[91m__file__\u001b[39;49;00m).parent / \u001b[33m\"\u001b[39;49;00m\u001b[33mdata\u001b[39;49;00m\u001b[33m\"\u001b[39;49;00m / \u001b[33m\"\u001b[39;49;00m\u001b[33mcountry_codes.json\u001b[39;49;00m\u001b[33m\"\u001b[39;49;00m).read_text())\u001b[90m\u001b[39;49;00m\n>       \u001b[94mreturn\u001b[39;49;00m data[country]\u001b[90m\u001b[39;49;00m\n               ^^^^^^^^^^^^^\u001b[90m\u001b[39;49;00m\n\u001b[1m\u001b[31mE       KeyError: 'IL'\u001b[0m\n\n\u001b[1m\u001b[31maddress.py\u001b[0m:7: KeyError\n\u001b[36m\u001b[1m=========================== short test summary info ============================\u001b[0m\n\u001b[31mFAILED\u001b[0m acceptance/verify_data.py::\u001b[1mtest_israel_dial_code\u001b[0m - KeyError: 'IL'\n\u001b[31m\u001b[31m\u001b[1m1 failed\u001b[0m, \u001b[32m4 passed\u001b[0m\u001b[31m in 0.07s\u001b[0m\u001b[0m\n",
+          "signature_only_selected": false
+        },
+        {
+          "changed": [
+            ".env.test"
+          ],
+          "declaration_signatures_after": [],
+          "declaration_signatures_before": [],
+          "dependency_kind": "environment",
+          "full_suite_caught_mutation": true,
+          "full_suite_exit_code": 1,
+          "id": "dep-env",
+          "must_run": [
+            "acceptance/verify_environment.py"
+          ],
+          "must_run_present": true,
+          "output_tail": "____________________________\u001b[0m\n\n    \u001b[0m\u001b[94mdef\u001b[39;49;00m\u001b[90m \u001b[39;49;00m\u001b[92mtest_test_currency\u001b[39;49;00m():\u001b[90m\u001b[39;49;00m\n>       \u001b[94massert\u001b[39;49;00m currency() == \u001b[33m\"\u001b[39;49;00m\u001b[33mILS\u001b[39;49;00m\u001b[33m\"\u001b[39;49;00m\u001b[90m\u001b[39;49;00m\n\u001b[1m\u001b[31mE       AssertionError: assert 'USD' == 'ILS'\u001b[0m\n\u001b[1m\u001b[31mE         \u001b[0m\n\u001b[1m\u001b[31mE         \u001b[0m\u001b[91m- ILS\u001b[39;49;00m\u001b[90m\u001b[39;49;00m\u001b[0m\n\u001b[1m\u001b[31mE         \u001b[92m+ USD\u001b[39;49;00m\u001b[90m\u001b[39;49;00m\u001b[0m\n\n\u001b[1m\u001b[31macceptance/verify_environment.py\u001b[0m:5: AssertionError\n\u001b[36m\u001b[1m=========================== short test summary info ============================\u001b[0m\n\u001b[31mFAILED\u001b[0m acceptance/verify_environment.py::\u001b[1mtest_test_currency\u001b[0m - AssertionError: assert 'USD' == 'ILS'\n\u001b[31m\u001b[31m\u001b[1m1 failed\u001b[0m, \u001b[32m4 passed\u001b[0m\u001b[31m in 0.08s\u001b[0m\u001b[0m\n",
+          "signature_only_selected": false
+        },
+        {
+          "changed": [
+            "schema/api.txt"
+          ],
+          "declaration_signatures_after": [],
+          "declaration_signatures_before": [],
+          "dependency_kind": "generated-code",
+          "full_suite_caught_mutation": true,
+          "full_suite_exit_code": 1,
+          "id": "dep-generated",
+          "must_run": [
+            "acceptance/verify_generated.py"
+          ],
+          "must_run_present": true,
+          "output_tail": "[39;49;00m] / \u001b[33m\"\u001b[39;49;00m\u001b[33mschema\u001b[39;49;00m\u001b[33m\"\u001b[39;49;00m / \u001b[33m\"\u001b[39;49;00m\u001b[33mapi.txt\u001b[39;49;00m\u001b[33m\"\u001b[39;49;00m).read_text().strip()\u001b[90m\u001b[39;49;00m\n>       \u001b[94massert\u001b[39;49;00m API_VERSION == expected\u001b[90m\u001b[39;49;00m\n\u001b[1m\u001b[31mE       AssertionError: assert 'v1' == 'v2'\u001b[0m\n\u001b[1m\u001b[31mE         \u001b[0m\n\u001b[1m\u001b[31mE         \u001b[0m\u001b[91m- v2\u001b[39;49;00m\u001b[90m\u001b[39;49;00m\u001b[0m\n\u001b[1m\u001b[31mE         \u001b[92m+ v1\u001b[39;49;00m\u001b[90m\u001b[39;49;00m\u001b[0m\n\n\u001b[1m\u001b[31macceptance/verify_generated.py\u001b[0m:8: AssertionError\n\u001b[36m\u001b[1m=========================== short test summary info ============================\u001b[0m\n\u001b[31mFAILED\u001b[0m acceptance/verify_generated.py::\u001b[1mtest_generated_client_matches_schema\u001b[0m - AssertionError: assert 'v1' == 'v2'\n\u001b[31m\u001b[31m\u001b[1m1 failed\u001b[0m, \u001b[32m4 passed\u001b[0m\u001b[31m in 0.08s\u001b[0m\u001b[0m\n",
+          "signature_only_selected": false
+        },
+        {
+          "changed": [
+            "acceptance/conftest.py"
+          ],
+          "declaration_signatures_after": [
+            "def pytest_configure"
+          ],
+          "declaration_signatures_before": [
+            "def pytest_configure"
+          ],
+          "dependency_kind": "test-infrastructure",
+          "full_suite_caught_mutation": true,
+          "full_suite_exit_code": 1,
+          "id": "dep-fixture",
+          "must_run": [
+            "acceptance/verify_environment.py"
+          ],
+          "must_run_present": true,
+          "output_tail": "____________________________\u001b[0m\n\n    \u001b[0m\u001b[94mdef\u001b[39;49;00m\u001b[90m \u001b[39;49;00m\u001b[92mtest_test_currency\u001b[39;49;00m():\u001b[90m\u001b[39;49;00m\n>       \u001b[94massert\u001b[39;49;00m currency() == \u001b[33m\"\u001b[39;49;00m\u001b[33mILS\u001b[39;49;00m\u001b[33m\"\u001b[39;49;00m\u001b[90m\u001b[39;49;00m\n\u001b[1m\u001b[31mE       AssertionError: assert 'USD' == 'ILS'\u001b[0m\n\u001b[1m\u001b[31mE         \u001b[0m\n\u001b[1m\u001b[31mE         \u001b[0m\u001b[91m- ILS\u001b[39;49;00m\u001b[90m\u001b[39;49;00m\u001b[0m\n\u001b[1m\u001b[31mE         \u001b[92m+ USD\u001b[39;49;00m\u001b[90m\u001b[39;49;00m\u001b[0m\n\n\u001b[1m\u001b[31macceptance/verify_environment.py\u001b[0m:5: AssertionError\n\u001b[36m\u001b[1m=========================== short test summary info ============================\u001b[0m\n\u001b[31mFAILED\u001b[0m acceptance/verify_environment.py::\u001b[1mtest_test_currency\u001b[0m - AssertionError: assert 'USD' == 'ILS'\n\u001b[31m\u001b[31m\u001b[1m1 failed\u001b[0m, \u001b[32m4 passed\u001b[0m\u001b[31m in 0.07s\u001b[0m\u001b[0m\n",
+          "signature_only_selected": false
+        }
+      ],
+      "caught_count": 6,
+      "pristine_exit_code": 0,
+      "signature_only_selected": 0
+    }
+  },
+  "records": [
+    {
+      "blind_spot_id": "B01",
+      "claims": [
+        {
+          "evidence": [
+            "file:tests/graph_engineering/fixtures/cases.json"
+          ],
+          "kind": "observed",
+          "statement": "source-controlled catalog contains 6 task classes"
+        },
+        {
+          "evidence": [
+            "artifact:artifacts/graph-engineering/init-rehearsal.json"
+          ],
+          "kind": "observed",
+          "statement": "backend-free init and real test adapters passed in disposable Python and Node projects"
+        },
+        {
+          "evidence": [],
+          "kind": "unknown",
+          "statement": "no complete real LLM implementation baseline was run"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B02",
+      "claims": [
+        {
+          "evidence": [
+            "artifact:observations.backends"
+          ],
+          "kind": "observed",
+          "statement": "installed-backend usage surfaces were sampled without inference"
+        },
+        {
+          "evidence": [
+            "artifact:artifacts/graph-engineering/backend-review-results.json"
+          ],
+          "kind": "observed",
+          "statement": "pre/post account samples were not attributable to the two review calls"
+        },
+        {
+          "evidence": [],
+          "kind": "unknown",
+          "statement": "subscription attribution to this experiment remains unavailable unless a backend reports it"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B05",
+      "claims": [
+        {
+          "evidence": [
+            "artifact:observations.project_policy"
+          ],
+          "kind": "observed",
+          "statement": "fixture policy detector recorded 3 misses and 0 false requirements across 8 cases"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B06",
+      "claims": [
+        {
+          "evidence": [
+            "artifact:observations.backends"
+          ],
+          "kind": "observed",
+          "statement": "installed CLI and Maestro capability surfaces were recorded"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B07",
+      "claims": [
+        {
+          "evidence": [
+            "artifact:observations.logical_confinement"
+          ],
+          "kind": "observed",
+          "statement": "logical path confinement accepted an allowed scratch-relative path"
+        },
+        {
+          "evidence": [
+            "artifact:observations.bwrap_confinement"
+          ],
+          "kind": "observed",
+          "statement": "the bounded bwrap profile confined its parent and child and masked one credential directory"
+        },
+        {
+          "evidence": [],
+          "kind": "unknown",
+          "statement": "the profile does not establish complete confidential-read isolation across the host"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B08",
+      "claims": [
+        {
+          "evidence": [
+            "artifact:observations.exclusive_writer"
+          ],
+          "kind": "observed",
+          "statement": "exclusive lock blocked a replacement while its owner lived"
+        },
+        {
+          "evidence": [
+            "artifact:observations.detached_process"
+          ],
+          "kind": "observed",
+          "statement": "a detached child outlived a successful launcher exit"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B11",
+      "claims": [
+        {
+          "evidence": [
+            "artifact:observations.validation_dependency_fixture"
+          ],
+          "kind": "observed",
+          "statement": "the full fixture suite caught 6/6 seeded dependency changes"
+        },
+        {
+          "evidence": [
+            "artifact:observations.validation_dependency_fixture"
+          ],
+          "kind": "inferred",
+          "statement": "signature-only affected selection is unsafe for these dependency classes"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B12",
+      "claims": [
+        {
+          "evidence": [
+            "pytest:tests/graph_engineering/test_evidence.py"
+          ],
+          "kind": "observed",
+          "statement": "fixed criteria, paired-result summaries, and uncertainty functions are executable"
+        },
+        {
+          "evidence": [],
+          "kind": "unknown",
+          "statement": "two stored 17/17 manual classifications lack raw outputs and exact invocations, so they are provisional and not independently reproducible"
+        },
+        {
+          "evidence": [],
+          "kind": "unknown",
+          "statement": "two reviews of one task do not calibrate a transferable quality floor"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B13",
+      "claims": [
+        {
+          "evidence": [
+            "artifact:observations.concurrency"
+          ],
+          "kind": "observed",
+          "statement": "bounded serial/parallel process and SQLite writer measurements were captured"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B14",
+      "claims": [
+        {
+          "evidence": [
+            "artifact:observations.external_action"
+          ],
+          "kind": "observed",
+          "statement": "the receipt fixture reconciled one effect while blind replay produced two"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B15",
+      "claims": [
+        {
+          "evidence": [
+            "artifact:observations.storage"
+          ],
+          "kind": "observed",
+          "statement": "raw probes captured pre-rename ENOSPC preservation, online backup/missing-artifact recovery, and schema rollback"
+        },
+        {
+          "evidence": [],
+          "kind": "unknown",
+          "statement": "same-disk fixture backup does not establish host/disk-loss recovery"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B16",
+      "claims": [
+        {
+          "evidence": [
+            "pytest:tests/graph_engineering/test_service_ownership.py"
+          ],
+          "kind": "observed",
+          "statement": "the generated unit uses a direct named TMUX session with Type=forking"
+        },
+        {
+          "evidence": [
+            "artifact:observations.service_ownership"
+          ],
+          "kind": "observed",
+          "statement": "the adopted-version pointer is machine-global"
+        },
+        {
+          "evidence": [],
+          "kind": "unknown",
+          "statement": "per-project version pinning and migration rollback require a design decision"
+        }
+      ],
+      "status": "progress"
+    },
+    {
+      "blind_spot_id": "B18",
+      "claims": [
+        {
+          "evidence": [
+            "file:tests/graph_engineering/fixtures/cases.json"
+          ],
+          "kind": "observed",
+          "statement": "the fixed catalog spans 6 task classes but contains no statistical claim"
+        },
+        {
+          "evidence": [],
+          "kind": "unknown",
+          "statement": "only one catalog class has two backend outcomes; retry and stopping limits remain uncalibrated"
+        }
+      ],
+      "status": "progress"
+    }
+  ],
+  "repeatability": {
+    "excluded_dynamic_fields": [
+      "timestamps and live usage",
+      "temporary paths and command timing/output",
+      "elapsed/queue/RSS/writer-wait measurements"
+    ],
+    "runs": 2,
+    "stable_fields_equal": true
+  },
+  "repository": "/home/dan/projects/maestro",
+  "schema_version": 1,
+  "scope": "local-machine-only"
+}

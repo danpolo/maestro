@@ -287,7 +287,7 @@ n_runnable and n_prep are computed inside one try; parse_prep_tasks raising File
 
 ### 48. mark_roadmap_complete's staged-check is the one subprocess call that is not silenced
 
-subprocess.run(['git','diff','--cached','--quiet'], cwd=REPO) omits capture_output, so it inherits the orchestrator's stdout/stderr while every other call in the function captures. Any git noise (e.g. a warning) lands in the orchestrator log unattributed. Pinned by test_mark_complete_diff_check_is_not_capture_output.
+subprocess.run(['git','diff','--cached','--quiet'], cwd=REPO) omits capture_output, so it inherits the orchestrator's stdout/stderr while every other call in the function captures. Any git noise (e.g. a warning) lands in the orchestrator log unattributed. Superseded 2026-09-25 (P12 finding D8): the check is now `git diff --cached --name-only -- <graduation paths>` (captured) and the commit names only those paths; pinned by test_mark_complete_asks_which_graduation_paths_are_staged.
 
 ### 49. mark_roadmap_complete journals 'removed from ROADMAP.md' even when nothing was removed
 
@@ -457,6 +457,9 @@ The try/except wraps only the JSON parse; the `_judge_complete(...)` call is out
 
 ### 89. `_pending_danreqs` sorts `ts` as text, so a UTC-offset spelling lands in the wrong slot
 
+P13 W1 slice 4 closes the wrong-answer consequence: ambiguous unthreaded replies and
+unmatched reply targets are refused. The historical lexical sort below remains unchanged.
+
 `out.sort(key=lambda r: r.get("ts", ""), reverse=True)` (L1831) compares ISO timestamps as raw
 strings. Any record whose `ts` is written with a non-Zulu offset is ordered by its wall-clock
 text rather than by the instant it names: `2026-01-01T01:00:00+05:00` (= 2025-12-31T20:00Z) sorts
@@ -512,6 +515,11 @@ and `test_reject_of_a_normal_parked_task_is_swallowed_by_the_router`.
 
 ### 92. One bad update kills the rest of the batch, and the lost updates never come back
 
+Closed in the P13 W1 slice 4 candidate: shared durable mailboxes, per-delivery exception
+isolation and requeue of failed listener deliveries preserve later commands. Regression:
+`test_a_failed_listener_command_does_not_strand_later_mailbox_deliveries` and
+`test_poll_isolates_a_handler_exception_and_continues_later_updates`. Original evidence follows.
+
 `poll_control_commands` has a single `try:` around the whole `for upd in data.get("result")`
 loop. There is no per-update guard, so any handler exception aborts the batch. The offset,
 however, is advanced at the *top* of each iteration:
@@ -529,7 +537,7 @@ are silently discarded with no reply of any kind.
 Trivially reachable: on a repo whose `state.json` does not exist yet, `/pause` raises inside
 `read_state()` and a `/halt` sent in the same batch is never executed.
 
-Pinned by `test_poll_swallows_a_handler_exception_and_abandons_every_later_update`.
+Originally pinned by `test_poll_swallows_a_handler_exception_and_abandons_every_later_update`.
 
 ### 93. `/approve` and `/reject` are dispatched off the lower-cased text, `/fix` and `/unpark` are not
 

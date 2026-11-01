@@ -253,6 +253,28 @@ def test_base_from_usage_json_reads_the_f4_shape():
     assert usage.context_used_pct is None
 
 
+def test_base_to_usage_json_omits_the_per_pool_split():
+    """`pools` is a driver-level reading, not part of the shared usage.json document.
+
+    That file is one global snapshot written by the operator's statusline sampler and
+    read by `quota.py`; it knows nothing of catalog pool ids, so carrying `pools` would
+    desynchronise the two writers exactly as `session_id` would.
+    """
+    usage = Usage(
+        windows={FIVE_HOUR_MINUTES: WindowUsage(used_pct=10.0)},
+        pools={
+            "antigravity-gemini": {FIVE_HOUR_MINUTES: WindowUsage(used_pct=10.0)},
+            "antigravity-3p": {FIVE_HOUR_MINUTES: WindowUsage(used_pct=100.0)},
+        },
+    )
+    document = to_usage_json(usage)
+    assert "pools" not in document
+    assert document["five_hour"]["used_pct"] == 10
+    parsed = from_usage_json(document)
+    assert parsed.pools == {}
+    assert parsed.windows == usage.windows
+
+
 def test_base_usage_json_round_trips():
     usage = Usage(
         context_used_pct=31.0,

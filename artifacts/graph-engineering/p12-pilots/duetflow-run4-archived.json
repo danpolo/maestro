@@ -1,0 +1,640 @@
+{
+  "exported_at": "2026-09-25T23:30:24Z",
+  "project": "/home/dan/projects/duetflow",
+  "since": null,
+  "summary": {
+    "tasks_attempted": 1,
+    "tasks_accepted": 0,
+    "runs": 1,
+    "attempts": 9,
+    "rework_attempts": 2,
+    "human_interventions": 4
+  },
+  "tasks": {
+    "02-collector-schema": {
+      "status": "active",
+      "runs": [
+        {
+          "run_id": "run_8HKdj2Aq2ZHEgb2i",
+          "workflow": "wf_02-collector-schema@1",
+          "status": "failed",
+          "started_at": "2026-09-25T07:55:59Z",
+          "finished_at": "2026-09-25T08:02:50Z",
+          "attempts": [
+            {
+              "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_gate_01",
+              "node_id": "gate",
+              "status": "succeeded",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null
+            },
+            {
+              "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_proof_review_01",
+              "node_id": "proof_review",
+              "status": "failed",
+              "started_at": null,
+              "backend_id": "codex",
+              "model_id": "gpt-5.6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.0",
+              "session_id": "att_run_8HKdj2Aq2ZHEgb2i_proof_review_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T07:57:33Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 39.0
+                  },
+                  "300": {
+                    "resets_at": 1790334168,
+                    "used_pct": 100.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T07:58:05Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 39.0
+                  },
+                  "300": {
+                    "resets_at": 1790334168,
+                    "used_pct": 100.0
+                  }
+                }
+              },
+              "wall_time_sec": 33.0,
+              "reset_crossing": 0,
+              "failure_kind": "worker_crashed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "worker_crashed",
+                "failure_class": "bad_output",
+                "evidence": "ERROR: You\u2019ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 2:02 PM.",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_8HKdj2Aq2ZHEgb2i_proof_review_01/impl.log",
+              "transcript": null
+            },
+            {
+              "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_proof_review_02",
+              "node_id": "proof_review",
+              "status": "failed",
+              "started_at": null,
+              "backend_id": "codex",
+              "model_id": "gpt-5.6-sol",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.0",
+              "session_id": "att_run_8HKdj2Aq2ZHEgb2i_proof_review_02",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T07:58:07Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 39.0
+                  },
+                  "300": {
+                    "resets_at": 1790334168,
+                    "used_pct": 100.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T07:58:39Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 39.0
+                  },
+                  "300": {
+                    "resets_at": 1790334168,
+                    "used_pct": 100.0
+                  }
+                }
+              },
+              "wall_time_sec": 34.0,
+              "reset_crossing": 0,
+              "failure_kind": "worker_crashed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "worker_crashed",
+                "failure_class": "bad_output",
+                "evidence": "ERROR: You\u2019ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 2:02 PM.",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_8HKdj2Aq2ZHEgb2i_proof_review_02/impl.log",
+              "transcript": null
+            },
+            {
+              "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_implementer_02",
+              "node_id": "implementer",
+              "status": "failed",
+              "started_at": null,
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.282 (Claude Code)",
+              "session_id": "att_run_8HKdj2Aq2ZHEgb2i_implementer_02",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 170597,
+                "context_used_pct": 17.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T07:56:02Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 16.0
+                  },
+                  "300": {
+                    "resets_at": 1790334000,
+                    "used_pct": 84.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 170597,
+                "context_used_pct": 17.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T07:56:02Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 16.0
+                  },
+                  "300": {
+                    "resets_at": 1790334000,
+                    "used_pct": 84.0
+                  }
+                }
+              },
+              "wall_time_sec": 31.0,
+              "reset_crossing": 0,
+              "failure_kind": "worker_crashed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "worker_crashed",
+                "failure_class": "bad_output",
+                "evidence": "You've hit your monthly spend limit \u00b7 raise it at claude.ai/settings/usage?from=cc_cli_limit_message \u00b7 your session limit resets 2pm (Asia/Jerusalem)",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_8HKdj2Aq2ZHEgb2i_implementer_02/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-02-collector-schema/85ebd7b3-6e88-4c8b-bd30-449ad1aff865.jsonl",
+                "bytes": 286122,
+                "models": [
+                  "<synthetic>",
+                  "claude-sonnet-5"
+                ],
+                "assistant_turns": 8,
+                "first_at": "2026-09-25T08:01:12.601Z",
+                "last_at": "2026-09-25T08:01:34.540Z",
+                "token_split": {
+                  "fresh_input": 14,
+                  "cache_read": 240155,
+                  "cache_write": 32651,
+                  "output": 1653
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_implementer_03",
+              "node_id": "implementer",
+              "status": "failed",
+              "started_at": null,
+              "backend_id": "codex",
+              "model_id": "gpt-5.6-terra",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.0",
+              "session_id": "att_run_8HKdj2Aq2ZHEgb2i_implementer_03",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T08:01:43Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 39.0
+                  },
+                  "300": {
+                    "resets_at": 1790334168,
+                    "used_pct": 100.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T08:02:17Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 39.0
+                  },
+                  "300": {
+                    "resets_at": 1790334168,
+                    "used_pct": 100.0
+                  }
+                }
+              },
+              "wall_time_sec": 32.0,
+              "reset_crossing": 0,
+              "failure_kind": "worker_crashed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "worker_crashed",
+                "failure_class": "bad_output",
+                "evidence": "ERROR: You\u2019ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 2:02 PM.",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_8HKdj2Aq2ZHEgb2i_implementer_03/impl.log",
+              "transcript": null
+            },
+            {
+              "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_diagnose_01",
+              "node_id": "diagnose",
+              "status": "failed",
+              "started_at": null,
+              "backend_id": "codex",
+              "model_id": "gpt-5.6-sol",
+              "effort": "high",
+              "billing_category": "subscription",
+              "usage_pool_id": "codex-subscription",
+              "agent_version": "codex-cli 0.157.0",
+              "session_id": "att_run_8HKdj2Aq2ZHEgb2i_diagnose_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T08:02:19Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 39.0
+                  },
+                  "300": {
+                    "resets_at": 1790334168,
+                    "used_pct": 100.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 0,
+                "context_used_pct": null,
+                "model": null,
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T08:02:53Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790636532,
+                    "used_pct": 39.0
+                  },
+                  "300": {
+                    "resets_at": 1790334168,
+                    "used_pct": 100.0
+                  }
+                }
+              },
+              "wall_time_sec": 37.0,
+              "reset_crossing": 0,
+              "failure_kind": "worker_crashed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "worker_crashed",
+                "failure_class": "bad_output",
+                "evidence": "ERROR: You\u2019ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/codex/settings/usage to purchase more credits or try again at 2:02 PM.",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_8HKdj2Aq2ZHEgb2i_diagnose_01/impl.log",
+              "transcript": null
+            },
+            {
+              "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_park_01",
+              "node_id": "park",
+              "status": "claimed",
+              "started_at": null,
+              "backend_id": null,
+              "model_id": null,
+              "effort": null,
+              "billing_category": null,
+              "usage_pool_id": null,
+              "agent_version": null,
+              "session_id": null,
+              "session_mode": null,
+              "usage_start": null,
+              "usage_settle": null,
+              "wall_time_sec": null,
+              "reset_crossing": null,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": null,
+              "transcript": null
+            },
+            {
+              "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_implementer_01",
+              "node_id": "implementer",
+              "status": "succeeded",
+              "started_at": "2026-09-25T07:56:30Z",
+              "backend_id": "claude",
+              "model_id": "claude-sonnet-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.282 (Claude Code)",
+              "session_id": "att_run_8HKdj2Aq2ZHEgb2i_implementer_01",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 165288,
+                "context_used_pct": 17.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T07:54:58Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 15.0
+                  },
+                  "300": {
+                    "resets_at": 1790334000,
+                    "used_pct": 81.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 170597,
+                "context_used_pct": 17.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T07:56:02Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 16.0
+                  },
+                  "300": {
+                    "resets_at": 1790334000,
+                    "used_pct": 84.0
+                  }
+                }
+              },
+              "wall_time_sec": 61.0,
+              "reset_crossing": 0,
+              "failure_kind": null,
+              "failure_class": null,
+              "failure": null,
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_8HKdj2Aq2ZHEgb2i_implementer_01/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-02-collector-schema/c32732e4-fc3a-49fd-817e-49f5be5ee865.jsonl",
+                "bytes": 294291,
+                "models": [
+                  "claude-sonnet-5"
+                ],
+                "assistant_turns": 7,
+                "first_at": "2026-09-25T07:56:01.597Z",
+                "last_at": "2026-09-25T07:56:50.474Z",
+                "token_split": {
+                  "fresh_input": 14,
+                  "cache_read": 246327,
+                  "cache_write": 36940,
+                  "output": 5493
+                }
+              }
+            },
+            {
+              "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_proof_review_03",
+              "node_id": "proof_review",
+              "status": "failed",
+              "started_at": "2026-09-25T07:59:10Z",
+              "backend_id": "claude",
+              "model_id": "claude-opus-5",
+              "effort": "medium",
+              "billing_category": "subscription",
+              "usage_pool_id": "claude-subscription",
+              "agent_version": "2.1.282 (Claude Code)",
+              "session_id": "att_run_8HKdj2Aq2ZHEgb2i_proof_review_03",
+              "session_mode": "fresh",
+              "usage_start": {
+                "context_total_input_tokens": 170597,
+                "context_used_pct": 17.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T07:56:02Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 16.0
+                  },
+                  "300": {
+                    "resets_at": 1790334000,
+                    "used_pct": 84.0
+                  }
+                }
+              },
+              "usage_settle": {
+                "context_total_input_tokens": 170597,
+                "context_used_pct": 17.0,
+                "model": "Opus 5.5",
+                "session_id": "",
+                "token_split": null,
+                "updated_at": "2026-09-25T07:56:02Z",
+                "windows": {
+                  "10080": {
+                    "resets_at": 1790686800,
+                    "used_pct": 16.0
+                  },
+                  "300": {
+                    "resets_at": 1790334000,
+                    "used_pct": 84.0
+                  }
+                }
+              },
+              "wall_time_sec": 153.0,
+              "reset_crossing": 0,
+              "failure_kind": "verification_failed",
+              "failure_class": "bad_output",
+              "failure": {
+                "kind": "verification_failed",
+                "failure_class": "bad_output",
+                "evidence": "review changes_requested: duetflow/app.py is untouched, so `collect` is still listed in the NOT_YET dict (app.py:21) and wired to cmd_not_yet (app.py:168). Concrete input: after this branch merges, `duetflow collect` prints \"`duetflow collect` arrives in phase 02-collector-schema.\" to stderr and exits 2. collector.collect() is therefore reachable only from tests/test_collector.py and is dead code in the shipped program. This directly breaks docs/ROADMAP.md 02-collector-schema notes (\"The systemd timer is deliberately NOT part of this phase (\u00a78); run Collection manually until 08-timers-notify\") \u2014 there is no manual path to run a Collection \u2014 and docs/PLAN.md \u00a72, which lists `duetflow collect` as one of the five commands app.py exposes. Wire a cmd_collect that opens the db, loads role b's account, obtains a live access token, and calls collector.collect(), and remove `collect` from NOT_YET.; collector.collect() (duetflow/collector.py:14-29) never checks the Collection gap. docs/ROADMAP.md 02-collector-schema notes require it explicitly: \"A gap beyond `collection.max_collection_gap_minutes` (90) means plays may already have been lost silently and with a bias toward the heaviest listening days \u2014 the Collector checks itself against that bound and warns.\" The default is already present in config.py:43 (`collection: {max_collection_gap_minutes: 90}`) and is unread by any code on this branch (grep for max_collection_gap_minutes matches config.py only). Concrete input: db.latest_played_at(conn,'b') returns a timestamp 5 hours before `now` (timer was down, laptop asleep); collect() computes after_ms from it, stores whatever the 50-item window still holds, returns an int, and emits nothing. The operator gets no signal that plays were irrecoverably dropped \u2014 which is the one failure mode docs/PLAN.md \u00a76 says is silent, unrecoverable, and biased toward the highest-signal days. Compare now-latest_played_at against the configured bound and warn when it is exceeded.; spotify.recent",
+                "retry_after_sec": null,
+                "reset_at": null
+              },
+              "stepped_down": null,
+              "impl_log": "/home/dan/projects/duetflow/.orchestrator/attempts/att_run_8HKdj2Aq2ZHEgb2i_proof_review_03/impl.log",
+              "transcript": {
+                "path": "/home/dan/.claude/projects/-home-dan-projects-duetflow--orchestrator-worktrees-02-collector-schema/15cda83d-ac3a-4d09-8b01-acecf6ba1307.jsonl",
+                "bytes": 403731,
+                "models": [
+                  "claude-opus-5"
+                ],
+                "assistant_turns": 11,
+                "first_at": "2026-09-25T07:58:41.894Z",
+                "last_at": "2026-09-25T08:01:01.145Z",
+                "token_split": {
+                  "fresh_input": 22,
+                  "cache_read": 501140,
+                  "cache_write": 65115,
+                  "output": 10662
+                }
+              }
+            }
+          ]
+        }
+      ],
+      "rework_attempts": 2,
+      "reopens": 0,
+      "verification_evidence": [
+        {
+          "check_id": "V1",
+          "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-25T07:57:00Z"
+        },
+        {
+          "check_id": "V2",
+          "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-25T07:57:01Z"
+        },
+        {
+          "check_id": "V3",
+          "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-25T07:57:02Z"
+        },
+        {
+          "check_id": "V-SUITE",
+          "attempt_id": "att_run_8HKdj2Aq2ZHEgb2i_gate_01",
+          "outcome": "passed",
+          "exit_status": 0,
+          "validity": "current",
+          "recorded_at": "2026-09-25T07:57:02Z"
+        }
+      ],
+      "acceptance_decisions": [],
+      "human_interventions": [],
+      "attempt_wall_time_sec_sum": 381.0,
+      "tokens_sum": {
+        "fresh_input": 50,
+        "cache_read": 987622,
+        "cache_write": 134706,
+        "output": 17808
+      }
+    }
+  },
+  "project_human_interventions": [
+    {
+      "ts": "2026-09-24T11:50:57Z",
+      "event": "control_resume",
+      "agent": "B5.1-orchestrator",
+      "session_id": "",
+      "detail": "resumed via `maestro ctl resume`"
+    },
+    {
+      "ts": "2026-09-24T13:06:46Z",
+      "event": "control_halt",
+      "agent": "B5.1-orchestrator",
+      "session_id": "",
+      "detail": "halted via `maestro ctl halt`"
+    },
+    {
+      "ts": "2026-09-25T07:09:43Z",
+      "event": "control_halt",
+      "agent": "B5.1-orchestrator",
+      "session_id": "",
+      "detail": "halted via `maestro ctl halt`"
+    },
+    {
+      "ts": "2026-09-25T11:01:36Z",
+      "event": "control_halt",
+      "agent": "B5.1-orchestrator",
+      "session_id": "",
+      "detail": "halted via `maestro ctl halt`"
+    }
+  ]
+}

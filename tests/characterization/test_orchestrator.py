@@ -533,6 +533,8 @@ def test_reconcile_drops_a_usage_limit_exit_and_pauses_instead_of_failing(
     subject, sandbox, tmux, monkeypatch
 ):
     sent = _telegram(monkeypatch, subject)
+    # This old entry has no backend field; its exit log is explicitly Claude's.
+    monkeypatch.setattr(subject, "_entry_backend", lambda entry: "claude")
     _put_state(subject, sandbox)
     ws = _ws(
         subject,
@@ -1585,6 +1587,55 @@ def test_main_runs_one_poll_cycle_over_an_empty_queue_then_parks(
     assert loop_env.calls.count("parse_runnable_tasks") == 1
     assert loop_env.calls[-1] == "run_status"           # the post-loop status refresh
     assert loop_env.runs.argvs == [["tmux", "has-session", "-t", subject.TMUX_SESSION]]
+
+
+def test_legacy_exhaustion_without_goals_is_unchanged(subject, sandbox, loop_env):
+    """P13 GDT-10 release safety: without docs/GOALS.md the legacy completion gate reads
+    nothing and the idle cycle above is exactly today's."""
+    _put_state(subject, sandbox)
+    assert subject._legacy_goal_finish() is None
+    assert not (sandbox.repo / ".orchestrator" / "goal_decisions.json").exists()
+    assert subject.main() == 0
+    assert _events(subject, sandbox) == [
+        "queue_exhausted", "proposal_test_due", "halt_respected",
+    ]
+
+
+def test_legacy_exhaustion_with_goals_reports_the_verdict_not_queue_exhausted(
+    subject, sandbox, loop_env, monkeypatch
+):
+    """P13 GDT-10 (R54): with a format-2 contract an empty legacy queue is not "done": the
+    completion gate's verdict is journaled and told (here: no criterion is bound, so it
+    is not complete), there is no `queue_exhausted` or "All queued tasks are done", and
+    the loop is never parked; it idles and polls on (the HALT the notify writes stops it
+    here)."""
+    from ..test_goals_contract import V2
+
+    (sandbox.repo / "docs").mkdir(parents=True, exist_ok=True)
+    (sandbox.repo / "docs" / "GOALS.md").write_text(
+        V2.replace("- **Test:** `pytest tests/acceptance/test_import.py::test_valid`\n", ""),
+        encoding="utf-8")
+    sent: list[str] = []
+
+    def notify(text, *args, **kwargs):
+        sent.append(text)
+        _halt_file(subject, sandbox).parent.mkdir(parents=True, exist_ok=True)
+        _halt_file(subject, sandbox).write_text("stop", encoding="utf-8")
+
+    monkeypatch.setattr(subject, "notify_telegram", notify)
+    _put_state(subject, sandbox)
+    assert subject.main() == 0
+
+    events = _events(subject, sandbox)
+    assert "queue_exhausted" not in events and "proposal_test_due" not in events
+    assert "goal_finish_verdict" in events and events[-1] == "halt_detected"
+    [text] = sent
+    assert text.startswith(("🔁 Not done yet", "⏸ Not done")), text
+    assert "All queued tasks are done" not in text
+    state = _get_state(subject, sandbox)
+    assert not state.get("paused_by_user")
+    assert state["goal_outcome"]["verdict"] in ("incomplete", "blocked")
+    assert (sandbox.repo / ".orchestrator" / "goal_outcome.md").is_file()
 
 
 def test_main_breaks_out_while_a_usage_limit_pause_is_active(subject, sandbox, loop_env):

@@ -32,6 +32,9 @@ from uuid import uuid4
 import requests
 
 from maestro.paths import Paths
+from maestro.status import redact_secrets
+from maestro.hitl.shared_bot import load_shared_env, tagged
+from maestro.hitl import shared_bot
 
 _PATHS = Paths.from_env()
 
@@ -47,14 +50,13 @@ def _now_iso() -> str:
 
 def _load_env() -> None:
     env_file = REPO / ".env"
-    if not env_file.exists():
-        return
-    for line in env_file.read_text().splitlines():
+    for line in env_file.read_text().splitlines() if env_file.exists() else []:
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue
         k, _, v = line.partition("=")
         os.environ[k.strip()] = v.strip().strip('"').strip("'")
+    load_shared_env()
 
 
 def _count_pending() -> int:
@@ -72,8 +74,17 @@ def _count_pending() -> int:
 
 def _send_telegram(token: str, chat_id: str, text: str,
                    reply_markup: dict | None = None) -> int | None:
-    """Send a message; return the Telegram message_id (for reply-threading) or None."""
-    payload: dict = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    """Send a message; return the Telegram message_id (for reply-threading) or None.
+
+    `[P11]`: the body is redacted on the way out, the same rule
+    `maestro.hitl.telegram.notify_telegram` now applies. A Dan-request quotes whatever the
+    asking code put in `question` — an error line, a command, a failing check's context —
+    and this is the last point before it leaves the machine.
+    """
+    token, chat_id = shared_bot.credentials()
+    if not token or not chat_id:
+        return None
+    payload: dict = {"chat_id": chat_id, "text": redact_secrets(tagged(text, REPO)), "parse_mode": "HTML"}
     if reply_markup:
         payload["reply_markup"] = json.dumps(reply_markup)
     resp = requests.post(
@@ -193,7 +204,7 @@ def main() -> int:
         message_id = _send_telegram(token, chat_id, msg, reply_markup)
         print(f"[send_dan_request] Telegram message sent (id={req_id}).", file=sys.stderr)
     except Exception as e:
-        print(f"[send_dan_request] Telegram error: {e}", file=sys.stderr)
+        print(f"[send_dan_request] Telegram error: {type(e).__name__}", file=sys.stderr)
         return 1
 
     # Persist the sent message_id so a free-text *reply* can be matched back to this

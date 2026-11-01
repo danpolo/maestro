@@ -54,7 +54,7 @@ def _fake_module(name: str, **members) -> ModuleType:
 
 
 def test_known_backends_are_sorted_and_import_nothing():
-    assert registry.known_backends() == ("claude", "codex")
+    assert registry.known_backends() == ("antigravity", "claude", "codex")
 
 
 def test_driver_ref_normalises_the_name():

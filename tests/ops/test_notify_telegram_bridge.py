@@ -8,7 +8,9 @@ from pathlib import Path
 
 import pytest
 
-SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "notify_telegram_bridge.sh"
+from tests.hang_bound import HANG_SECONDS
+
+SCRIPT =Path(__file__).resolve().parents[2] / "scripts" / "notify_telegram_bridge.sh"
 
 
 class _CapturingHandler(http.server.BaseHTTPRequestHandler):
@@ -34,7 +36,7 @@ def mock_telegram():
     thread.start()
     yield server, _CapturingHandler.received
     server.shutdown()
-    thread.join(timeout=5)
+    thread.join(timeout=HANG_SECONDS)
 
 
 def _write_config(tmp_path, token="test-token", chat_id="42"):
@@ -52,7 +54,7 @@ def _run(message, tmp_path, mock_telegram, env_file=None, access_file=None, chat
     port = server.server_address[1]
     return subprocess.run(
         ["bash", str(SCRIPT), message],
-        capture_output=True, text=True, timeout=10,
+        capture_output=True, text=True, timeout=HANG_SECONDS,
         env={
             "PATH": "/usr/bin:/bin:/usr/local/bin",
             "MAESTRO_TELEGRAM_ENV_FILE": str(env_file),

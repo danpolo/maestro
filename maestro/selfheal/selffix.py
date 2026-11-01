@@ -30,12 +30,15 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 from maestro import agentcall
+from maestro import bootstrap
+from maestro.model_policy import task_model_context
 from maestro import confinement
 from maestro.docs.roadmap import run_dep_map
 from maestro.hitl.telegram import notify_telegram
@@ -158,8 +161,9 @@ def attempt_self_fix(task_id: str, reason: str, diag: dict) -> None:
         "target_files": diag.get("target_files", []),
         "impl_tail": _latest_impl_tail(task_id, 40)[:3000],
     }), encoding="utf-8")
+    helper = shlex.join(bootstrap.pinned_module_argv(VENV_PYTHON, "maestro.selfheal.selffix"))
     tmux_cmd = (f"tmux new-window -t {TMUX_SESSION} -n selffix-{task_id} "
-                f"'cd {REPO} && {VENV_PYTHON} -m maestro.selfheal.selffix {req}'")
+                + shlex.quote(f"cd {REPO} && {helper} {req}"))
     try:
         subprocess.run(tmux_cmd, shell=True, check=True)
         append_journal("self_fix_started", f"{task_id} class={diag.get('failure_class')}")
@@ -268,10 +272,11 @@ def main() -> int:
     # The transcript, not just the answer: the usage-limit check below only has anything
     # to read on a run that did not simply succeed, and `Completion.text` is empty there
     # by design. The driver writes the run's combined stdout+stderr to `log`.
-    answer = agentcall.ask(
-        ROLE_IMPLEMENTER, brief,
-        timeout=SELF_FIX_TIMEOUT, cwd=wt, log_file=log, writable=True,
-    )
+    with task_model_context(REPO, task):
+        answer = agentcall.ask(
+            ROLE_IMPLEMENTER, brief,
+            timeout=SELF_FIX_TIMEOUT, cwd=wt, log_file=log, writable=True,
+        )
     if answer.timed_out:
         out = "(timed out)"
     else:

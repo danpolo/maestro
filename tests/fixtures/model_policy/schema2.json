@@ -1,0 +1,30 @@
+{
+  "schema": 2,
+  "source": {"kind": "fixture", "note": "test pairs, not approved scores"},
+  "routes": [
+    {"backend_id": "claude", "model_id": "claude-opus-5-5", "effort": "medium", "intelligence": 50, "relative_cost": 1.0},
+    {"backend_id": "claude", "model_id": "claude-opus-5-5", "effort": "high", "intelligence": 52, "relative_cost": 1.5},
+    {"backend_id": "claude", "model_id": "claude-sonnet-5-5", "effort": "low", "intelligence": 36, "relative_cost": 0.4},
+    {"backend_id": "claude", "model_id": "claude-sonnet-5-5", "effort": "medium", "intelligence": 41, "relative_cost": 0.7},
+    {"backend_id": "claude", "model_id": "claude-sonnet-5-5", "effort": "high", "intelligence": 44, "relative_cost": 1.0},
+    {"backend_id": "claude", "model_id": "claude-haiku-4-5-20251001", "effort": "medium", "intelligence": 30, "relative_cost": 0.18},
+    {"backend_id": "codex", "model_id": "gpt-6.1-sol", "effort": "low", "intelligence": 44, "relative_cost": 0.6},
+    {"backend_id": "codex", "model_id": "gpt-6.1-sol", "effort": "medium", "intelligence": 49, "relative_cost": 1.0},
+    {"backend_id": "codex", "model_id": "gpt-6.1-sol", "effort": "high", "intelligence": 52, "relative_cost": 1.5},
+    {"backend_id": "codex", "model_id": "gpt-6-luna", "effort": "medium", "intelligence": 30, "relative_cost": 0.06},
+    {"backend_id": "codex", "model_id": "gpt-6-luna", "effort": "high", "intelligence": 40, "relative_cost": 0.1},
+    {"backend_id": "codex", "model_id": "gpt-6-astra", "effort": "medium", "intelligence": 53, "relative_cost": 4.0},
+    {"backend_id": "antigravity_cli", "model_id": "gemini-3.8-flash-high", "effort": null, "intelligence": 42, "relative_cost": 0.3},
+    {"backend_id": "claude", "model_id": "claude-opus-5-5", "effort": null, "intelligence": 50, "relative_cost": 1.0},
+    {"backend_id": "codex", "model_id": "gpt-6-luna", "effort": "unlisted", "intelligence": 25, "relative_cost": 0.03},
+    {"backend_id": "antigravity_cli", "model_id": "gemini-3.8-flash-high", "effort": "high", "intelligence": 42, "relative_cost": 0.3, "provisional": true}
+  ],
+  "roles": {
+    "implementer": {"min_intelligence": 40, "effort": "medium", "effort_rule": "preference"},
+    "test_designer": {"min_intelligence": 40, "effort": "medium", "effort_rule": "preference"},
+    "reviewer": {"min_intelligence": 48, "effort": "medium", "effort_rule": "preference"},
+    "planner": {"min_intelligence": 50, "effort": "high", "effort_rule": "minimum"},
+    "diagnoser": {"min_intelligence": 50, "effort": "high", "effort_rule": "minimum"}
+  },
+  "retired": []
+}

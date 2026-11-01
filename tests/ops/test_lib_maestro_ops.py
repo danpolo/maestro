@@ -3,14 +3,16 @@ import re
 import subprocess
 from pathlib import Path
 
-LIB = Path(__file__).resolve().parents[2] / "scripts" / "lib_maestro_ops.sh"
+from tests.hang_bound import HANG_SECONDS
+
+LIB =Path(__file__).resolve().parents[2] / "scripts" / "lib_maestro_ops.sh"
 
 
 def run_bash(snippet: str, env: dict) -> subprocess.CompletedProcess:
     full_env = {"PATH": "/usr/bin:/bin:/usr/local/bin", **env}
     return subprocess.run(
         ["bash", "-c", f'source "{LIB}"; {snippet}'],
-        capture_output=True, text=True, env=full_env, timeout=10,
+        capture_output=True, text=True, env=full_env, timeout=HANG_SECONDS,
     )
 
 

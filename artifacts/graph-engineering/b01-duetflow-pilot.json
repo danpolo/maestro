@@ -1,0 +1,402 @@
+{
+  "schema_version": 1,
+  "purpose": "Raw per-task outcomes from the P00 checklist item 4 scratch-project pilot (DuetFlow). B01 requires every rework attempt and human intervention retained verbatim; a summary does not close it. Both halves are now recorded: `setup_rehearsal` and `first_coding_task`.",
+  "generated_at": "2026-09-11T07:05:00Z",
+  "project": {
+    "path": "/home/dan/projects/duetflow",
+    "default_branch": "main",
+    "commits_before_pilot": 5,
+    "remote": "",
+    "note": "docs/graph-engineering/specs/phases/P00_MIGRATION_BASELINE.md describes this repo as '3 commits on master'. Stale on both counts; it also now has a meta branch."
+  },
+  "halves": {
+    "setup_rehearsal": "complete",
+    "first_coding_task": "complete"
+  },
+  "instrumentation": {
+    "maestro_agent_calls_started": 0,
+    "note": "The setup rehearsal is performed by the maestro-setup skill in an interactive session, not by the orchestrator. `maestro init`'s no-op supervised loop ran to completion with an empty roadmap and started zero backend calls, which is the same figure scripts/graph_init_rehearsal.py asserts. Every LLM turn in this half was the interactive session itself and is not attributable to a maestro lane."
+  },
+  "human_interventions": [
+    {
+      "seq": 1,
+      "kind": "rejection",
+      "trigger": "First `maestro init /home/dan/projects/duetflow` invocation, submitted for approval.",
+      "operator_action": "Rejected the tool call and interrupted.",
+      "verbatim": "note that:\n1. tokens should never be encoded in python files like auth.py but rather in config/env files in the relevant place.\n2. the final product playlist can be fetched using the spotify api for testing and gating, dont know if its relevant now but worth noting.\ncontinue where you stopped with these notes in mind.",
+      "cost": "One rework: init re-run after the notes were applied. No work was lost — the rejection landed before any file was written.",
+      "applied_to": [
+        "project.yaml deny_list_extra — two regexes that match a credential assigned to a string literal",
+        "operating_preamble.md — 'No credential of any kind is ever written into a .py file'",
+        "docs/ROADMAP.md 01-auth notes — quoted verbatim in the task brief the implementer will read",
+        "docs/PROJECT.md 'What good looks like here' — note 2 quoted verbatim as the named path to a real gate"
+      ]
+    },
+    {
+      "seq": 2,
+      "kind": "decision",
+      "question_verbatim": "DuetFlow's PLAN §7 makes `01-auth` an operator phase (interactive Spotify consent), so the first *autonomous* coding task can't be phase 01. Which task should the pilot actually run under instrumentation?",
+      "options_offered": [
+        "04-scoring (Recommended) — pure module, no network, no auth; PLAN §4.1 gives four exact numeric cases so the gate certifies something real",
+        "02-collector-schema, schema half — db.py + the I8 idempotency test, no network, but the phase would land half-open",
+        "01-auth — follow the plan's stated start; requires interactive Spotify consent mid-pilot"
+      ],
+      "answer_verbatim": "01-auth",
+      "overrode_recommendation": true,
+      "reading": "The pilot's coding task is the plan's own first phase, not the cheapest autonomous one. This measures a needs-dan / manual-preparation lane rather than the ordinary-change lane, and it requires Dan's Spotify Client ID/secret and two interactive consent flows. That is a deliberate choice of what B01 measures and must not be quietly re-optimised back to 04-scoring by a later session."
+    },
+    {
+      "seq": 3,
+      "kind": "decision",
+      "question_verbatim": "How much of PLAN §7 should go into docs/ROADMAP.md now?",
+      "answer_verbatim": "All 9 phases with the full deps chain (Recommended)",
+      "overrode_recommendation": false
+    },
+    {
+      "seq": 4,
+      "kind": "decision",
+      "question_verbatim": "`init` derives the test command as `/usr/bin/python3.11 -m pytest -q`, not the venv's python: `.venv/bin/python3` is a symlink to the system interpreter and `_derive_repo_facts` calls `.resolve()` on it. It passes today only because system python happens to have pytest. What should the pilot do?",
+      "answer_verbatim": "Record as a finding, leave it (Recommended)",
+      "overrode_recommendation": false,
+      "reading": "P00 characterises; it does not change maestro. Finding F2 below is the record."
+    },
+    {
+      "seq": 5,
+      "kind": "confirmation",
+      "question_verbatim": "Harvested judgment values for project.yaml — all drawn from the ADRs and PLAN.md. Accept, or correct?",
+      "answer_verbatim": "Accept as proposed (Recommended)",
+      "overrode_recommendation": false,
+      "reading": "risky_set, deny_list_extra, bot_files [], primary_metric null and redo_allow [docs/] all accepted as harvested. No correction."
+    }
+  ],
+  "rework_attempts": [
+    {
+      "seq": 1,
+      "what": "`maestro init` had to be invoked twice.",
+      "cause": "operator rejection (intervention 1)",
+      "attributable_to": "operator",
+      "work_lost": "none"
+    },
+    {
+      "seq": 2,
+      "what": "Writing the 9 roadmap task blocks had to be redone as a Python heredoc after the first attempt was blocked.",
+      "cause": "The PreToolUse hook /home/dan/.codex/hooks/enforce-privileged-handoff.sh refused the command because the task-block PROSE contained the word 'sudo' (in the 08-timers-notify note explaining that the agent must never run one). The hook matches the literal string anywhere in the command, including inside a heredoc body that is document text, not a command.",
+      "attributable_to": "tooling",
+      "work_lost": "one full re-send of ~230 lines of task-block text",
+      "finding": "A guard that reads document text as if it were a command. Cheap here; it would be expensive for an unattended agent, which has no way to tell the difference between 'you may not do this' and 'you may not write about this'."
+    },
+    {
+      "seq": 3,
+      "what": "A skill-patching command had to be re-run after exiting 127.",
+      "cause": "A stray token (`.venv=1`) left in the command line by the agent.",
+      "attributable_to": "agent",
+      "work_lost": "one re-send of the patch script"
+    }
+  ],
+  "findings": [
+    {
+      "id": "F1",
+      "status": "predicted, confirmed, resolved in the skill",
+      "what": "A grilled project with tests/ and a .venv but no root manifest derives an empty test_command, and the rendered adapters/test fails closed with a TODO on every run — the gate certifies nothing and every task parks at the merge gate.",
+      "resolution": "Per the operator decision of 2026-09-11 this is a gap in the maestro-setup skill, not in maestro/cli.py and not a DuetFlow chore. ~/.claude/skills/maestro-setup/SKILL.md gained Step 1a: verify the suite runs, write the smallest manifest that declares what is already true, re-run the derivation, and verify the RENDERED adapter at the end of Step 6. No pyproject.toml was hand-added ahead of the skill.",
+      "evidence": "duetflow 521822b adds pyproject.toml; adapters/test renders TEST_COMMAND non-empty and `echo '{}' | ./adapters/test` returned {\"pass\": true, ...} exit 0."
+    },
+    {
+      "id": "F2",
+      "status": "new, recorded by operator decision, NOT fixed",
+      "what": "_derive_repo_facts builds the Python test command as (git_root/'.venv'/'bin'/'python3').resolve(strict=False). .venv/bin/python3 is a symlink to the system interpreter, so resolve() walks it OUT of the virtualenv: the derived command is /usr/bin/python3.11 -m pytest -q. The venv is bypassed entirely.",
+      "why_it_matters": "It passes on this host only because the system interpreter happens to have pytest installed. The first DuetFlow dependency that lives only in .venv turns every gate run into a collection error, and the failure reads as the task's fault.",
+      "location": "maestro/cli.py, _derive_repo_facts",
+      "evidence": "TEST_COMMAND = [\"/usr/bin/python3.11\", \"-m\", \"pytest\", \"-q\"] in duetflow adapters/test; ls -l .venv/bin/python3 -> /usr/bin/python3"
+    },
+    {
+      "id": "F3",
+      "status": "new, not fixed",
+      "what": "On a repo with no .orchestrator/ directory at all, a single `maestro init` run reports '.orchestrator/state.json already exists and differs' and writes a spurious state.json.new containing {}. Nothing pre-existed: init's own no-op supervised loop check creates state.json part-way through the run, and the scaffolding step then treats its own output as a pre-existing file it must not clobber.",
+      "why_it_matters": "A first-time install ends with an unexplained .new file and a diff the operator is invited to merge. The correct action is to delete it, and nothing says so.",
+      "evidence": "The init transcript's first block; .orchestrator did not exist in the pre-flight listing minutes earlier."
+    },
+    {
+      "id": "F4",
+      "status": "new, not fixed",
+      "what": "init proposes .gitignore.new — a 7-line file that REPLACES the project's curated 56-line .gitignore rather than appending to it. The proposed file drops the ignores for config.yaml, *.token, tokens/, *.db and data/.",
+      "why_it_matters": "DuetFlow's invariant I9 is 'no token, secret, or config.yaml is ever written to the repo', and .gitignore is the filesystem half of enforcing it. An operator who merges the .new file as offered deletes that enforcement on a fresh install, silently, while doing what the tool suggested.",
+      "evidence": "diff .gitignore .gitignore.new — 56 deletions, 5 insertions."
+    },
+    {
+      "id": "F5",
+      "status": "new, fixed in the skill, NOT fixed in maestro",
+      "what": "operating_preamble.md's `## The deny list` block is rendered exactly once, by init, from a hardcoded placeholder string: '(none yet — see project.yaml's risky_set / deny_list_extra)' (maestro/cli.py, the mapping dict). init necessarily runs BEFORE the setup interview that produces those values, and nothing re-renders the file afterwards — not doctor, and not a re-run of init, which will not clobber an existing file.",
+      "why_it_matters": "The default outcome of a correct setup is a project.yaml with a real deny list and a preamble, which is the document every implementing agent actually reads, stating that there is no deny list. The skill's own Step 6 asserted init 'renders' the answer into the placeholder, which is not what happens.",
+      "resolution": "SKILL.md Step 6 item 2 now instructs the operator to paste the merged risky_set + deny_list_extra into the rendered preamble by hand, and says why nothing will do it for them. DuetFlow's preamble is filled in. maestro/cli.py is unchanged — P00 characterises."
+    },
+    {
+      "id": "F6",
+      "status": "recorded by operator decision, no maestro change",
+      "what": "DuetFlow has no origin remote, and maestro/merge.py runs `git push origin main` with its return code unchecked.",
+      "operator_answer_verbatim": "Accept local-only, record as a finding (Recommended)",
+      "why_it_matters": "Merged work lands locally and silently never leaves the machine. The remote stays unset deliberately; the unchecked push stays a recorded finding."
+    },
+    {
+      "id": "F7",
+      "status": "new, fixed in the skill, NOT fixed in maestro",
+      "what": "The setup rehearsal only cleared F1 because DuetFlow happened to carry a hand-added no-op test (tests/test_smoke.py, `def test_skeleton(): assert True`, committed 27752a2 before the grill). A project in the state grill-with-docs actually leaves — CONTEXT.md, docs/adr/, docs/PLAN.md and nothing else — has no tests/ at all, so Step 1a's own precondition ('the repo has a real test suite') would not have fired and F1 would have recurred in full.",
+      "second_order": "Making Step 1a fire on manifest-absence alone is NOT sufficient. Measured on a scratch repo 2026-09-11: with a pyproject.toml carrying [tool.pytest.ini_options] and no tests/ (or an empty tests/), _derive_repo_facts returns a NON-EMPTY test_command, so the skill's own derivation check passes — but pytest exits 5 ('no tests ran'), which the rendered adapters/test reports as {\"pass\": false}. Every task then parks at the merge gate with a summary reading `no tests ran`, which an implementing agent reads as its own failure and tries to fix inside its own diff. That is a worse failure than F1's TODO, because it does not look like a setup problem.",
+      "why_it_matters": "The pilot's F1 'resolved' verdict was contingent on an accident of this scratch project. Without the hand-added test, the rehearsal would have ended with a broken gate either way.",
+      "evidence": "_derive_repo_facts on a docs-only git repo -> test_command ''. Same repo + minimal pyproject -> '<repo>/.venv/bin/python3 -m pytest -q'. `python3 -m pytest -q` with testpaths=['tests'] and no tests dir -> exit 5; with an empty tests/ -> exit 5, 'no tests ran'.",
+      "resolution": "~/.claude/skills/maestro-setup/SKILL.md Step 1a rewritten: the trigger is now 'init would derive an empty test command', not 'there is a suite but no manifest'; it states that grill-with-docs leaves no manifest and no tests and that this is the NORMAL case; it splits into Case A (suite exists) and Case B (greenfield), where Case B must write the manifest AND seed one honest test that asserts something real (never `assert True`) AND report that the gate certifies only that AND put the placeholder's replacement into the first roadmap task's notes; and the step now verifies the suite exits 0 with a test collected, calling out exit 5 by name. The pre-flight bullet and the Step 6 assertion were updated to match. maestro/cli.py is unchanged — P00 characterises.",
+      "raised_by": "operator, 2026-09-11, unprompted: 'before letting you start p0 i manualy added a no-op test, but i dont want to do it manualy in every new project, check what would happen if i didnt do it'"
+    },
+    {
+      "id": "F8",
+      "status": "new, NOT fixed",
+      "what": "maestro's scaffolding writes adapters/, profiles/ and systemd/ into the repo ROOT. For a Python project that is three extra top-level directories, and setuptools' flat-layout package discovery refuses to build when it sees more than one: `error: Multiple top-level packages discovered in a flat-layout: ['systemd', 'profiles', 'duetflow', 'adapters']`. `pip install -e .` fails outright.",
+      "why_it_matters": "Any Python project onboarded onto maestro that later tries to become installable hits this, and the error names maestro's directories without naming maestro. An unattended agent whose task is 'make the CLI runnable' would most plausibly resolve it by deleting or moving maestro's own scaffolding. Adjacent to F4: both are cases of init writing into a shared root namespace as though it owned it.",
+      "evidence": "duetflow 979727d: `.venv/bin/pip install -e .` exit 1 with the message above. Resolved in the project by declaring `[tool.setuptools] packages = [\"duetflow\"]` — a workaround in the project, not a fix in maestro.",
+      "discovered_by": "the pilot coding task, not predicted"
+    }
+  ],
+  "setup_verification": {
+    "rendered_test_adapter": {
+      "command": "echo '{}' | ./adapters/test",
+      "stdout": "{\"pass\": true, \"summary\": \".   [100%]\\n1 passed in 0.01s\"}",
+      "exit_code": 0,
+      "todo_remaining": "one, at adapters/test:29 — inside the `if not TEST_COMMAND` fail-closed branch, which is now unreachable. Not an unfilled placeholder."
+    },
+    "maestro_doctor": {
+      "exit_code": 0,
+      "warnings": [
+        "systemd_unit: not installed at /etc/systemd/system/duetflow-watchdog.service — requires a privileged install, expected"
+      ],
+      "docs": "parsed OK — 0 runnable, 1 prep task(s)"
+    },
+    "roadmap": {
+      "tasks": 9,
+      "ids": [
+        "01-auth",
+        "02-collector-schema",
+        "03-source-playlist-reader",
+        "04-scoring",
+        "05-selector",
+        "06-writer-first-light",
+        "07-reconciliation",
+        "08-timers-notify",
+        "09-observe-tune"
+      ],
+      "autonomous": 6,
+      "needs_dan": 3,
+      "held": [
+        "09-observe-tune"
+      ],
+      "deps_all_resolve": true
+    },
+    "deny_list_regex_check": {
+      "must_block": [
+        "hardcoded client secret",
+        "hardcoded refresh token",
+        "a literal Spotify token"
+      ],
+      "must_pass": [
+        "`refresh_token TEXT NOT NULL` schema column",
+        "`os.environ[\"DUETFLOW_CLIENT_SECRET\"]`",
+        "`access_token: null` in YAML"
+      ],
+      "result": "all six behaved as intended"
+    }
+  },
+  "whats_left": [
+    "The first real coding task under baseline instrumentation. The operator chose 01-auth (intervention 2), which is mode: needs-dan: it needs the Client ID and secret for the registered Development Mode Spotify app, and two interactive consent flows. Retain raw per-task outcomes including every rework attempt and every human intervention, verbatim, and append them to this file as a second `first_coding_task` section."
+  ],
+  "first_coding_task": {
+    "task_id": "01-auth",
+    "chosen_by": "operator, overriding the recommended 04-scoring (human_interventions seq 2)",
+    "mode": "needs-dan / dispatch: manual",
+    "done_when_verbatim": "Both accounts are authorized; tokens survive a reboot; `duetflow status` prints two expiry countdowns.",
+    "outcome": "met, with one criterion verified by proxy — see verification.reboot below",
+    "commits": [
+      "979727d feat(auth): 01-auth — config, token store, consent flow and status countdowns",
+      "fd977d2 feat(auth): two-step consent so the partner's flow need not hold a terminal"
+    ],
+    "instrumentation": {
+      "maestro_agent_calls_started": 0,
+      "maestro_lanes_exercised": [],
+      "note": "ZERO, and this is the headline B01 observation for the coding half, not an instrumentation failure. `01-auth` is mode: needs-dan, which maestro auto-normalises to dispatch: manual: the orchestrator never launches it, it only auto-PREPARES it. The operator chose this task over the recommended autonomous one (intervention seq 2), so the pilot's coding half measured a manual-preparation lane end to end and exercised none of the seven orchestrator lanes that baseline.json characterises. Every LLM turn was the interactive session and is not attributable to a maestro lane. P01+ must NOT read this as 'the baseline covers a real coding task through the orchestrator' — it does not, and no P00 artifact claims otherwise.",
+      "consequence_for_b01": "The migration baseline has orchestrator-lane evidence (baseline.json, 41 pinned assertions) and separately has real-project evidence (this file), but NOT both at once. A later phase that needs a real coding task measured THROUGH the orchestrator must run an autonomous task to get it; 04-scoring remains the cheapest honest candidate and is now unblocked, since its dep 02-collector-schema is the only thing in the way."
+    },
+    "human_interventions": [
+      {
+        "seq": 6,
+        "kind": "instruction",
+        "trigger": "Opening message of the coding-task session, alongside 'continue from the handoff'.",
+        "verbatim": "tell me exactly when tge time comes for me to do the needs Dan part in tge first auth task and exactly what ahould i do. \nalso note something that i accidently did that might have hurt a real fresh projects scenerio, before letting you start p0 i manualy added a no-op test, but i dont want to do it manualy in every new project, check what would happen if i didnt do it and note a fix in the relevant step if needed so it will work even if i wouldnt have added that test, another reminder that the projext that the maestro init skill gets is exactly the one that the grill skills leavs after it, with nothing extra.",
+        "reading": "Three things at once. (a) The needs-dan handoff must be scheduled and explicit, not discovered when the agent blocks. (b) An operator-supplied accident had been silently propping up the rehearsal's F1 'resolved' verdict, and the operator caught it, not the pilot. (c) The contract for the maestro-setup skill is restated: its input is exactly what grill-with-docs leaves, with nothing extra.",
+        "cost": "One empirical investigation (four measured cases), one skill rewrite, finding F7. No implementation work lost — it landed before the build started.",
+        "outcome": "Finding F7. Step 1a rewritten; see F7.resolution."
+      },
+      {
+        "seq": 7,
+        "kind": "decision",
+        "question_verbatim": "01-auth cannot reach its \"Done when\" without the registered Development Mode app's credentials and two consent walks. How do you want to supply the Client ID and secret?",
+        "options_offered": [
+          "I'll export them to env now",
+          "Write them to a 0600 file yourself (Recommended)",
+          "Paste them here",
+          "Build it all first, credentials later"
+        ],
+        "answer_verbatim": "ill write them to the file, prepare the file with empty values and tell me exacrlt step by step how to get those values and where to put them",
+        "overrode_recommendation": false,
+        "reading": "Took the recommended option and ADDED a requirement to it: the agent prepares the empty scaffold and writes the procedure; the operator supplies only the secret values. No credential ever entered the transcript, the tool calls, or this artifact.",
+        "applied_to": [
+          "~/.config/duetflow/credentials.env created 0600 with two empty values and a comment naming I9",
+          "A five-step dashboard procedure, including the two steps that silently break the flow if skipped: the redirect URI must be the literal 127.0.0.1 loopback (Spotify rejects `localhost`), and the partner's email must be added under Settings > User Management or their consent fails outright (ADR-0001 constraint 2)"
+        ]
+      },
+      {
+        "seq": 8,
+        "kind": "manual_work",
+        "what": "The needs-dan half itself: obtaining the Client ID and secret from the Spotify dashboard, filling the 0600 file, and walking two interactive consent flows — the operator's own, and the partner's on the partner's device via the ADR-0001 loopback paste-back.",
+        "performed_by": "operator",
+        "agent_share": "none — no agent action can substitute for either consent",
+        "outcome": "Both accounts stored. role a = 21rlik5jiun3v73iquhh66qza [app owner], role b = adi_rachel. Both refresh tokens verified live against the real token endpoint; neither rotated.",
+        "reading": "This is the whole content of a needs-dan lane and it is exactly what the operator chose to measure. The agent's contribution to the acceptance criterion was zero; its contribution was making the operator's part possible, scheduled and short."
+      },
+      {
+        "seq": 9,
+        "kind": "instruction",
+        "trigger": "Sent together with 'done with parts 1-3, verify part 4'.",
+        "verbatim": "also note that the way i wprk with skills on this server changed a bit, i now use a general agents-skills directory instead of just in claude so make sure its there instead",
+        "reading": "A standing environment change, delivered mid-task. The skill this pilot has been editing all along lived only in ~/.claude/skills/ as a plain directory, so Codex and Antigravity could not see it and it was untracked in every repo — which the previous handoff had already flagged as a hazard without acting on it.",
+        "cost": "No rework. The edits moved with the directory.",
+        "applied_to": [
+          "maestro-setup moved to /home/dan/agent-skills/skills/maestro-setup, the canonical store",
+          "agent-skills sync linked it into all five consumer directories (.agents, .claude, .gemini/config, .gemini/antigravity-cli, .codex)",
+          "committed as agent-skills c2f5b7a — the skill is now version-controlled for the first time"
+        ],
+        "left_open": "Ten skills remain plain directories under ~/.claude/skills/ and are still Claude-only and untracked. Out of scope for P00; named here so it is not rediscovered."
+      }
+    ],
+    "rework_attempts": [
+      {
+        "seq": 4,
+        "what": "The Step 1a patch script had to be rewritten to a file and re-run.",
+        "cause": "The agent composed two heredocs on one line (`python3 - <<'PY' ... || python3 - <<'PY'`); bash consumed the first delimiter and warned 'here-document delimited by end-of-file'. Nothing was written.",
+        "attributable_to": "agent",
+        "work_lost": "one re-send of the patch script",
+        "note": "Same class as setup_rehearsal rework seq 3 — both are the agent mangling a shell command that carries a document as its payload. Two of the seven reworks across this pilot are this one failure mode."
+      },
+      {
+        "seq": 5,
+        "what": "tests/test_auth.py: 1 of 23 failed on first run; one re-run.",
+        "cause": "The fake transport used `me_payload or {default}`, so a deliberately EMPTY payload fell through to the default and the error path under test never fired. A falsy-value bug in the test double, not in the code under test.",
+        "attributable_to": "agent",
+        "work_lost": "one test run"
+      },
+      {
+        "seq": 6,
+        "what": "tests/test_app.py: 2 of 14 failed on first run; one re-run.",
+        "cause": "Tests that go through main() share the real clock with it, but their fixtures pinned a consent date of 2026-01-01 — 180 days of which had already elapsed by the pilot date, so the accounts read EXPIRED. The agent wrote clock-dependent fixtures for the one code path that reads the clock.",
+        "attributable_to": "agent",
+        "work_lost": "one test run",
+        "resolution": "Fixtures reaching main() now derive from utcnow(); tests asserting a specific point in the countdown call _countdown_line directly and pass `now` in. The seam the code already had was the fix."
+      },
+      {
+        "seq": 7,
+        "what": "`pip install -e .` failed; required adding an explicit package declaration.",
+        "cause": "maestro's root scaffolding (adapters/, profiles/, systemd/) defeats setuptools flat-layout discovery. Finding F8.",
+        "attributable_to": "tooling (maestro)",
+        "work_lost": "none — caught before the acceptance check"
+      },
+      {
+        "seq": 8,
+        "what": "PyYAML had to be installed into DuetFlow's .venv mid-build.",
+        "cause": "The venv had no PyYAML; the system interpreter did. The suite would have passed the merge gate regardless, because F2 means the gate runs /usr/bin/python3.11, not the venv.",
+        "attributable_to": "tooling (maestro)",
+        "work_lost": "none",
+        "note": "F2 observed from the other side. The recorded risk was 'a dependency that lives only in .venv turns every gate run into a collection error'; the mirror image is just as bad — a dependency present only in the SYSTEM interpreter makes the gate pass while the project's own venv cannot run it. The gate and the project disagree about what is installed, in both directions. No change to maestro; P00 characterises."
+      },
+      {
+        "seq": 9,
+        "what": "`maestro doctor` returned 'command not found'; re-run as a module path.",
+        "cause": "maestro is not on PATH in the agent shell.",
+        "attributable_to": "environment",
+        "work_lost": "one command"
+      }
+    ],
+    "scope_additions": [
+      {
+        "what": "`duetflow auth --print-url` / `--state`, a two-step consent.",
+        "why": "The single interactive prompt held the process open for the entire round trip to the partner's device, which ADR-0001 makes a first-class routine recurring roughly four times a year per person, forever. The state check is carried by the operator rather than dropped.",
+        "judged": "inside the phase — it is the phase's own flow, made usable for the person it was designed for. Recorded so a reviewer can disagree."
+      },
+      {
+        "what": "tests/test_smoke.py (`assert True`) deleted.",
+        "why": "The operator's hand-added placeholder (F7). The rewritten Step 1a instructs the first roadmap task to replace it; this was that task."
+      }
+    ],
+    "verification": {
+      "duetflow_status": {
+        "command": ".venv/bin/duetflow status",
+        "exit_code": 0,
+        "accounts": 2,
+        "countdowns": [
+          "a 21rlik5jiun3v73iquhh66qza [app owner] — expires in 179d (2027-03-10)",
+          "b adi_rachel — expires in 179d (2027-03-10)"
+        ]
+      },
+      "refresh_tokens_live": {
+        "what": "Each STORED refresh token exchanged for an access token against the real token endpoint, then GET /me. The only check that proves the token store round-trips; deliberately a one-off operator verification and NOT a test, per docs/PLAN.md §7 'Do not write tests that hit the live API'.",
+        "result": "role a -> /me = '21rlik5jiun3v73iquhh66qza'; role b -> /me = 'adi_rachel'; neither refresh token rotated"
+      },
+      "reboot": {
+        "claim": "NOT directly verified. The host has been up 6 days and was not rebooted.",
+        "verified_instead": "Every property the criterion depends on: the store is a file at ~/.local/share/duetflow/duetflow.db, mode 0600, on ext4 (not tmpfs), outside the repo working tree (I9); a fresh process re-reads it; the stored tokens are accepted by the live API. No state is held in memory or in /tmp by any code path.",
+        "honest_reading": "The criterion is met on the evidence available, and the one word 'reboot' is proxied, not observed. Stated here rather than rounded up."
+      },
+      "suite": {
+        "command": "/usr/bin/python3.11 -m pytest -q",
+        "result": "73 passed",
+        "exit_code": 0
+      },
+      "rendered_test_adapter": {
+        "command": "echo '{}' | ./adapters/test",
+        "stdout_pass": true,
+        "summary": "73 passed",
+        "exit_code": 0,
+        "note": "Now certifies 73 real tests where the rehearsal's run certified one `assert True`. This is F7's fix demonstrated end to end."
+      },
+      "maestro_doctor": {
+        "exit_code": 0,
+        "warnings": [
+          "systemd_unit: not installed — requires a privileged install, expected"
+        ]
+      },
+      "deny_list_guard": {
+        "what": "Both project.yaml deny_list_extra regexes run against the full staged diff of the coding task — the regexes that exist because of the operator's rejection in intervention seq 1.",
+        "result": "0 hits on both patterns. CLEAN.",
+        "risky_set_touched": [
+          "auth.py",
+          "spotify.py"
+        ],
+        "reading": "The diff touches risky_set, so a real merge would route through proof review. The operator note that produced the regexes — 'tokens should never be encoded in python files like auth.py' — held: the Client ID and secret are read from a 0600 file outside the repo, and the refresh token is written to a 0600 SQLite file outside the repo."
+      },
+      "maestro_repo": {
+        "baseline_lanes": "41 passed, exit 0",
+        "graph_baseline_check": "[OK] lanes match",
+        "doctor_thirdparty": "exit 0"
+      }
+    },
+    "totals": {
+      "maestro_agent_calls": 0,
+      "human_interventions_this_half": 4,
+      "human_interventions_whole_pilot": 9,
+      "rework_attempts_this_half": 6,
+      "rework_attempts_whole_pilot": 9,
+      "rework_attributable_to_agent": 5,
+      "rework_attributable_to_tooling": 3,
+      "rework_attributable_to_operator": 1,
+      "findings_whole_pilot": 8,
+      "findings_fixed_in_the_skill": 2,
+      "findings_left_unfixed_by_design": 6
+    }
+  }
+}

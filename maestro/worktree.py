@@ -80,3 +80,24 @@ def _tail_tmux_pane(window: str, n: int = 3) -> str:
         return "\n".join(lines[-n:])
     except Exception:
         return ""
+
+
+# ── `[P3]` `[INV-10]`: the one place a background job may be started ──
+#
+# Every secondary task, heavy background job and model-serving harness runs in a named
+# window of the `agents` session. Raw shell backgrounding (`&`) is not a worse option, it
+# is forbidden: a `&` child has no window to probe, no name to reconcile against and no
+# pane to read when it hangs, so the reaper and the recovery scan are both blind to it.
+#
+# The legacy launch path reaches tmux through the backend drivers; this is the seam for
+# everything that is not an agent session — a script lane, a verification run, an async
+# job — and it delegates to `maestro.workflows.handlers.TmuxDispatcher` so there is one
+# implementation of the rule rather than two that drift.
+
+
+def new_agent_window(window: str, argv: list[str], *, cwd: Path | None = None) -> bool:
+    """Launch `argv` in `agents:<window>`. Returns True when tmux accepted it."""
+    from maestro.workflows.handlers import TmuxDispatcher
+
+    dispatcher = TmuxDispatcher(session=TMUX_SESSION, runner=subprocess.run)
+    return dispatcher.dispatch(window, argv, cwd=cwd or REPO).launched

@@ -527,6 +527,48 @@ def test_runnable_preserves_document_order(subject, sandbox):
     assert [t["id"] for t in subject.parse_runnable_tasks()] == ["B", "A", "C"]
 
 
+# P13 GDT-2 (R31): a goals-contract gate problem holds the tasks it affects at dispatch, and
+# nothing else. New behaviour, not a characterisation: no reference project has a GOALS.md.
+
+GOAL_TASKS = (
+    "id: G1-WORK\nmode: autonomous\nserves: [G1]\n",
+    "id: G3-WORK\nmode: autonomous\nserves: [G3]\n",
+    "id: POLISH\nmode: autonomous\nserves: []\n",
+    "id: UNSAID\nmode: autonomous\n",
+    "id: G3-PREP\nmode: needs-dan\ndispatch: manual\nserves: [G3]\n",
+    "id: G1-PREP\nmode: needs-dan\ndispatch: manual\nserves: [G1]\n",
+)
+
+
+def _goals_md(subject, text):
+    path = subject.REPO / "docs" / "GOALS.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+def test_runnable_and_prep_skip_only_goal_held_tasks(subject, sandbox, monkeypatch):
+    from ..test_goals_gate import NO_G3_TARGET
+
+    prep_state(subject)
+    stub_prep_actions(subject, monkeypatch)
+    write_roadmap(subject, *GOAL_TASKS)
+    _goals_md(subject, NO_G3_TARGET)
+    assert [t["id"] for t in subject.parse_runnable_tasks()] == ["G1-WORK", "POLISH"]
+    assert [t["id"] for t in subject.parse_prep_tasks()] == ["G1-PREP"]
+    records = [json.loads(line) for line in subject.JOURNAL.read_text().splitlines()]
+    assert [r["event"] for r in records] == ["goal_gate_hold"]   # once per change, not per call
+    assert records[0]["detail"].startswith(
+        "G3-WORK (G3: no target (ask Dan; never invented)); UNSAID (task UNSAID names no goal")
+    assert "G3-PREP (G3: no target" in records[0]["detail"]
+
+
+def test_runnable_without_goals_md_holds_nothing(subject, sandbox):
+    write_roadmap(subject, *GOAL_TASKS)
+    assert [t["id"] for t in subject.parse_runnable_tasks()] == [
+        "G1-WORK", "G3-WORK", "POLISH", "UNSAID"]
+    assert not subject.JOURNAL.exists()
+
+
 @pytest.mark.parametrize(
     "block, runnable",
     [
@@ -980,7 +1022,7 @@ def test_maybe_push_on_change_regenerates_and_journals(subject, sandbox, monkeyp
     assert calls.depmap == [[]]
     record = json.loads(subject.JOURNAL.read_text(encoding="utf-8").strip())
     assert record["event"] == "roadmap_map_pushed"
-    assert record["detail"] == "sig=" + subject._roadmap_signature()[:12]
+    assert record["detail"] == "sig=" + subject._roadmap_signature()[:12] + " telegram=unconfigured"
     return
     fake = no_subprocess(subject, monkeypatch)
     subject.maybe_push_roadmap_map_change()
@@ -988,7 +1030,7 @@ def test_maybe_push_on_change_regenerates_and_journals(subject, sandbox, monkeyp
     assert fake.argvs == [[str(subject.VENV_PYTHON), str(subject.GEN_DEP_MAP)]]
     record = json.loads(subject.JOURNAL.read_text(encoding="utf-8").strip())
     assert record["event"] == "roadmap_map_pushed"
-    assert record["detail"] == "sig=" + subject._roadmap_signature()[:12]
+    assert record["detail"] == "sig=" + subject._roadmap_signature()[:12] + " telegram=unconfigured"
 
 
 def test_maybe_push_updates_the_baseline_so_the_next_poll_is_quiet(subject, sandbox, monkeypatch, no_telegram):
@@ -1156,6 +1198,11 @@ def test_mark_complete_falls_back_to_the_cheap_upcoming_regen(subject, sandbox, 
 
 def test_mark_complete_stages_only_the_graduation_artifacts(subject, sandbox, monkeypatch):
     stub_doc_engine(subject, monkeypatch)
+    for rel in (".orchestrator/completed_tasks.json", "docs/ROADMAP.md", "docs/PROJECT.md",
+                "docs/AUTONOMOUS_SYSTEM.md", "docs/dependency_map.md", "docs/dependency_map.png",
+                "docs/UPCOMING.md", ".orchestrator/upcoming_explanations.json"):
+        (subject.REPO / rel).parent.mkdir(parents=True, exist_ok=True)
+        (subject.REPO / rel).write_text("x", encoding="utf-8")
     fake = no_subprocess(subject, monkeypatch)
     subject.mark_roadmap_complete("T-1")
     add = [c for c in fake.calls if c.argv[:2] == ["git", "add"]][0]
@@ -1172,6 +1219,20 @@ def test_mark_complete_stages_only_the_graduation_artifacts(subject, sandbox, mo
     assert add.kwargs["cwd"] == str(subject.REPO)
 
 
+def test_mark_complete_stages_only_graduation_paths_that_exist(subject, sandbox, monkeypatch):
+    """P12 pilot finding D18: `git add` with one path that does not exist (a project with
+    no docs/AUTONOMOUS_SYSTEM.md) fails as a whole and stages nothing, so graduation left
+    its ROADMAP strip uncommitted on main."""
+    stub_doc_engine(subject, monkeypatch)
+    for rel in ("docs/ROADMAP.md", "docs/PROJECT.md"):
+        (subject.REPO / rel).parent.mkdir(parents=True, exist_ok=True)
+        (subject.REPO / rel).write_text("x", encoding="utf-8")
+    fake = no_subprocess(subject, monkeypatch)
+    subject.mark_roadmap_complete("T-1")
+    add = [c for c in fake.calls if c.argv[:2] == ["git", "add"]][0]
+    assert add.argv[2:] == ["docs/ROADMAP.md", "docs/PROJECT.md"]
+
+
 def test_mark_complete_does_not_commit_when_nothing_was_staged(subject, sandbox, monkeypatch):
     stub_doc_engine(subject, monkeypatch)
     fake = no_subprocess(subject, monkeypatch, rc=lambda argv: 0)
@@ -1179,28 +1240,26 @@ def test_mark_complete_does_not_commit_when_nothing_was_staged(subject, sandbox,
     assert not any(c.argv[:2] == ["git", "commit"] for c in fake.calls)
 
 
-def test_mark_complete_commits_when_something_was_staged(subject, sandbox, monkeypatch):
+def test_mark_complete_commits_only_the_staged_graduation_paths(subject, sandbox, monkeypatch):
+    """P12 pilot finding D8: a whole-index commit here landed a stale checkout's staged
+    revert of a graph merge on main. Only graduation's own staged paths are committed."""
     stub_doc_engine(subject, monkeypatch)
-    fake = no_subprocess(
-        subject, monkeypatch, rc=lambda argv: 1 if argv[:2] == ["git", "diff"] else 0
-    )
+    fake = no_subprocess(subject, monkeypatch, stdout="docs/ROADMAP.md\n")
     subject.mark_roadmap_complete("T-1")
     commit = [c for c in fake.calls if c.argv[:2] == ["git", "commit"]][0]
     assert commit.argv == [
         "git", "commit", "--no-verify", "-m",
-        "roadmap(T-1): graduate to project docs + registry",
+        "roadmap(T-1): graduate to project docs + registry", "--", "docs/ROADMAP.md",
     ]
 
 
-def test_mark_complete_diff_check_is_not_capture_output(subject, sandbox, monkeypatch):
-    """FOUND_BUGS: the staged-check inherits the parent's stdout/stderr — the only
-    subprocess call in this function that is not silenced."""
+def test_mark_complete_asks_which_graduation_paths_are_staged(subject, sandbox, monkeypatch):
     stub_doc_engine(subject, monkeypatch)
     fake = no_subprocess(subject, monkeypatch)
     subject.mark_roadmap_complete("T-1")
+    add = [c for c in fake.calls if c.argv[:2] == ["git", "add"]][0]
     diff = [c for c in fake.calls if c.argv[:2] == ["git", "diff"]][0]
-    assert diff.argv == ["git", "diff", "--cached", "--quiet"]
-    assert "capture_output" not in diff.kwargs
+    assert diff.argv == ["git", "diff", "--cached", "--name-only", "--", *add.argv[2:]]
 
 
 def test_mark_complete_journals_the_removal(subject, sandbox, monkeypatch):

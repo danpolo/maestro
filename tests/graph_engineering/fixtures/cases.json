@@ -1,0 +1,67 @@
+{
+  "schema_version": 1,
+  "tasks": [
+    {
+      "id": "bug-normalize-slug",
+      "class": "bug",
+      "weight": 3,
+      "prompt": "Fix normalize_slug so repeated separators collapse and Unicode letters survive.",
+      "held_out": ["repeated separators", "Unicode input", "empty input"]
+    },
+    {
+      "id": "feature-expiring-cache",
+      "class": "feature",
+      "weight": 4,
+      "prompt": "Add an in-memory cache with an injected clock and per-entry expiry.",
+      "held_out": ["expiry boundary", "independent keys", "zero TTL"]
+    },
+    {
+      "id": "docs-recovery-runbook",
+      "class": "documentation",
+      "weight": 2,
+      "prompt": "Write a recovery runbook from the supplied local behavior and commands.",
+      "held_out": ["no invented command", "uncertain state preserved", "rollback precondition"]
+    },
+    {
+      "id": "debug-deadlocked-worker",
+      "class": "debugging",
+      "weight": 5,
+      "prompt": "Diagnose a deterministic two-lock deadlock and produce a bounded fix.",
+      "held_out": ["reproduces deadlock", "lock order evidence", "completion under timeout"]
+    },
+    {
+      "id": "manual-credential-bootstrap",
+      "class": "manual-preparation",
+      "weight": 3,
+      "prompt": "Prepare a task that must wait for a human-owned credential without fabricating success.",
+      "held_out": ["explicit wait", "no credential read", "resume condition"]
+    },
+    {
+      "id": "recovery-lost-ack",
+      "class": "recovery",
+      "weight": 5,
+      "prompt": "Recover an external action after its success acknowledgment was lost.",
+      "held_out": ["postcondition probe", "no blind replay", "durable operation identity"]
+    }
+  ],
+  "dependency_cases": [
+    {"id": "dep-behavior", "dependency_kind": "behavior-with-unchanged-signature", "changed": ["pricing.py"], "must_run": ["acceptance/verify_checkout.py"], "replacement": "def discount(total):\n    return 0\n"},
+    {"id": "dep-dynamic", "dependency_kind": "dynamic-import", "changed": ["plugins/il.py"], "must_run": ["acceptance/verify_dynamic_plugin.py"], "replacement": "RATE = 0.20\n"},
+    {"id": "dep-data", "dependency_kind": "data-file", "changed": ["data/country_codes.json"], "must_run": ["acceptance/verify_data.py"], "replacement": "{}\n"},
+    {"id": "dep-env", "dependency_kind": "environment", "changed": [".env.test"], "must_run": ["acceptance/verify_environment.py"], "replacement": "TEST_CURRENCY=USD\n"},
+    {"id": "dep-generated", "dependency_kind": "generated-code", "changed": ["schema/api.txt"], "must_run": ["acceptance/verify_generated.py"], "replacement": "v2\n"},
+    {"id": "dep-fixture", "dependency_kind": "test-infrastructure", "changed": ["acceptance/conftest.py"], "must_run": ["acceptance/verify_environment.py"], "replacement": "import os\ndef pytest_configure():\n    os.environ['TEST_CURRENCY'] = 'USD'\n"}
+  ],
+  "backend_review_case": {
+    "id": "receipt-store-review",
+    "source": "tests/graph_engineering/fixtures/backend_review/candidate.py",
+    "spec": "tests/graph_engineering/fixtures/backend_review/SPEC.md",
+    "criteria": [
+      {"id": "lost-ack-uncertain", "weight": 5},
+      {"id": "concurrent-writer-race", "weight": 4},
+      {"id": "path-prefix-escape", "weight": 4},
+      {"id": "corrupt-state-fail-open", "weight": 3},
+      {"id": "empty-operation-id", "weight": 1}
+    ]
+  }
+}

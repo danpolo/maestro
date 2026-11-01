@@ -1,25 +1,30 @@
 """Role -> (backend, model) resolution and the fallback chain.
 
 A *role* is a job the orchestrator hands to an agent — implementing a task, judging a
-verification proof, diagnosing a failure. Which backend runs a role, and which model it
-runs under, is configuration (`docs/DESIGN.md` §5), not a hardcoded call-site decision:
+verification proof, diagnosing a failure. Configuration states only how strong a role's
+model must be (`docs/DESIGN.md` §17.2), under the graph's role ids; the legacy `judge`
+reads `reviewer`:
 
 .. code-block:: yaml
 
     roles:
-      implementer: {backend: <name>, models: {<name>: <model id>, ...}}
-      judge:       {backend: <name>, models: {<name>: <model id>, ...}}
+      implementer: {strength: balanced}
+      reviewer:    {strength: strong, independent_of: [implementer]}
 
-    fallback_chain: [<name>, <name>]
+Which backend runs a role and under which model is **derived**
+(`maestro.model_policy.derived_roles`): on each backend the cheapest approved route at or
+above the role's strength, with backend selection by the neutral pool hash for that role.
+The derived table still holds one model **per backend**, so a mid-work switch (§7)
+resolves the same role under the new backend without a separate equivalence table. A role
+no longer states `backend`, `model`, `models` or `effort`, and `fallback_chain` is gone;
+none of them is read here.
 
-A role declares its model **per backend**, so a mid-work switch (§7) resolves the same
-role under the new backend without a separate equivalence table.
-
-**Resolution here is pure.** It runs no subprocess, probes no binary and reads no file
-beyond the project configuration. Whether a backend's binary exists and whether its quota
-is spent are *inputs* — the caller measures them (with
-`maestro.backends.registry.backend_binary` and `maestro.quota`) and passes them in. That
-is what makes every path testable without launching an agent, and what makes it
+**Resolution here launches nothing.** It runs no subprocess and probes no binary. Beyond
+the project configuration it reads the adopted model policy and two packaged files the
+derivation needs: the third-party register and the role templates. Whether a backend's
+binary exists and whether its quota is spent are *inputs* — the caller measures them
+(with `maestro.backends.registry.backend_binary` and `maestro.quota`) and passes them in.
+That is what makes every path testable without launching an agent, and what makes it
 impossible for role resolution to spend a token.
 
 Two deliberate omissions:
@@ -32,21 +37,15 @@ Two deliberate omissions:
   use time (never bound at import), so the single existing loader — with its
   degrade-to-`{}` behaviour on every failure mode — stays the only one.
 
-Everything degrades rather than raising, in the same spirit as `maestro.config`: a
-malformed `roles:` block, an unknown backend name or a junk fallback chain falls back to
-the documented defaults, because refusing to resolve a role would stop the orchestrator
-over a typo in a config file it can survive without.
+A malformed `roles:` block degrades rather than raising, in the same spirit as
+`maestro.config`: only the strengths it states validly are kept, and every other role
+runs at its shipped strength. That holds whether the caller passed a configuration or it
+was loaded. Refusing to resolve a role would stop the orchestrator over a typo in a config file it
+can survive without; `doctor` is where the typo is reported.
 
-**Defaults reproduce the behaviour they replaced exactly.** Every role defaults to
-`registry.DEFAULT_BACKEND`, and the default models are the ones the call sites used to
-hardcode: the implementer's `_DEFAULT_IMPLEMENTER_MODEL` and
-`maestro.selfheal.diagnose.JUDGE_MODEL`. `tests/test_roles.py` pins those two tables
-together so they cannot drift apart silently.
-
-M2 left the call sites themselves alone — this module resolved roles that nothing asked.
-On 2026-08-30 the last of them was routed through `maestro.agentcall`, so this table is
-now the only place a model id is chosen, and the pins that used to assert *that* the call
-sites hardcoded a model now assert that none of them does.
+**`DEFAULT_MODELS` no longer decides a role's model.** It is what
+`model_policy.shipped_policy()` builds the schema 1 `roles` table from, and the
+implementer's last resort for a backend the derivation gave no model.
 
 **C7 (2026-08-31): `DEFAULT_MODELS`'s slugs are derived, not typed here.** They come from
 `maestro.limits.DEFAULT_IMPLEMENTER_MODEL_NAME` et al. — the module that owns the two
@@ -85,9 +84,8 @@ __all__ = [
     "driver_for",
 ]
 
-#: The roles that exist today. Resolution is not restricted to them — an unknown role
-#: resolves to the default backend with no model, which means "the backend's own
-#: default" — but these are the ones with a documented default model.
+#: The legacy loop's roles. A role the derivation does not know has no model on any
+#: backend, so it resolves to the default backend with `usable=False`.
 ROLE_IMPLEMENTER = "implementer"
 ROLE_JUDGE = "judge"
 ROLE_DIAGNOSER = "diagnoser"
@@ -110,19 +108,50 @@ KNOWN_ROLES: tuple[str, ...] = (ROLE_IMPLEMENTER, ROLE_JUDGE, ROLE_DIAGNOSER)
 #: nothing this module's own purity claim above rules out.
 DEFAULT_MODELS: dict[str, dict[str, str]] = {
     ROLE_IMPLEMENTER: {
-        registry.DEFAULT_BACKEND: _limits.model_slug(_limits.DEFAULT_IMPLEMENTER_MODEL_NAME)
+        registry.DEFAULT_BACKEND: _limits.model_slug(_limits.DEFAULT_IMPLEMENTER_MODEL_NAME),
     },
     ROLE_JUDGE: {
-        registry.DEFAULT_BACKEND: _limits.model_slug(_limits.DEFAULT_JUDGE_MODEL_NAME)
+        registry.DEFAULT_BACKEND: _limits.model_slug(_limits.DEFAULT_JUDGE_MODEL_NAME),
     },
     ROLE_DIAGNOSER: {
-        registry.DEFAULT_BACKEND: _limits.model_slug(_limits.DEFAULT_DIAGNOSER_MODEL_NAME)
+        registry.DEFAULT_BACKEND: _limits.model_slug(_limits.DEFAULT_DIAGNOSER_MODEL_NAME),
     },
 }
 
-#: Top-level project.yaml keys this module reads.
+
+def _verified_model_id(backend: str, name: str) -> str:
+    """The id the shipped catalog verifies on `backend` for a table display name.
+
+    `model_slug` folds `.` to `-` for comparison, but a Codex id keeps its dot: "GPT-6.1
+    Sol" is `gpt-6.1-sol`, never `gpt-6-1-sol`. The catalog is inert data (no IO), so this
+    import adds nothing to this module's purity claim. A backend without a catalog row
+    keeps the slug."""
+    from maestro.backends import catalog
+
+    backend_id = registry.driver_ref(backend).backend_id
+    slug = _limits.model_slug(name)
+    for base in catalog.SHIPPED_CATALOG_DEFAULTS.values():
+        if base["backend_id"] == backend_id:
+            for model in base["available_models"]:
+                if _limits.model_slug(model) == slug:
+                    return model
+    return slug
+
+
+# Other backends' columns (2026-09-30: inheriting projects keep the table `maestro init`
+# used to pin), from the same owner of default names.
+for _backend, _names in _limits.DEFAULT_OTHER_BACKEND_MODEL_NAMES.items():
+    for _role, _name in _names.items():
+        DEFAULT_MODELS[_role][registry.normalise_name(_backend)] = _verified_model_id(_backend, _name)
+del _backend, _names, _role, _name
+
+#: Top-level project.yaml keys. `fallback_chain` is retired (DESIGN.md §17.2): nothing
+#: here reads it, and `doctor` fails on it.
 ROLES_KEY = "roles"
 CHAIN_KEY = "fallback_chain"
+#: What `model_policy.derived_roles` adds: its marker and the harness order as drivers.
+DERIVED_MARKER = "_model_policy_roles"
+DERIVED_CHAIN_KEY = "_harness_chain"
 
 
 def normalise_role(role: object) -> str:
@@ -159,33 +188,94 @@ def _project(config: Optional[Mapping]) -> Mapping:
     """
     if config is None:
         config = _config.load_project_yaml()
+        from maestro.model_policy import runtime_roles
+        repo = _config.PROJECT_YAML.parent
+        config = _derive_leniently(config if isinstance(config, Mapping) else {},
+                                   lambda project: runtime_roles(project, repo))
     return config if isinstance(config, Mapping) else {}
 
 
-def _role_entry(project: Mapping, role: str) -> Mapping:
-    """The `roles:` entry for `role`, normalised to a mapping.
+def _derive_leniently(project: Mapping, derive) -> Mapping:
+    """`derive(project)`. A `roles:` block the derivation refuses keeps only the strengths
+    it states validly, which is what the graph router reads of it
+    (`model_policy.configured_role_strengths`); the rest reads as absent."""
+    from maestro.model_policy import PolicyError, configured_role_strengths
 
-    A bare string entry (`implementer: <name>`) is read as a backend choice, because that
-    is the only thing it could sensibly mean and rejecting it would be gratuitous.
+    try:
+        return derive(project)
+    except (PolicyError, ValueError, TypeError, AttributeError):
+        # `catalog_defaults` still parses the old role shape until slice 3 moves its pin
+        # block, and a junk value there raises whatever `dict()` raises.
+        stated = {role: {"strength": strength}
+                  for role, strength in configured_role_strengths(project).items()}
+        return derive({**project, ROLES_KEY: stated})
+
+
+def _derived(project: Mapping) -> Mapping:
+    """`project` with its roles derived (`model_policy.derived_roles`).
+
+    `runtime_roles` already derived them when it loaded the project. A caller that passed
+    its own configuration gets them derived here, under the shipped policy.
     """
+    if project.get(DERIVED_MARKER) is True:
+        return project
+    from maestro.model_policy import derived_roles
+
+    return _derive_leniently(project, lambda document: derived_roles(document, None))
+
+
+def _role_entry(project: Mapping, role: str) -> Mapping:
+    """The derived entry for `role`: `{strength, backend, models}`, or `{}` for a role the
+    derivation does not know."""
     roles = project.get(ROLES_KEY)
-    if not isinstance(roles, Mapping):
-        return {}
-    entry = roles.get(role)
-    if isinstance(entry, Mapping):
-        return entry
-    if _text(entry):
-        return {"backend": entry}
-    return {}
+    entry = roles.get(role) if isinstance(roles, Mapping) else None
+    return entry if isinstance(entry, Mapping) else {}
+
+
+def effort_controls(role: object, backend: str, model: str) -> tuple:
+    """The chosen pair's register-verified delivery, including a manual model pin."""
+    _, args, config = launch_controls(role, backend, model)
+    return args, config
+
+
+def launch_controls(role: object, backend: str, model: str) -> tuple:
+    """The exact launch model and effort controls for one legacy choice."""
+    if not model:
+        return model, (), ()
+    project = _derived(_project(None))
+    key = normalise_role(role)
+    entry = _role_entry(project, key)
+    if entry.get("models", {}).get(backend) == model:
+        args, config = entry.get("effort_controls", {}).get(backend, ((), ()))
+        return model, args, config
+    from maestro.model_policy import runtime_model_inputs, legacy_binding, check_task_pin
+    from maestro.backends.router import AgentBinding, dispatch_plan
+    _, policy, raw = runtime_model_inputs(_config.load_project_yaml(), _config.PROJECT_YAML.parent)
+    binding = legacy_binding(raw, policy, key, driver=backend, model=model)
+    if isinstance(binding, AgentBinding):
+        plan = dispatch_plan(binding)
+        return plan.model, plan.effort_args, plan.effort_config
+    # Bootstrap historically accepts literal manual pins outside the shipped inventory.
+    if policy is None:
+        return model, (), ()
+    # A model-only manual override has always been allowed outside automatic
+    # grades. Validate its native/lifecycle/retirement facts without adding it
+    # to policy eligibility or inventing an effort score. No effort was requested.
+    model = check_task_pin(raw, policy, backend, model)
+    return model, (), ()
 
 
 def default_chain() -> tuple[str, ...]:
     """Every known backend, the default one first, then the rest in name order.
 
     Derived from the registry, so a newly registered driver joins the chain without an
-    edit here.
+    edit here — unless its row opts out with `in_default_chain=False`.
     """
-    names = list(registry.known_backends())
+    names = [
+        name
+        for name in registry.known_backends()
+        if getattr(registry.BACKENDS.get(name), "in_default_chain", True)
+    ]
     default = registry.normalise_name(registry.DEFAULT_BACKEND)
     head = [default] if default in names else []
     return tuple(head + [name for name in names if name != default])
@@ -216,6 +306,13 @@ class RoleConfig:
     backend: str
     models: Mapping[str, str]
     chain: tuple[str, ...]
+    strict_models: bool = False
+    invalid_models: Mapping[str, str] | None = None
+
+    @property
+    def eligible_models(self) -> dict:
+        """The role's model table without entries the adopted shared policy invalidated."""
+        return {k: v for k, v in self.models.items() if k not in (self.invalid_models or {})}
 
     def model_for(self, backend: object) -> Optional[str]:
         """The model this role runs under on `backend`.
@@ -224,10 +321,12 @@ class RoleConfig:
         pick its own default rather than guess one.
         """
         name = registry.normalise_name(backend)
+        if self.invalid_models and name in self.invalid_models:
+            return None
         configured = _text(self.models.get(name))
         if configured:
             return configured
-        return DEFAULT_MODELS.get(self.role, {}).get(name)
+        return None if self.strict_models else DEFAULT_MODELS.get(self.role, {}).get(name)
 
 
 @dataclass(frozen=True)
@@ -255,7 +354,7 @@ def role_config(role: object, config: Optional[Mapping] = None) -> RoleConfig:
     does not exist, so honouring it could only fail later, further from the cause.
     """
     key = normalise_role(role)
-    project = _project(config)
+    project = _derived(_project(config))
     entry = _role_entry(project, key)
 
     backend = registry.normalise_name(entry.get("backend"))
@@ -268,15 +367,14 @@ def role_config(role: object, config: Optional[Mapping] = None) -> RoleConfig:
         for name, model in raw_models.items():
             if _text(model):
                 models[registry.normalise_name(name)] = _text(model)
-    single = _text(entry.get("model"))
-    if single:
-        models.setdefault(backend, single)
 
     return RoleConfig(
         role=key,
         backend=backend,
         models=models,
-        chain=_clean_chain(project.get(CHAIN_KEY)) or default_chain(),
+        chain=_clean_chain(project.get(DERIVED_CHAIN_KEY)) or default_chain(),
+        strict_models=True,
+        invalid_models={},
     )
 
 
@@ -332,6 +430,8 @@ def resolve(
     skipped: list[str] = []
     for name in candidates:
         why = _skip_reason(name, installed, spent)
+        if not why and settings.strict_models and not settings.model_for(name):
+            why = (settings.invalid_models or {}).get(name, 'no eligible role model in adopted policy')
         if why:
             skipped.append(f"{name} {why}")
             continue

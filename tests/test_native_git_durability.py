@@ -8,6 +8,8 @@ import pytest
 from maestro.backends import git_staging
 from tests.test_git_staging import linked, confined, git
 
+pytestmark = pytest.mark.real_fsync
+
 
 def test_all_baseline_files_and_directories_are_synced_before_prepared_publication(linked, monkeypatch):
     _, tree, report, _ = linked

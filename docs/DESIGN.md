@@ -1,6 +1,6 @@
 # Maestro — Design Spec
 
-**Status:** design approved 2026-08-09. Not yet built.
+**Status:** design approved 2026-08-09. Built and in use; later sections record what changed.
 **Purpose:** A project-agnostic autonomous orchestration system. An orchestrator agent plans and
 decides, implementer agents execute in sandboxed git worktrees, a watchdog keeps the whole thing
 alive, and a human is pulled in via Telegram only when it genuinely matters.
@@ -1141,9 +1141,9 @@ on this section; change it here before changing the code.
 - `load_project_yaml()` returns the merged document, so existing readers see global defaults
   without a change at each call site. With no global file the result is what it always was.
 - Code defaults stay where each reader has them (for example `RETENTION_DEFAULTS`).
-- `doctor` fails on a top-level key neither layer knows, in either file. It is also the only
-  place that reports a global file that does not parse: at runtime such a file reads as no
-  global layer.
+- `doctor` fails on a top-level key neither layer knows, in either file. It also reports a
+  global file that does not parse. At runtime such a file reads as no global layer, but the
+  safety lists fail closed: `merge.integration_guard` refuses every merge until it is fixed.
 - Auto-slim is built and live in W1 slice 5 (`0f0d2f9`, 2026-10-12): at authoritative
   idle adoption, including an up-to-date idle pass, a project key equal to the global value
   is dropped. Project facts and safety lists stay local. Controller ownership and the
@@ -1286,9 +1286,15 @@ W1 slice 3 gathers candidates globally. There is no fixed harness priority.
 
 1. Filter approved, deliverable pairs by billing, context, modalities, tools, permissions,
    task restrictions and intelligence. Demand is the maximum of risk/class demand,
-   template/config floor and policy minimum. High risk, architectural/security work or
-   failure history of at least 50% raises the floor to 48 only under schema 2; effort
-   still follows the role rule. Planner/diagnoser keep their high minimum. The existing
+   template/config floor and policy minimum. The manifest carries the task's `task_class`,
+   `risk` and `complexity` (B23). `risk` is `low` or `high`, and `high` means real outside
+   cost: API keys, third-party providers with limited quota, or calling agents outside the
+   Maestro workflow. `risk: high`, `task_class: difficult_debugging`, complexity 4-5 (the
+   planner forecast, absent when `/runaway off`) or failure history of at least 50% raises
+   the floor to 48 only under schema 2; effort still follows the role rule. Low risk never
+   lowers the model and file count plays no part: the base is balanced, or light only when
+   the role itself declares `light`. Older ROADMAPs' `medium` reads as low, `critical` as
+   high. Planner/diagnoser keep their high minimum. The existing
    failure ladder maps strength step-downs through the class floors.
 2. Group eligible candidates by quota pool. Inside a pool, a preference role's near-cost
    band is `cost <= cheapest * (1 + routing.near_cost_margin)` (default 0.20, validated
@@ -2804,9 +2810,9 @@ dispatch path or slash command; the Context Gate untouched. Built in four slices
 
 **Dependencies and seams.** W2's ledger (`ExtraStepObserved`, `GoalImpactObserved`,
 `maestro report usage`) is the only input besides the goals store, the stored baseline and the
-global config. W10's digest is not built: W12 reports in its own per-run message, and
+global config. W12 reports in its own per-run message, and
 `python -m maestro.improvement report|evidence` prints read-only JSON whose numbers equal the
-usage report, the seam W10 embeds later.
+usage report. W10's weekly digest embeds that report (§19.15).
 
 **Attribution and amendments** (`improvement_evidence.attribute`). A real miss is a
 `no_progress_unexpected` episode on a goal the task served `direct`, not operator-only
@@ -2904,8 +2910,8 @@ weekly interval counts every run.
 `improvement_rollback_failed`, `improvement_question_superseded`. Telegram: up to 3 proposal questions per run, one digest, one
 confirmation per applied or queued proposal, a rollback question on a worse effect.
 
-**Choices (spec-internal, no Dan decision).** (1) W12 core is built here; W10's digest is not:
-W12's per-run message and read-only JSON are its seam. (2) The analyst is the diagnoser route
+**Choices (spec-internal, no Dan decision).** (1) W12 core is built here, and W10's digest came
+later: W12's per-run message and read-only JSON are its seam. (2) The analyst is the diagnoser route
 through `agentcall`; no new role, policy publication or graph node. (3) It runs only when a
 pattern exists, weekly at an idle tick and at project end; up to 2 retries with its problems,
 then the run fails; no weaker fallback. (4) Attribution is deterministic rules over recorded
@@ -2978,11 +2984,69 @@ since). Five-task samples are noisy: `insufficient_data` and `no_change` are exp
 verdict acts by itself. A1 needs the accepted run's gate artifact; without it the miss stays
 `unattributed`, which is safe.
 
-Recorded with the GDT-12 review fixes, not fixed here (Codex's W4 area; each needs its own
-reviewed product change): (i) `maestro/backends/codex_runtime.py` `_omission_inventory` (lines
-43-50) walks the masked `~/.claude`/`~/.codex` surfaces recursively and raises at 20,000 entries
-and on "directory changed" during the walk; today about 8,000 entries and growing, so every
-Codex prepare will eventually fail, and each prepare spends 3-9 s on this walk. Production keeps
-walking the real-home roots (they are exactly the masked surfaces the record exists for); the
-suggested fix is a names-only or depth-limited record. (ii) The 60 s queued-reservation deadline
-in production still counts worker interpreter startup, seen at 80-130 s at load 25.
+Recorded with the GDT-12 review fixes and fixed on 2026-11-02: (i) `maestro/backends/codex_runtime.py`
+`_omission_inventory` walked the masked `~/.claude`/`~/.codex` surfaces recursively and raised at
+20,000 entries and on "directory changed", so every Codex prepare would eventually fail. The
+inventory is a written record, so it now stops four levels down, and a walk that stopped early or
+saw a directory change writes `truncated: true` instead of failing the prepare. The agy
+`_omission_inventory` keeps its own limits and is unchanged. (ii) the queued-reservation deadline
+counts worker interpreter startup, seen at 80-130 s at load 25, so it went from 60 s to 300 s
+(`native_ownership.QUEUED_CLAIM_SECONDS`). A launch abandoned before its claim now holds its
+worktree for up to 300 s while the controller lives, and a retry inside that time is refused.
+
+### 19.15 Visibility (P13 W10: `maestro/workflows/progress.py`, `maestro/digest.py`)
+
+**The progress line.** `status._compact_run_lines` adds one line for the current node's running
+attempt, for example `Progress: 1,550 tokens (+1,200 in 4m) · last gate PROGRESS 3/7`. It is read
+when someone looks (`/progress`, `/workflow`, `workflow show`, `explain`) and never pushed.
+
+| Harness | Tokens during a run | Source |
+|---|---|---|
+| Claude | Yes, from the first assistant record | session transcript |
+| Codex | Yes, after each model response | the rollout's cumulative `token_count` |
+| Agy | No, so usually no line at all | `impl.log`'s final record, which exists only once the call has ended |
+
+Codex's claim rests on the code and on finished rollouts; no in-flight private-runtime attempt has
+been observed. `PROGRESS` is not live: it is the count the last gate printed, as the resumable lane
+recorded it in `state.json["resume_state"]`, so only a resumable task has one. The log is not read,
+because nothing tells an agent to print the marker there and Codex's log quotes command output, so
+a quoted `PROGRESS=10/10` would read as progress. Only the first running node gets a line, so
+parallel reviewers show one.
+
+A status read now writes one file, `.orchestrator/progress_samples.json`, for the growth figure
+(atomic; samples older than a day are dropped). It stays out of the attempt's inbox, which an agent
+can write: a planted symlink there would have been followed. The token read runs in a daemon thread
+for at most 5 seconds, so a planted FIFO costs a thread and cannot stall the controller tick.
+
+**`/workflow`** writes the page `workflow show --html` draws to `.orchestrator/artifacts/` and sends
+it with `telegram.send_document`, the compact lines as its caption, and sends the old text only when
+that fails for any reason.
+
+**The weekly digest** (`digest.send_if_due`, from `orchestrator._graph_digest`, after the weekly
+analysis at an idle tick) takes every number from `build_usage_report`, so it equals `maestro report
+usage` by construction, and embeds `improvement.report` with each effect's measured line. It honours
+`thresholds.improvement_interval_days` (0 turns it off); `.orchestrator/digest.json` holds the last
+send and its totals.
+
+Choices, all recorded in the module docstring:
+- **Everything recorded, plus a difference.** The report has no time filter, and a window of the
+  digest's own would stop the numbers matching. So the body covers everything, and a `Since the last
+  digest` line gives the week as the difference from the recorded totals.
+- **Model routes only.** A gate, merge or acceptance attempt runs no model, so counting it would make
+  every average unknown. A partly measured sum reads `at least X (17/18 attempts measured)`, because
+  one agy attempt would otherwise hide a cumulative total for good.
+- **Usage per accepted task** divides all spend, failed tasks included, by the tasks with a succeeded
+  run.
+- **Routes** are grouped by role and pool and ranked by cost units per complexity point, using each
+  task's last reviewed complexity. A task's points count for every route that worked on it, because
+  the ledger does not say which route produced the reviewed work. So a route that failed and
+  escalated still gets the points: read attempts per task beside the figure. Tasks with no review are
+  left out and counted as unscored.
+- **Delivery.** The window is spent only when `telegram.deliver_report` confirms every part;
+  otherwise `digest_undelivered` is journaled and the whole digest goes again after an hour, so a
+  long digest whose later part keeps failing does not repeat its first part at every idle check.
+  A digest delivered when `digest.json` then cannot be written is sent again at each idle check;
+  that is accepted, since a controller that cannot write `.orchestrator/` has larger problems.
+
+Attempts recorded before the routes carried `relative_cost` show cost `unknown` and raise
+`missing_relative_cost`, as itv's and DuetFlow's history does today.

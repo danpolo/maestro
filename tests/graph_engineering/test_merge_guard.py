@@ -201,6 +201,23 @@ def test_a_project_deny_list_extra_pattern_refuses_the_merge(run_lane, monkeypat
     _assert_merge_refused(run, "deny_list: deny-list violation: pattern 'sk-live-")
 
 
+def test_an_unusable_global_config_parks_the_run_once_without_retrying_the_merge(
+        run_lane, monkeypatch, no_deny_ask, tmp_path):
+    broken = tmp_path / "broken-global.yaml"
+    broken.write_text("thresholds: [unclosed\n")
+    monkeypatch.setenv("MAESTRO_GLOBAL_CONFIG", str(broken))
+    _patch_fixture_cli_driver(monkeypatch, _WritingAgent({"src/app.py": "x = 1\n"}))
+
+    run = run_lane(_happy_scenario("guard_global_config", project_yaml=_project()))
+
+    assert run.returncode == 0
+    reason = _assert_merge_refused(run, "deny_list: the global config cannot be used")
+    assert str(broken) in reason
+    nodes = [a["node_id"] for a in _attempts()]
+    assert nodes.count("merge") == 1
+    assert "diagnose" not in nodes and "diagnoser" not in nodes
+
+
 def test_a_secret_file_in_the_diff_refuses_the_merge(run_lane, monkeypatch, no_deny_ask):
     _patch_fixture_cli_driver(monkeypatch, _WritingAgent({"config/.env": "API_KEY=x\n"}))
 

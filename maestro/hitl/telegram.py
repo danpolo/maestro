@@ -64,6 +64,7 @@ parse_prep_tasks = deferred("parse_prep_tasks", "maestro.docs.roadmap")
 #: sends that can legitimately exceed it (a graph with a dozen nodes and their evidence), so
 #: `send_report` splits rather than silently dropping the answer to a question Dan asked.
 TELEGRAM_MESSAGE_LIMIT = 4000
+TELEGRAM_CAPTION_LIMIT = 1024
 
 
 def delivery_note() -> str:
@@ -122,8 +123,8 @@ def notify_sprint(msg: str, token: str, *, repo) -> int | None:
     return mid if isinstance(mid, int) and not isinstance(mid, bool) and mid > 0 else None
 
 
-def send_report(text: str, *, header: str = "") -> int:
-    """Deliver a possibly-long operator report as one or more messages; returns how many.
+def _report_messages(text: str, header: str) -> list[str]:
+    """A possibly-long operator report as the messages that carry it.
 
     Splits on line boundaries so a node row or an evidence line is never cut in half, and
     numbers the parts when there is more than one — an operator reading a graph on a phone
@@ -142,10 +143,44 @@ def send_report(text: str, *, header: str = "") -> int:
         size += len(line) + 1
     chunks.append("\n".join(current))
     total = len(chunks)
+    messages = []
     for index, chunk in enumerate(chunks, 1):
         label = f"{header} ({index}/{total})" if header and total > 1 else header
-        notify_telegram(f"{label}\n{chunk}" if label else chunk)
-    return total
+        messages.append(f"{label}\n{chunk}" if label else chunk)
+    return messages
+
+
+def send_report(text: str, *, header: str = "") -> int:
+    """Deliver a possibly-long operator report, best effort; returns how many messages."""
+    messages = _report_messages(text, header)
+    for message in messages:
+        notify_telegram(message)
+    return len(messages)
+
+
+def deliver_report(text: str, *, header: str = "") -> bool:
+    """`send_report` with a receipt: True only when Telegram confirmed every part. Stops at the
+    first failure, and a caller that retries sends the whole report again. Never raises."""
+    return all(notify_intake(message) for message in _report_messages(text, header))
+
+
+def send_document(path, *, caption: str = "") -> bool:
+    """Send a file to the operator; True only when Telegram said it took it. Never raises."""
+    token, chat_id = shared_bot.credentials()
+    if not token or not chat_id:
+        return False
+    try:
+        data = {"chat_id": chat_id,
+                "caption": redact_secrets(tagged(caption, REPO))[:TELEGRAM_CAPTION_LIMIT]}
+        with open(path, "rb") as document:
+            response = requests.post(
+                f"https://api.telegram.org/bot{token}/sendDocument",
+                data=data, files={"document": document}, timeout=30,
+            )
+        body = response.json() if response.ok else None
+        return isinstance(body, dict) and body.get("ok") is True
+    except Exception:
+        return False
 
 
 def _roadmap_signature() -> str:

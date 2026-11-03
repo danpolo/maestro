@@ -17,7 +17,7 @@ from maestro.hitl import commands
 def proposal(**changes):
     task = {'title': 'Make playlist tracks playable',
             'short_desc': 'Diagnose the same-ID playlist playback failure and repair the demonstrated cause.',
-            'scope': ['app.py', 'tests/'], 'deps': [], 'risk': 'medium',
+            'scope': ['app.py', 'tests/'], 'deps': [], 'risk': 'low',
             'acceptance_criteria': ['Same-ID track plays in the playlist for the affected account.',
                                     'Preserve operator intent and role attribution.'],
             'verifications': [{'id': 'V-SUITE', 'kind': 'auto', 'check': 'The whole suite passes.',

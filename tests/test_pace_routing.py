@@ -486,15 +486,17 @@ def test_cost_tradeoff_keeps_the_measurably_better_quality_route():
 
 
 @pytest.mark.parametrize('mode', ['on', 'shadow'])
-def test_enabled_runaway_without_real_planner_band_leaves_evidence_unmeasured(mode):
+def test_enabled_runaway_without_a_forecast_compares_on_the_task_class_alone(mode):
+    """W13 made detection the default, and most tasks have no forecast: they keep their
+    class evidence, exactly as with detection off, instead of losing all of it."""
     from maestro.workflows.routing import resolve
     dispatch, _ = cost_evidence_dispatch()
     dispatch.runaway_mode = mode
     result = resolve(dispatch, agent_node(), None, now_epoch=NOW)
-    assert result.is_bound and result.requested_effort == 'low'
+    assert result.is_bound and result.requested_effort == 'medium'
     for candidate in result.pace_decision.candidates:
-        assert candidate['evidence']['success_per_cost'] is None
-        assert candidate['evidence']['fallback'] == 'planner_complexity_unavailable'
+        assert candidate['evidence']['success_per_cost'] is not None
+        assert candidate['evidence']['fallback'] is None
     assert result.pace_decision.demand['runaway_mode'] == mode
     assert result.pace_decision.demand['planner_complexity'] is None
 
@@ -534,10 +536,9 @@ def test_invalid_current_planner_band_keeps_routes_eligible(band):
     dispatch.runaway_mode = 'on'
     dispatch.planner_complexity_reader = lambda _: band
     result = resolve(dispatch, agent_node(), None, now_epoch=NOW)
-    assert result.is_bound and result.requested_effort == 'low'
+    assert result.is_bound and result.requested_effort == 'medium'
     assert result.pace_decision.demand['planner_complexity'] is None
-    assert all(c['evidence']['fallback'] == 'planner_complexity_unavailable'
-               for c in result.pace_decision.candidates)
+    assert all(c['evidence']['fallback'] is None for c in result.pace_decision.candidates)
 
 
 def test_off_mode_uses_class_evidence_without_reading_a_forecast():
@@ -802,7 +803,8 @@ def test_graph_factories_apply_effective_runaway_mode_to_real_evidence(
     dispatch.pace_history_reader = lambda: rows
     result = resolve(dispatch, agent_node(), None, now_epoch=NOW)
     assert result.is_bound
-    assert result.requested_effort == ('medium' if expected == 'off' else 'low')
+    # No forecast, so every mode compares on the task class alone and reads the evidence.
+    assert result.requested_effort == 'medium'
     assert result.pace_decision.demand['runaway_mode'] == expected
     assert shared.runaway_mode == (project_mode or 'on')
 
@@ -835,8 +837,8 @@ def test_graph_task_overrides_belong_to_current_project(factory, source, tmp_pat
     dispatch = (orchestrator._graph_routing(task_id='T1') if factory == 'direct'
                 else orchestrator._graph_task_routing(shared, 'T1'))
     assert dispatch.pace_estimates['*'].runtime_sec == (7200 if source == 'current' else 3600)
-    assert dispatch.runaway_mode == ('shadow' if source == 'current' else 'off')
-    assert shared.pace_estimates['*'].runtime_sec == 3600 and shared.runaway_mode == 'off'
+    assert dispatch.runaway_mode == ('shadow' if source == 'current' else 'on')
+    assert shared.pace_estimates['*'].runtime_sec == 3600 and shared.runaway_mode == 'on'
     if source == 'missing':
         # Optional overrides cannot make model-only recovery depend on a ROADMAP.
         # Actual task-spec use retains its required-source error.

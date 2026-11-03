@@ -929,6 +929,11 @@ class WorkflowRunner:
             report.refused[node.node_id] = str(refusal)
             return
         manifest_doc = manifest.to_dict()
+        from maestro.workflows import runaway as wf_runaway
+
+        forecast_contract = wf_runaway.forecast_contract(routing, node)
+        if forecast_contract:
+            manifest_doc["forecast_contract"] = forecast_contract
         if reviewer and reviewed_commit:
             # The commit this review speaks for: merge accepts its approval for no other.
             manifest_doc["reviewed_commit"] = reviewed_commit
@@ -962,6 +967,9 @@ class WorkflowRunner:
         if diagnoser:
             # P12 pilot finding D17: what its plan_repair.json may name.
             manifest_doc["repair_contract"] = self.repair_contract(node)
+            runaway_contract = self._runaway_contract()
+            if runaway_contract:
+                manifest_doc["runaway_contract"] = runaway_contract
             origins = review_origins.summary(
                 [(entry["round"], entry["records"]) for entry in self.review_rounds()]
             )
@@ -1572,13 +1580,20 @@ class WorkflowRunner:
             return
         shape_key = getattr(binding, "shape_key", None)
         session = claim.session
+        binding_document = binding.to_dict()
+        from maestro.workflows import runaway as wf_runaway
+
+        band_stamp = wf_runaway.binding_stamp(
+            self.routing, self.revision.node(claim.node_id), self.revision.task_id)
+        if band_stamp is not None:
+            binding_document[wf_runaway.BINDING_KEY] = band_stamp
         self.lifecycle.record_routing_decision(
             claim.attempt_id,
             run_id=self.run_id,
             at=at,
             fields={
                 "binding_id": binding.binding_id,
-                "binding_json": json.dumps(binding.to_dict(), sort_keys=True),
+                "binding_json": json.dumps(binding_document, sort_keys=True),
                 "backend_id": binding.backend_id,
                 "model_id": binding.model_id,
                 # The *native* effort, so this column and `ShapeKey.effort` are the same
@@ -1719,6 +1734,7 @@ class WorkflowRunner:
             fix_task = publish_fix(self, result)
             result = dataclasses.replace(result, outputs={**result.outputs, 'fix_task': fix_task})
         self._record_shadow_comparison(node, result, attempt_id=attempt_id, at=at)
+        self._record_planner_forecast(node, result, attempt_id=attempt_id, at=at)
         outcome_ref = self._commit_outcome_artifact(attempt_id, result)
         self._record_origin_flags(node, result, attempt_id=attempt_id, at=at)
         # W2 observes the screened result; diagnostics cannot interrupt core ingest.
@@ -1826,6 +1842,19 @@ class WorkflowRunner:
         if repair_plan is not None:
             self._apply_repair(node_id, repair_plan, attempt_id=attempt_id, at=at)
 
+    def _record_planner_forecast(self, node, result, *, attempt_id: str, at: str) -> None:
+        """P13 W13: keep a planner's forecast for this task's later routing and trigger."""
+        from maestro.workflows import runaway as wf_runaway
+
+        outputs = result.outputs if isinstance(result.outputs, Mapping) else {}
+        band = wf_runaway.valid_band(outputs.get("complexity_forecast"))
+        if (band is None or self.routing is None
+                or node.agent_definition_ref != wf_runaway.PLANNER_ROLE
+                or wf_runaway.effective_mode(self.routing) == "off"):
+            return
+        wf_runaway.record_forecast(self.store, self.revision.task_id, band,
+                                   run_id=self.run_id, attempt_id=attempt_id, at=at)
+
     def _decide_undecided_result(
         self, node: NodeSpec, result: NodeResult, *, attempt_id: str, at: str
     ):
@@ -1877,10 +1906,90 @@ class WorkflowRunner:
                 record=record, outcome_ref=outcome_ref, at=at,
             )
             return
+        if self._runaway_stops_retries(root, failing=node_id, kind=record.kind, at=at):
+            self.lifecycle.fail_quality(
+                attempt_id, run_id=self.run_id, node_id=node_id, root=root,
+                record=record, outcome_ref=outcome_ref, at=at,
+                spend_to=wf_failures.QUALITY_ATTEMPTS,
+            )
+            return
         self.lifecycle.requeue_cone(
             attempt_id, run_id=self.run_id, root=root, cone=cone, record=record,
             outcome_ref=outcome_ref, skipped=self._skipped_below(cone), at=at,
         )
+
+    def _runaway_can_diagnose(self, failing: str) -> bool:
+        """Would stopping now reach a diagnoser that could act? If not, retries are all
+        that is left, so a trigger must not take them away."""
+        if self._repair_budget_exhausted() is not None:
+            return False
+        return any(
+            edge.guard_predicate == "on_failure"
+            and self.revision.node(edge.target_node_id).agent_definition_ref
+            == wf_failures.ROLE_DIAGNOSER
+            for edge in self.revision.outgoing(failing)
+        )
+
+    def _runaway_stops_retries(self, root: str, *, failing: str, kind: str, at: str) -> bool:
+        """P13 W13: record a trigger for the cone root's latest attempt; `on` acts on it.
+
+        The root is the attempt that spent: a failed gate costs nothing itself and re-runs
+        the writer it judged. That holds only for a verdict on the writer's work: a gate
+        whose host crashed says nothing about what the writer spent. Any error here leaves
+        the ordinary ladder running.
+        """
+        from maestro.workflows import runaway as wf_runaway
+
+        try:
+            if self.routing is None:
+                return False
+            if failing != root and kind != "verification_failed":
+                return False
+            mode = wf_runaway.effective_mode(self.routing)
+            if mode == "off":
+                return False
+            attempt = self.store.conn.execute(
+                "SELECT attempt_id, binding_json, usage_settle_json FROM attempts"
+                " WHERE run_id = ? AND node_id = ? ORDER BY rowid DESC LIMIT 1",
+                (self.run_id, root),
+            ).fetchone()
+            if attempt is None or not attempt["binding_json"] or not attempt["usage_settle_json"]:
+                return False
+            trigger = wf_runaway.assess(
+                wf_runaway.stamped_attempts(self.store), attempt=attempt,
+                factor=self.routing.runaway_factor,
+            )
+            if trigger is None:
+                return False
+            acted = mode == "on" and self._runaway_can_diagnose(failing)
+            self.store.append_event(
+                wf_runaway.TRIGGER_EVENT, self.run_id,
+                payload={**trigger, "mode": mode, "acted": acted, "node_id": root},
+                run_id=self.run_id, attempt_id=attempt["attempt_id"], recorded_at=at,
+            )
+            return acted
+        except Exception:  # noqa: BLE001 — detection is advisory; the retry budget still holds
+            return False
+
+    def _runaway_trigger(self) -> dict | None:
+        """The trigger that stopped this run's retries early, or `None`."""
+        from maestro.workflows import runaway as wf_runaway
+
+        rows = self.store.conn.execute(
+            "SELECT payload FROM events WHERE type = ? AND run_id = ? ORDER BY sequence DESC",
+            (wf_runaway.TRIGGER_EVENT, self.run_id),
+        ).fetchall()
+        for row in rows:
+            payload = json.loads(row["payload"])
+            if payload.get("acted"):
+                return payload
+        return None
+
+    def _runaway_contract(self) -> str | None:
+        from maestro.workflows import runaway as wf_runaway
+
+        trigger = self._runaway_trigger()
+        return None if trigger is None else wf_runaway.contract_text(trigger)
 
     def _skipped_below(self, cone) -> tuple[str, ...]:
         """The `skipped` nodes downstream of a cone, which the retry re-opens.
@@ -1994,6 +2103,13 @@ class WorkflowRunner:
         data = dict(data)
         data.setdefault("workflow_id", self.revision.workflow_id)
         data.setdefault("base_revision", self.revision.revision)
+        if data.get("verdict") == "runaway_false_alarm" and not (
+            data.get("rerun_nodes") or data.get("replace_nodes") or data.get("brief_addenda")
+        ):
+            # P13 W13: nothing to change, so the node whose retries were stopped runs again.
+            trigger = self._runaway_trigger()
+            if trigger is not None:
+                data["rerun_nodes"] = [trigger["node_id"]]
         addenda = data.pop("brief_addenda", None)
         if not isinstance(addenda, Mapping):
             return data
@@ -2048,6 +2164,8 @@ class WorkflowRunner:
         elif proposal.verdict == "spec_gap":
             # D26: a usable spec_gap never gets here (`_screen_questions` asks Dan).
             return "spec_gap verdict carries no usable questions"
+        elif proposal.verdict == "runaway_false_alarm" and self._runaway_trigger() is None:
+            return "runaway_false_alarm verdict but no runaway trigger stopped this run"
         elif proposal.verdict == "bad_graph" and not (
             proposal.add_nodes or proposal.remove_nodes or proposal.replace_nodes
             or proposal.add_edges or proposal.remove_edges

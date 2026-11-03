@@ -1037,6 +1037,7 @@ def compile_workflow(
         context = RiskContext(
             task_id=spec.task_id,
             risk=spec.risk,
+            task_class=spec.task_class,
             execution_kind=spec.execution_kind,
             objective=objective,
         )
@@ -1189,7 +1190,7 @@ REPAIR_KINDS = frozenset({"discovered_prerequisite", "partial_failure", "scope_c
 #: A diagnoser's two readings (P12B F7). `bad_graph` must come with a graph patch and
 #: `poor_agent` with a replacement for the node that failed; the runner checks that the
 #: verdict and the patch agree, because a verdict no patch supports is not a diagnosis.
-VERDICTS = frozenset({"bad_graph", "poor_agent", "spec_gap"})
+VERDICTS = frozenset({"bad_graph", "poor_agent", "spec_gap", "runaway_false_alarm"})
 
 #: Event type for a committed repair. A string, like every other `EventType` value.
 WORKFLOW_REPAIRED = "WorkflowRepaired"

@@ -201,12 +201,18 @@ def test_a_low_risk_task_that_touches_tests_still_gets_a_reviewer(policy):
     assert "planner" not in ids
 
 
-def test_free_quality_mode_buys_planner_test_designer_and_reviewer_on_a_low_risk_task(policy):
-    ids = nodes_of(spec_for(risk="low"), policy.with_objective("free_quality"))
+def test_free_quality_mode_buys_planner_test_designer_and_reviewer_on_a_docs_task(policy):
+    ids = nodes_of(spec_for(task_class="documentation"), policy.with_objective("free_quality"))
     assert ids == (
         "planner", "test_designer", "implementer", "gate", "proof_review",
         "merge", "accept", "park",
     )
+
+
+def test_low_risk_alone_no_longer_withholds_free_candidates(policy):
+    # B23: risk means real outside cost, so only the docs class skips the fan-out.
+    ids = nodes_of(spec_for(risk="low"), policy.with_objective("free_quality"))
+    assert "implementer_c1" in ids
 
 
 def test_the_test_designer_runs_before_the_implementer(policy):

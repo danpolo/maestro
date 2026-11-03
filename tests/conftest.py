@@ -90,6 +90,36 @@ os.environ["MAESTRO_IMPROVEMENT_INTAKE"] = str(
 # while production defaults to interactive mode unless configured otherwise.
 os.environ.setdefault("MAESTRO_CLAUDE_MODE", "headless")
 
+from maestro.control.store import ControlStore  # noqa: E402 - after the environment above
+
+# Flushing to disk cost about 70% of the time in the suite's busiest modules (test audit,
+# 2026-11-02: 314s to 83s). It only matters across a power loss: no test simulates one, and the
+# page cache survives the process deaths the tests do use, so outside `real_fsync` tests it
+# proves nothing extra. The fsync stand-in still raises on a bad descriptor, so code that fsyncs
+# a closed fd keeps failing. Real subprocesses (`maestro init`, ...) keep the real behaviour.
+_REAL_FSYNC = os.fsync
+_REAL_STORE_PRAGMAS = ControlStore._apply_pragmas
+
+
+def _fsync_without_flush(fd) -> None:
+    os.fstat(fd)
+
+
+def _store_pragmas_without_flush(store) -> None:
+    _REAL_STORE_PRAGMAS(store)
+    store.conn.execute("PRAGMA synchronous = OFF")
+
+
+os.fsync = _fsync_without_flush
+ControlStore._apply_pragmas = _store_pragmas_without_flush
+
+
+@pytest.fixture(autouse=True)
+def _real_fsync_when_marked(request, monkeypatch):
+    if request.node.get_closest_marker("real_fsync"):
+        monkeypatch.setattr(os, "fsync", _REAL_FSYNC)
+        monkeypatch.setattr(ControlStore, "_apply_pragmas", _REAL_STORE_PRAGMAS)
+
 
 def _agent_binaries() -> frozenset:
     """Every executable the registry knows how to drive.

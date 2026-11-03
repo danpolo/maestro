@@ -38,6 +38,16 @@ def complexity_prompt() -> str:
             'score of the task, not a forecast and not a verdict. Fixed rubric v1:\n' + anchors)
 
 
+def forecast_prompt(path: str) -> str:
+    """W13: the planner's before-the-run forecast, on the reviewer's rubric."""
+    anchors = '\n'.join(f"{score}: " + '; '.join(f'{key}: {value}' for key, value in axes.items())
+                        for score, axes in COMPLEXITY_RUBRIC.items())
+    return (f'Forecast this task\'s complexity before it runs: record {{"complexity": 1-5}} in '
+            f'the file {path} in the WORKSPACE (your write_file tool, if that is your harness, '
+            'lands there too). Use the highest applicable anchor across files, cross-module '
+            f'reach, new behavior and risk. Fixed rubric v{RUBRIC_VERSION}:\n' + anchors)
+
+
 def review_complexity(document) -> dict:
     value = document.get('complexity') if isinstance(document, dict) else None
     valid = type(value) is int and 1 <= value <= 5

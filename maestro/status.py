@@ -906,6 +906,17 @@ def _current_node(view: dict) -> dict | None:
     return None
 
 
+def _progress_lines(view: dict, node: dict) -> list[str]:
+    """The running attempt's progress line, if anything is known (P13 W10)."""
+    from maestro.workflows import progress
+
+    running = [a for a in node.get("attempts") or [] if a.get("status") == "running"]
+    if not running or not view.get("repo"):
+        return []
+    shown = progress.line(view["repo"], {**running[-1], "task_id": view.get("task_id")})
+    return [shown] if shown else []
+
+
 def _compact_run_lines(view: dict) -> list[str]:
     run, wf = view["run"], view["workflow"]
     started = run.get("started_at")
@@ -931,6 +942,7 @@ def _compact_run_lines(view: dict) -> list[str]:
             lines.append(f"Waiting: {current['node_id']} — {reason}{cycle}")
         else:
             lines.append(f"Now: {current['node_id']} — {current['phase']}{cycle}")
+            lines.extend(_progress_lines(view, current))
     routed = [attempt for node in view["nodes"] for attempt in node["attempts"]
               if attempt.get("backend_id") or attempt.get("model_id")]
     last = max(routed, key=lambda attempt: attempt.get("_order", 0)) if routed else None

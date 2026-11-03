@@ -14,17 +14,17 @@ A public, readable roadmap for Maestro's P13 phase. It is a cleaned copy of the 
 | W1 Global config, routes, one bot | Done and released (slices 1-6, 2026-10-10 to 2026-10-16) |
 | W2 Telemetry, complexity, blame ledger | Done; merged to root 2026-10-15 |
 | W3 Usage plane | Done; qualified and merged to root 2026-10-26 |
-| W4 agy as a full peer | **Not built.** Only its test-reliability work is merged (2026-10-26); the agy routes, canonical model identity, and confined writes remain |
+| W4 agy as a full peer | **Built, routable, not yet proved on a real node.** Native runtimes and confined writes are merged. Since the modelctl scan of 2026-11-03, agy's routes resolve to real variant ids. Admission needs a fresh quota reading from an interactive session (`docs/P13_PILOT_PROTOCOL.md`). The real-node proof belongs to the pilot |
 | W5 Pace routing, budget, sprint | Done; integrated and released at `9014b10` on 2026-11-01 |
 | W6 Manual-step contract | Done; merged to root as `70d5077` on 2026-10-21 |
 | W7 Polish stage | Done (built under the goal-driven plan, 2026-10-24) |
 | W8 Reliability carry-overs | Done; merged to root 2026-10-14 |
 | W9 Safety and gate checks | Done; merged to root 2026-10-14 |
-| W10 Visibility | **Not built** |
+| W10 Visibility | Done; released at `ad6bedc` on 2026-11-02; first real digest belongs to the pilot |
 | W11a Goals docs and briefs | Done (2026-10-22) |
 | W11b Goal check stage | Done (2026-10-22); runs after the polish stage |
-| W12 Improvement proposals | Built (2026-10-25) under the goal-driven plan; the original W12 boxes in the working spec are not ticked, and the itv pilot has not run |
-| W13 Runaway detection | **Not built.** Only the `runaway.mode` config key and the routing plumbing that reads it exist |
+| W12 Improvement proposals | Built (2026-10-25) under the goal-driven plan and reconciled with its original boxes (2026-11-02); proven on fixtures and the demonstrator, and the itv pilot has not run |
+| W13 Runaway detection | Built (2026-11-02), on by default; its pilot measurements are open |
 | Context Gate | **Not built.** Per `AGENTS.md` it will be built independently (`docs/maestro-context-gate-integration.md`) |
 
 Not yet done either: the qualification pilot on itv and the phase close-out (section 3).
@@ -63,6 +63,7 @@ The measure of success is the pilot goal: **lower subscription usage per accepte
 | B20 | Pair scores and role requirements | Every `(harness, model, effort)` pair has a numeric intelligence (light below 40, balanced 40-47, strong 48+) and a relative cost per quota pool. A role states a minimum intelligence and an effort rule: implementer and test designer 40, reviewer 48, all three with medium as the normal preference; planner and diagnoser 50 with high as a minimum. `xhigh` and `max` are ordinary efforts where the harness has them. **No fixed harness priority**: selection is over the whole enabled pool, costs are compared only inside a quota pool, and QuotaPulse-style weekly pacing compares across pools. agy stays inactive until W4. Medium is a near-cost preference: inside a pool, pairs within about 20% of the cheapest prefer medium unless measured evidence favours another pair. A risk-escalated task raises the intelligence floor to 48 only; its effort follows the role rule. The shipped policy is built from the same pair table. |
 | B21 | Effort of an escalated task on a schema-1 policy | A task raised to `strong` by risk, class or failure rate still binds at `high` on a schema 1 policy, as before P13. Under schema 2, B20 governs. |
 | B22 | `routing.harness_order` | Replaced by B20 (integrated and released 2026-10-11). Pools rank globally by fresh weekly pace and a deterministic node/pool hash. `doctor` reports the retired key. |
+| B23 | Risk, class and complexity in model choice (Dan, 2026-11-02) | Risk is `low` or `high` only. `high` means real outside cost: API keys, third-party providers with limited quota, or calling agents outside the Maestro workflow where the task must choose models and effort itself. `low` never lowers the model, and file count no longer matters. Below high risk, only class and complexity move the demand: `difficult_debugging` and complexity 4-5 get a strong model. An old `medium` reads as `low` and `critical` as `high`. The manifest carries all three. |
 
 Future only, not built: subscription-cost calibration; cost per successful task; role-specific intelligence; adaptive effort; better cross-pool optimization; latency/context-aware routing; benchmark calibration against real outcomes.
 
@@ -135,19 +136,19 @@ Workstreams in one stage run as parallel tasks and must merge trivially (differe
 - **Proof:** bridge killed -> routing continues on native readers; values match the widget within 1%.
 
 ### W4 · agy as a full peer (stage 2, L)
-**Status: not built.** The W4 test-reliability work (hang bounds, load-proof tests) was integrated 2026-10-26; none of the items below is done. The agy driver itself dates from P07B. Plan: `docs/agent-plans/p13-w4.md`.
+**Status: built and routable, not yet proved on a real node.** The native peer runtimes merged to root on 2026-10-20 (`4e08293`). **Update 2026-11-03:** after that day's full scan, agy's routes resolve to the exact ids `agy models` lists, and the text below is history. **Until then agy could not be routed to:** all 11 live agy routes were undeliverable because modelctl master did not publish `effort_variants`, so routing skipped them and nothing launched. With variants added to a copy of the live policy, all 11 resolve to the exact `--model` ids `agy models` lists. The publishing branch is modelctl `feat/p13-w4`, waiting on the owner (see the identity box). The "real node" proof belongs to the pilot, which is not started. Plan: `docs/agent-plans/p13-w4.md`.
 
-- [ ] **First step:** confirm modelctl emits agy routes. modelctl has an `antigravity` provider (one class per model version, `--model` variant ids as aliases, the measured compaction boundary as the enforced window), but it writes no antigravity events until Maestro's `registry.py` declares `modelctl_provider="antigravity"`. If the provider is missing, stop and tell the owner; do not hardcode rows.
-- [ ] Canonical model identity (B8): a model served by two harnesses shares class, independence family and evidence prior; pool and telemetry stay per harness. The evidence guard uses the harness's own statistics once it has the minimum sample count, else the shared prior.
-- [ ] Confined writes: a bubblewrap wrapper on writers when the host has it, plus the post-run tree audit. The global permission lists apply to agy and Codex (from W9), replacing `--dangerously-skip-permissions`. Session-resume facts verified.
-- **Proof:** agy completes a real implementer node and a real review node in the pilot; a write outside the tree is refused; a claude-via-agy reviewer is not treated as independent of a claude implementer.
+- [x] **First step:** confirm modelctl emits agy routes (confirmed 2026-11-02: 10 classes and 11 routes in the live policy, without effort variants). modelctl has an `antigravity` provider (one class per model version, `--model` variant ids as aliases, the measured compaction boundary as the enforced window), but it writes no antigravity events until Maestro's `registry.py` declares `modelctl_provider="antigravity"`. If the provider is missing, stop and tell the owner; do not hardcode rows.
+- [x] Canonical model identity (B8): a model served by two harnesses shares class, independence family and evidence prior; pool and telemetry stay per harness. The evidence guard uses the harness's own statistics once it has the minimum sample count, else the shared prior. *Live since modelctl `feat/p13-w4` landed. Checked 2026-11-02 on the live policy: Opus 5.5 and Sonnet 5.5 on `claude` and on `antigravity_cli` share a canonical id, family `claude` and the same intelligence per effort, and the agy rows keep their own pool `antigravity-3p` and relative cost.*
+- [x] Confined writes: a bubblewrap wrapper on writers, plus the post-run tree audit. Agy and Codex launch, resume and completion paths run confined; a missing `bwrap` refuses instead of running unconfined. The global permission lists apply to both through `tool_policy` hooks, with no `--dangerously-skip-permissions`. Session-resume facts verified against real agy 1.4.12 on 2026-11-02 (same conversation id, earlier turn recalled; bare CLI, not through the confined driver).
+- **Proof:** agy completes a real implementer node and a real review node in the pilot (not started); a write outside the tree is refused (`tests/test_bubblewrap_boundary.py`, real OS refusal); a claude-via-agy reviewer is not treated as independent of a claude implementer (fixtures only, see above).
 
 ### W5 · Pace routing, budget and sprint (stage 3, L)
 **Status: done.** Integrated to root and released at `9014b10` on 2026-11-01. Known limits: `docs/W5_PACE_ROUTING.md`. Design plan: `docs/agent-plans/p13-w5-pace-budget-sprint.md`.
 
 - [x] `objective: pace` runs: eligible routes by strength and hard limits -> soft independence -> 5h gate -> evidence guard -> rank by weekly pace delta -> budget admission. Every decision is journalled with its inputs.
 - [x] **Budget (B7).** `B_pool = (target_5h - used_5h) / burn_pool`, where burn is the learned % of the 5h window per cost unit (starting from `relative_cost`). An attempt's charge against the current window is `relative_cost x burn x the share of its expected runtime that falls before the reset`. So the cap follows the used share, and a reset that is close while headroom remains admits more. Projects share B by `priority`.
-- [x] Per-class preference (B13): success per cost unit by task class x complexity band x route feeds the evidence guard. The band is the planner forecast while runaway detection is on, else the task class alone.
+- [x] Per-class preference (B13): success per cost unit by task class x complexity band x route feeds the evidence guard. The band is the planner forecast while runaway detection is on, else the task class alone. With detection on and no forecast, routing compares on the task class alone rather than losing the evidence (changed by W13). The manifest now carries the task class (B23), so this comparison separates classes. The 18 itv attempts recorded before that stay under `ordinary` and do not count toward any real class. A real class must reach the minimum sample count on its own.
 - [x] **Sprint (B12).** Within about 24h of a pool's weekly reset, when the pool is behind pace by a margin, raise that pool's target and pull forward polish tasks and tasks waiting only on budget (never a task the owner holds). Codex reset signals (W3) feed the same sprint:
   - An **announced** forced reset: treat its deadline as a reset of the Codex pool and sprint before it, because unused quota is wiped.
   - A **forecast** forced reset: sprint the Codex pool when the forecast passes a configurable bar (default: `p24` at or above 70 with `confidence` high). A forecast is a likelihood, so it only raises the Codex pace target; it never lets the 5h gate or the budget be exceeded, and the sprint notice says it is forecast-based. The pilot reports how many forecast sprints were followed by a real reset.
@@ -182,11 +183,11 @@ One lane per item: a node with no sentinel is retried or failed, never left unce
 One lane per item: an out-of-scope path is a gate finding for the implementer, with an escape for files the task needs; `pre_validate` refuses a task with no required checks; family derivation never proposes a leading wildcard; the denial text names the denied family; permission lists for Codex and agy; the interpreter secret-read limit is documented and tested.
 
 ### W10 · Visibility (stage 4, S)
-**Status: not built.**
+**Status: done.** Released at `ad6bedc` on 2026-11-02. Contract and limits: `docs/DESIGN.md` §19.15.
 
-- [ ] Progress signal for long CLI runs (token growth and a PROGRESS line). Telegram `/workflow` sends the picture `workflow show --html` already draws.
-- [ ] Weekly digest: usage per accepted task, cycles, cost per fault (W2), complexity-normalised route comparison.
-- **Proof:** digest numbers equal `maestro report usage`.
+- [x] Progress signal for long CLI runs (token growth and a PROGRESS line). Telegram `/workflow` sends the picture `workflow show --html` already draws. Tokens are live for Claude and Codex, not for agy. PROGRESS is the last gate's count, not a live figure.
+- [x] Weekly digest: usage per accepted task, cycles, cost per fault (W2), complexity-normalised route comparison. It covers everything recorded, with a line for the change since the last digest.
+- **Proof:** digest numbers equal `maestro report usage`. `tests/test_w10_visibility.py` compares them through the report's JSON on fixtures, and the digest was rendered on itv's and DuetFlow's real databases. No digest has been sent to Telegram from a live project yet.
 
 ### W11 · Goals contract (a: stage 2, b: stage 3, M)
 **Status: W11a done (2026-10-22); W11b done (2026-10-22), running after the polish stage.** One item remains: itv still needs its own `GOALS.md` from a short grill by the owner before the pilot.
@@ -200,7 +201,7 @@ Redesigned 2026-10-17 as goal-driven execution plus project-level outside-in TDD
 - **Proof:** a lane whose project has 2 goals, one unmet, ends with a proposal for the unmet goal and is not reported done; a `GOALS.md` written outside the skill passes setup's validation.
 
 ### W12 · Improvement proposals (stage 4, M)
-**Status: built 2026-10-25 under the goal-driven plan (GDT-12).** The analyst, proposals, decisions and measurement code is in `maestro/improvement.py` and related modules; it has not run in the itv pilot, and the working spec's original W12 boxes are not ticked.
+**Status: built 2026-10-25 under the goal-driven plan (GDT-12); reconciled with the original boxes 2026-11-02.** The analyst, proposals, decisions and measurement code is in `maestro/improvement.py` and related modules, and W10's digest now reports the measured effects. Every item below and both proofs are proven on fixtures and the demonstrator (`tests/test_improvement*.py`, C32 and C33 in `tests/test_goals_demo.py`). It has not run live: that belongs to the itv pilot.
 
 - An analyst node (strong route) reads the blame ledger and the per-route statistics, weekly and at project end. It proposes ranked changes, each with its evidence, the expected saving in cost units, and how the effect will be measured. Lever types: role prompt, stronger model or effort for a role x class, graph order, an added gate, an added human step, context or skill for a role, a planner rule.
 - Each proposal is sent on Telegram (Approve / Decline / free text). Approved config levers are applied to the global config and are reversible; approved code levers enter Maestro's own queue through operator intake. The next digest reports the measured effect.
@@ -208,12 +209,13 @@ Redesigned 2026-10-17 as goal-driven execution plus project-level outside-in TDD
 - **Proof:** a fixture ledger dominated by reviewer `missed_earlier` yields a reviewer-side proposal; a declined proposal is not re-sent without new evidence.
 
 ### W13 · Runaway detection (stage 2, M)
-**Status: not built.** Only the `runaway.mode` config key and the routing code that reads it exist (added with W5).
+**Status: built 2026-11-02, on by default.** Pilot measurements are still open.
 
-- [ ] `runaway.mode: on | shadow | off` in the global config, project override, Telegram `/runaway on|shadow|off`. `off` also removes the complexity forecast from the planner's brief and schema, so the planner's output is what it was before P13.
-- [ ] The planner forecasts `complexity: 1-5` per task with the reviewer's rubric. An attempt whose spend passes `factor` (default 2.0) x the p90 of its role x task class x complexity band stops further retries and enters the P12B ladder at the diagnoser. A band with fewer than 10 samples never triggers. `shadow` records the trigger and does nothing.
-- [ ] Pilot focus: triggers per 100 attempts; the share where the diagnoser found a real fault versus `runaway_false_alarm`; estimated quota saved versus the cost of the early diagnoser.
-- **Proof:** lanes for trigger, under-sampled band, shadow, and off (planner brief has no forecast).
+- [x] `runaway.mode: on | shadow | off` in the global config, project override, Telegram `/runaway on|shadow|off`. `off` also removes the complexity forecast from the planner's brief and schema, so the planner's output is what it was before P13.
+- [x] The planner forecasts `complexity: 1-5` per task with the reviewer's rubric. An attempt whose spend passes `factor` (default 2.0) x the p90 of its role x task class x complexity band stops further retries and enters the P12B ladder at the diagnoser. A band with fewer than 10 samples never triggers. `shadow` records the trigger and does nothing.
+- [ ] Pilot focus: triggers per 100 attempts; the share where the diagnoser found a real fault versus `runaway_false_alarm`; estimated quota saved versus the cost of the early diagnoser. This can only be measured in the pilot.
+- **Proof:** `tests/graph_engineering/test_runaway.py` has lanes for trigger, under-sampled band, shadow, and off (planner brief has no forecast).
+- The planner node runs only on high-risk or free-quality graphs, so the ROADMAP task's `complexity:` is the main forecast source. A task with no forecast never triggers. A failed attempt with retries left is the only thing that triggers: an expensive success is untouched, and a failed gate or a rejected review is assessed on the writer's spend.
 
 ---
 
@@ -222,7 +224,7 @@ Redesigned 2026-10-17 as goal-driven execution plus project-level outside-in TDD
 1. The full suite is green at every commit. A commit in the main Maestro checkout is a release, so experiments go in linked worktrees on persistent storage, never `/tmp`.
 2. Every `owner: P13` thread in the STATE registry is `closed` with evidence or `accepted` with a reason.
 3. Each workstream's Proof line passes as a named lane or test.
-4. **Qualification pilot on itv:** agy runs a real implementer node and a real review node; zero rate-limit pauses; quota % and cost units per accepted task are below the P12 figures; runaway and sprint behaviour is reported with the W13 and W5 metrics; one goal check runs end to end.
+4. **Qualification pilot on itv:** agy runs a real implementer node and a real review node, using a temporary pin for a bounded part of the pilot if needed; zero rate-limit pauses; tokens and work tokens per accepted main task are below the P12 figures, with quota % and cost units reported beside them because neither has a comparable P12 figure; runaway and sprint behaviour is reported with the W13 and W5 metrics; one goal check runs end to end. `docs/P13_PILOT_PROTOCOL.md`, approved by Dan on 2026-11-03, defines how this is measured.
 5. **Close-out:** send the owner the full Telegram command list in BotFather format (`maestro telegram commands --botfather`) with one line per command; update `docs/DESIGN.md`, `docs/EXECUTION.md`, `docs/PROGRESS.md`.
 
 ---
@@ -247,9 +249,8 @@ The Context Gate (CONTINUE / COMPACT / HANDOFF at work-unit boundaries; `docs/ma
 - codex-bridge `skills_approval` callback bug (`docs/MODEL_TRANSITIONS.md`): belongs to codex-bridge, not Maestro.
 - **Legacy loop exits when every harness is exhausted:** `implementer.launch_implementer` raises `PolicyError('no eligible implementer route: ...')` and `orchestrator.main()` does not catch it at the fresh-launch call, so the process exits instead of waiting for quota. Not reachable under `engineering.runner: graph` (both real projects). Fix when a project next runs the legacy loop: wait for the next poll, and do not create the worktree or send "Starting" first.
 - **Two Haiku ids** are in use (`claude-haiku-4-5-20251001` in the policy, `claude-haiku-4-5` in `IMPLEMENTER_MODELS`). Nothing is made wrong by it; both resolve to the same class and limits row.
-- **`maestro doctor` exits 1 on a project whose controller is running:** `[FAIL] docs: docs/ROADMAP.md did not parse: controller pid ... already owns .../control.sqlite3`. Every other check runs and reports. Fix: read the ROADMAP without taking the writer's ownership, or report this case as a WARN.
 - **Compatible code must precede incompatible shared-policy publication:** a project on an older reader reads the shared policy at graph startup and fails before idle self-update on a newer policy shape. Verify all running readers before publishing a policy change. Startup compatibility hardening belongs to W8.
 - **A full-suite run in a linked worktree materializes that worktree's HEAD in the real `~/.maestro/versions/`** (observed 2026-10-10, cause not traced). `~/.maestro/latest` was never moved by it. Some test reaches the real `MAESTRO_HOME`.
 - **W1 slice 2 spec review, deferred items:**
-  - Global layer: a global config that does not parse reads as no layer at runtime (only `doctor` says so), which drops `risky_set`, `deny_list_extra` and `confinement.deny` held there. Decide whether the safety lists fail closed. Three readers still see `project.yaml` alone: the preview-to-apply hash in `model_lifecycle.py`, `config_hash` in `model_inventory.py`, and the recommendation prompt in `workflows/deny_list.py`.
+  - Global layer: a global config that does not parse reads as no layer at runtime, and `merge.integration_guard` refuses every merge until it is fixed, because `risky_set`, `deny_list_extra` and `confinement.deny` may be held there (decided 2026-11-02). Three readers still see `project.yaml` alone: the preview-to-apply hash in `model_lifecycle.py`, `config_hash` in `model_inventory.py`, and the recommendation prompt in `workflows/deny_list.py`.
   - Smaller: `doctor`'s preamble deny-list check has no global-layer test; `derived_roles` reads the packaged role templates while the graph reads a project's replaced template; `config show --effective` prints only keys a layer sets, not code defaults; `doctor` does not flag an unknown role name or a nested typo under `routing`; some tests assert nothing or touch the real `~/.maestro`.

@@ -137,6 +137,15 @@ def read_state() -> dict:
     return s
 
 
+def read_state_projection() -> dict:
+    """`state.json` as last exported, for a reader that must not become the controller.
+
+    `read_state` takes the controller lock and may rewrite the file, so `doctor` beside a
+    live controller would be refused and, on an idle project, would claim the lease itself.
+    """
+    return json.loads(STATE_JSON.read_text())
+
+
 def write_state(state: dict) -> None:
     state["updated_at"] = now_iso()
     store = control_store()

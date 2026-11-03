@@ -1,0 +1,48 @@
+{
+  "pinned_at": "filled at pilot start",
+  "phase": "P13 qualification pilot",
+  "mode_under_test": "objective: pace, subscription pools",
+  "maestro": {
+    "branch": "feat/graph-engineering-foundation",
+    "head_sha": "filled at pilot start: must include the agy token reader (bfcfad8 or later)",
+    "adopted_by_itv": "filled at pilot start: /home/dan/.maestro/versions/<head_sha>"
+  },
+  "claude_cli_version": "filled at pilot start",
+  "codex_cli_version": "filled at pilot start",
+  "agy_cli_version": "filled at pilot start",
+  "projects": {
+    "instagram-to-value": {
+      "repo": "/home/dan/projects/instagram-to-value",
+      "head_sha": "filled at pilot start",
+      "runner": "graph",
+      "goals": {
+        "path": "docs/GOALS.md",
+        "format": 2,
+        "contract_revision": "filled at pilot start"
+      },
+      "prerequisite_complete": [
+        "01-runtime-evidence",
+        "04-quota-adapter"
+      ],
+      "task_order": [
+        "02-acquisition-gate",
+        "03-selected-intake",
+        "05-setup-evaluation",
+        "06-safe-experiments",
+        "07-approval-ledger",
+        "08-agent-executor",
+        "09-operator-gates"
+      ],
+      "tasks": "filled at pilot start: id and verifications copied from itv's docs/ROADMAP.md"
+    }
+  },
+  "baseline": {
+    "source": "docs/P13_PILOT_PROTOCOL.md",
+    "tokens_per_accepted_main_task": 6150000,
+    "work_tokens_per_accepted_main_task": 535679,
+    "accepted_main_tasks": 2
+  },
+  "amendments": [],
+  "rule": "No criterion or weight changes once a run starts. A needed change is recorded here as an amendment with its reason, and that task is re-run.",
+  "repinned_before_first_run": null
+}

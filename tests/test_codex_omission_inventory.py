@@ -6,6 +6,47 @@ from maestro.backends import codex_runtime, control_files
 from tests.test_codex_runtime import prepare
 
 
+def test_a_deep_surface_is_recorded_by_name_and_marked_truncated(tmp_path):
+    deep = tmp_path / 'plugins/cache/vendor/plugin/1.0/src'
+    deep.mkdir(parents=True)
+    (deep / 'tool.py').write_text('x')
+    inventory = codex_runtime._omission_inventory(tmp_path)
+    assert inventory['truncated'] is True
+    assert 'plugins/cache/vendor/plugin' in inventory['omitted_paths']
+    assert not any(path.startswith('plugins/cache/vendor/plugin/') for path in inventory['omitted_paths'])
+
+
+def test_a_small_surface_is_complete_and_not_marked(tmp_path):
+    (tmp_path / 'skills/one').mkdir(parents=True)
+    (tmp_path / 'skills/one/SKILL.md').write_text('x')
+    inventory = codex_runtime._omission_inventory(tmp_path)
+    assert 'truncated' not in inventory
+    assert inventory['omitted_paths'] == ['skills', 'skills/one', 'skills/one/SKILL.md']
+
+
+def test_too_many_entries_truncate_the_record_instead_of_failing_the_prepare(tmp_path, monkeypatch):
+    monkeypatch.setattr(codex_runtime, '_INVENTORY_ENTRIES', 3, raising=False)
+    (tmp_path / 'skills').mkdir()
+    for index in range(10):
+        (tmp_path / f'skills/{index}').write_text('x')
+    inventory = codex_runtime._omission_inventory(tmp_path)
+    assert inventory['truncated'] is True and len(inventory['omitted_paths']) == 3
+
+
+def test_a_directory_changing_during_the_walk_cannot_fail_the_prepare(tmp_path, monkeypatch):
+    (tmp_path / 'skills/one').mkdir(parents=True)
+    (tmp_path / 'AGENTS.md').write_text('x')
+    original = control_files.DirectoryView.entries
+    def entries(self, *, only=None):
+        if self.path == tmp_path / 'skills':
+            raise ValueError('directory changed')
+        return original(self, only=only)
+    monkeypatch.setattr(control_files.DirectoryView, 'entries', entries)
+    inventory = codex_runtime._omission_inventory(tmp_path)
+    assert inventory['truncated'] is True
+    assert inventory['omitted_paths'] == ['AGENTS.md', 'skills']
+
+
 def test_codex_preparation_records_omissions_without_opening_auth(tmp_path, monkeypatch):
     initial = prepare(tmp_path)
     initial.cleanup()

@@ -223,7 +223,10 @@ class DispatchRouting:
     pace_estimates: Mapping = field(default_factory=dict)
     pace_history_reader: Callable[[], Sequence[Mapping]] = tuple
     runaway_mode: str = 'off'
-    #: W13 may later provide a real planner forecast; reviewer hindsight is never a forecast.
+    runaway_factor: float = 2.0
+    #: Telegram `/runaway`, read at each decision so it applies without a restart.
+    runaway_control_reader: Callable[[], str | None] = lambda: None
+    #: W13's planner forecast; reviewer hindsight is never a forecast.
     planner_complexity_reader: Callable[[str], int | None] = _no_planner_complexity
     project_priority: float = 1.0
     #: Production reads current effective config at each new budget transaction.
@@ -479,9 +482,12 @@ def build_manifest(routing: DispatchRouting, runner: Any, node: Any):
         )
     task = routing.task_spec(runner.revision.task_id)
     rework = getattr(runner, "rework_paths", None)
+    from maestro.workflows import runaway as wf_runaway
+
     return build_context_manifest(
         task, role, runner.revision.code_base_sha, policy, queries=routing.queries,
         rework_paths=rework(node) if callable(rework) else (),
+        complexity=wf_runaway.forecast(routing, runner.revision.task_id),
     )
 
 
@@ -535,9 +541,12 @@ def resolve(
             # an authoritative amendment when no detailed attempt row remains.
             statistics = load_statistics(history_store,
                 minimum_observations=routing.statistics.minimum_observations)
-        base['pace_runaway_mode'] = routing.runaway_mode
-        base['planner_complexity'] = (routing.planner_complexity_reader(task_id)
-                                      if routing.runaway_mode != 'off' else None)
+        from maestro.workflows import runaway as wf_runaway
+
+        runaway_mode = wf_runaway.effective_mode(routing)
+        base['pace_runaway_mode'] = runaway_mode
+        # An unreadable forecast is no forecast: routing never fails on detection's input.
+        base['planner_complexity'] = wf_runaway.forecast(routing, task_id)
     if strength_floor:
         base["min_strength_floor"] = strength_floor
     if billing_only:

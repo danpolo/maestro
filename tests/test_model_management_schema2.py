@@ -104,24 +104,24 @@ def test_new_class_approves_each_deliverable_effort_and_skips_roles(policy, tmp_
     store.publish(policy, expected=None)
     detected((store, bridge, transport))
     tap(store, bridge, transport, 'Use')
-    assert only(store)['pending_cell'] == 'intelligence'
-    assert only(store)['roles'] == []
-    # New effort rows start as proposals; none becomes eligible before all cells are approved.
+    assert only(store)['step'] == 'card' and only(store)['roles'] == []
+    def fill(prefix, *values):
+        label = next(t for t in transport.buttons() if t.startswith(prefix))
+        tap(store, bridge, transport, label)
+        for value in values:
+            reply(store, bridge, transport, value)
+    # New effort rows start as proposals; none becomes eligible before Apply.
     for effort, score, cost in [('low', 40, 0.6), ('medium', 48, 1.0), ('high', 52, 2.0),
                                 ('xhigh', 54, 3.0), ('max', 55, 4.0)]:
-        assert only(store)['pair_effort'] == effort
-        assert effort in transport.last()['text'] and 'Intelligence' in transport.last()['text']
-        assert 'So far' not in transport.last()['text']
+        fill(effort, str(score), str(cost))
         assert not any(r['model_id'] == 'gpt-7-comet' for r in store.snapshot()[1]['routes'])
-        reply(store, bridge, transport, str(score))
-        assert only(store)['pending_cell'] == 'cost'
-        reply(store, bridge, transport, str(cost))
-    assert only(store)['pending_cell'] == 'max_output'
-    reply(store, bridge, transport, '32K')
-    reply(store, bridge, transport, '180K-200K')
-    reply(store, bridge, transport, '240K-270K')
-    reply(store, bridge, transport, '350K')
+    fill('Max output', '32K')
+    fill('Prepare', '180K-200K')
+    fill('Start fresh', '240K-270K')
+    fill('Ceiling', '350K')
+    fill('Window')
     tap(store, bridge, transport, 'Use default 420K')
+    tap(store, bridge, transport, 'Apply')
     assert only(store)['status'] == 'done'
     result = store.snapshot()[1]
     assert result['roles'] == policy['roles']
@@ -169,11 +169,12 @@ def test_same_class_successor_inherits_each_pair_and_only_reviews_limits(policy,
     assert only(store)['status'] == 'kept'
 
 
-def test_declining_a_partial_pair_walk_does_not_publish_the_model(policy, tmp_path):
+def test_declining_a_partial_card_does_not_publish_the_model(policy, tmp_path):
     store, bridge, transport = PolicyStore(tmp_path / 'models'), Bridge(), Transport()
     revision = store.publish(policy, expected=None)
     detected((store, bridge, transport))
     tap(store, bridge, transport, 'Use')
+    tap(store, bridge, transport, 'low: ❓')
     reply(store, bridge, transport, '40')
     reply(store, bridge, transport, '0.6')
     tap(store, bridge, transport, 'Decline')
@@ -207,20 +208,18 @@ def test_replacement_of_an_absent_shipped_destination_has_valid_previous_revisio
     assert preview['policy']['source']['bootstrap'] == policy['source']
 
 
-def test_skip_effort_never_creates_an_approved_row_and_skip_all_declines(policy, tmp_path):
+def test_a_card_with_no_effort_filled_cannot_apply(policy, tmp_path):
     from maestro import model_asks
     store, bridge, transport = PolicyStore(tmp_path / 'models'), Bridge(), Transport()
     revision = store.publish(policy, expected=None)
     detected((store, bridge, transport))
     tap(store, bridge, transport, 'Use')
+    tap(store, bridge, transport, 'low: ❓')
     reply(store, bridge, transport, '40')
-    tap(store, bridge, transport, 'Skip this effort')
-    assert only(store)['pair_effort'] == 'medium'
+    tap(store, bridge, transport, 'Not routed')
+    tap(store, bridge, transport, 'Apply')
     assert only(store)['approved_pairs'] == [] and model_asks.approved_pairs(store, 'codex', 'gpt-7-comet') == []
-    for _ in range(4):
-        tap(store, bridge, transport, 'Skip this effort')
-    assert only(store)['status'] == 'declined' and store.current() == revision
-    assert not bridge.added
+    assert only(store)['step'] == 'card' and store.current() == revision and not bridge.added
 
 
 def test_replacing_a_model_with_itself_preserves_all_pairs(policy):

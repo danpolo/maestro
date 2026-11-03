@@ -27,6 +27,9 @@ is the source of truth — this table mirrors what it actually reads):
 | `deps` | A list (or single string) of other task `id`s that must all have `status: complete` first. |
 | `scope` | Every file, directory or glob the task will **write**, tests included. Tasks whose scopes overlap run one after another, never in parallel (parallel tasks must merge trivially). Omitting `scope` serialises the task against everything; `scope: []` declares it writes nothing. |
 | `verifications` | What "done" means, as a list of checks (below). A task with none cannot be accepted. |
+| `task_class` | The kind of work: `feature`, `bug`, `documentation`, `difficult_debugging`, `manual_prep` or `recovery`. Model comparison and runaway detection compare like with like by this; `difficult_debugging` gets a strong model. `doctor` warns when an open task has none. |
+| `risk` | `high` only when the task can cause real outside cost: API keys, connections to third-party providers with limited quota, or calling agents outside the Maestro workflow, where it must choose models and effort itself. It gets a strong model and the fuller review graph. Everything else is `low`, the default, which never lowers the model. |
+| `complexity` | Optional forecast 1-5. 4 or 5 gets a strong model, while runaway detection is not off. |
 | `questions` | Setup prerequisites asked through the existing question channel before dispatch, including for manual tasks. Answers appear in the prep brief. |
 
 ### Verifications

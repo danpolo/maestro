@@ -7,6 +7,8 @@ import pytest
 from maestro.backends import agy_runtime, codex_runtime, git_staging
 from tests.test_git_staging import linked, git
 
+pytestmark = pytest.mark.real_fsync
+
 
 @pytest.mark.parametrize('backend', ['agy', 'codex'])
 def test_post_prepare_refusal_aborts_already_acquired_git_transaction(linked, tmp_path, monkeypatch, backend):

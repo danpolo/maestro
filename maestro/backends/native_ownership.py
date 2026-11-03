@@ -18,6 +18,9 @@ import uuid
 from maestro.backends import control_files, git_staging
 
 _current = ContextVar('native_owner', default=None)
+# How long a launched worker has to claim its reservation. This includes interpreter startup,
+# seen at 80-130 s at load 25. Only a launch that was abandoned before its claim waits this out.
+QUEUED_CLAIM_SECONDS = 300
 
 
 def _token(value):
@@ -147,7 +150,7 @@ class Reservation:
             for path in self.directories:
                 data = self._data(path)
                 if data['state'] == 'prepared' and data['owner'] == git_staging._identity():
-                    data.update(state='queued', deadline=time.monotonic() + 60)
+                    data.update(state='queued', deadline=time.monotonic() + QUEUED_CLAIM_SECONDS)
                     git_staging._dump(path / 'active.json', data)
 
     def start(self):

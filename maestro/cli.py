@@ -918,9 +918,14 @@ def _check_docs(repo_root: Path) -> Check:
         return Check("docs", False, f"missing: {', '.join(missing)}", required=True)
     try:
         from maestro.docs.roadmap import parse_prep_tasks, parse_runnable_tasks
+        from maestro.state import read_state_projection
         runnable = parse_runnable_tasks()
         try:
-            prep = parse_prep_tasks()
+            # The exported projection: doctor runs beside a live controller and must never
+            # compete for its lock.
+            prep = parse_prep_tasks(read_state_projection())
+        except (ValueError, AttributeError) as exc:
+            return Check("docs", False, f"state.json did not parse: {exc}", required=True)
         except FileNotFoundError:
             # `.orchestrator/state.json` is gitignored runtime state that exists only in
             # the main checkout, never in a `git worktree` — and every implementer/script
@@ -1366,6 +1371,8 @@ def _check_journal_and_version(repo_root: Path) -> Check:
         state = json.loads(STATE_JSON.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
         return Check("journal_version", False, f"state.json did not parse: {exc}")
+    if not isinstance(state, dict):
+        return Check("journal_version", False, "state.json did not parse: not a mapping")
     version = state.get("maestro_version")
     details = [f"maestro_version={version or '(never self-updated)'}"]
     if JOURNAL.is_file():
@@ -1415,18 +1422,12 @@ def _check_config_keys(repo_root: Path) -> Check:
 
     A typo in either file would otherwise fall back to a default without a word.
     """
-    import yaml
-
     from maestro import config as _config
     global_path = _config.global_config_path()
     problems = []
-    if global_path.exists():
-        try:
-            document = yaml.safe_load(global_path.read_text(encoding="utf-8"))
-        except (OSError, yaml.YAMLError) as exc:
-            return Check("config_keys", False, f"{global_path} is unreadable: {exc}", required=True)
-        if document is not None and not isinstance(document, dict):
-            return Check("config_keys", False, f"{global_path} is not a mapping", required=True)
+    problem = _config.global_config_problem()
+    if problem:
+        return Check("config_keys", False, problem, required=True)
     for name, document in ((str(global_path), _config.load_global_config()),
                            ("project.yaml", _repo_project_yaml(repo_root))):
         unknown = _config.unknown_keys(document)
@@ -1487,6 +1488,48 @@ def _check_goals(repo_root: Path) -> Check:
     if problems:
         return Check("goals", False, "; ".join(problems))
     return Check("goals", True, f"{len(doc.ids)} goals, each served; every task names its goals")
+
+
+def _check_roadmap_blocks(repo_root: Path) -> Check:
+    """A required failure for a malformed `yaml` block in the ROADMAP. Every reader skips one
+    silently, so its task would vanish. A block with no `id` is left alone, since a ROADMAP may
+    hold examples."""
+    from maestro import taskgraph
+
+    roadmap = repo_root / "docs" / "ROADMAP.md"
+    if not roadmap.is_file():
+        return Check("roadmap blocks", True, "no ROADMAP")
+    document = taskgraph.load_document(roadmap)
+    malformed = [str(issue) for issue in taskgraph.validate(document)
+                 if issue.code == "malformed_yaml"]
+    if malformed:
+        return Check("roadmap blocks", False, "; ".join(malformed), required=True)
+    count = len(taskgraph.iter_yaml_blocks(roadmap.read_text(encoding="utf-8")))
+    return Check("roadmap blocks", True, f"{count} blocks parse")
+
+
+def _check_task_labels(repo_root: Path) -> Check:
+    """A warning for open tasks whose class or risk would be read as a default. An unlabelled
+    task pollutes the `feature` statistics that route comparison and runaway detection use."""
+    from maestro import taskgraph
+
+    roadmap = repo_root / "docs" / "ROADMAP.md"
+    tasks = taskgraph.scan_tasks(roadmap.read_text(encoding="utf-8")) if roadmap.is_file() else []
+    problems = []
+    for task in tasks:
+        if str(task.get("status") or "") == "complete":
+            continue
+        label = task.get("task_class")
+        if label is None:
+            problems.append(f"{task['id']}: no task_class")
+        elif label not in taskgraph.TASK_CLASSES:
+            problems.append(f"{task['id']}: unknown task_class {label!r}")
+        risk = task.get("risk")
+        if risk is not None and risk not in taskgraph.KNOWN_RISKS:
+            problems.append(f"{task['id']}: unknown risk {risk!r}")
+    if problems:
+        return Check("task labels", False, "; ".join(problems))
+    return Check("task labels", True, "every open task names a known class")
 
 
 def _check_role_shape(repo_root: Path) -> Check:
@@ -1678,6 +1721,8 @@ def cmd_doctor(repo_root: Path, *, pre_commit: bool = False, thirdparty_only: bo
         checks.append(_check_priority(repo_root))
         checks.append(_check_role_shape(repo_root))
         checks.append(_check_goals(repo_root))
+        checks.append(_check_roadmap_blocks(repo_root))
+        checks.append(_check_task_labels(repo_root))
         checks.append(_check_journal_and_version(repo_root))
         checks.append(_check_thirdparty())
         checks.append(_check_meta_branch(repo_root))
@@ -2572,7 +2617,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     p_models = sub.add_parser("models", help="Shared model policy, discovery and replacement.")
     p_models.add_argument("verb", nargs="?", default="pick", choices=["pick", "status", "register", "candidates", "adopt", "consume", "proposals",
-                                   "review", "rollback", "retire", "asks"])
+                                   "review", "rollback", "retire", "asks", "sheet"])
     p_models.add_argument("action", nargs="?", default=None, help="asks: `process` drains the Telegram inbox.")
     p_models.add_argument("--json", action="store_true", dest="as_json")
     p_models.add_argument("--proposal", default=None, help="Proposal id to review (review).")

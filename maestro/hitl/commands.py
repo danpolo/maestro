@@ -49,6 +49,7 @@ from maestro.hitl.telegram import (
     notify_telegram,
     notify_intake,
     phase_report,
+    send_document,
     send_report,
 )
 from maestro.hitl import verify, graph_ask
@@ -1185,8 +1186,22 @@ def _show_manual() -> None:
 # side effect to make idempotent, and a redelivered `/workflow` costs one more message.
 
 
+def _send_workflow_picture(view: dict) -> bool:
+    """The page `workflow show --html` draws, sent as a document; False when it did not go."""
+    from maestro import status
+
+    try:
+        page = status.render_workflow_html(view)
+        target = REPO / ".orchestrator" / "artifacts" / f"workflow-{view['task_id']}.html"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(page, encoding="utf-8")
+        return send_document(target, caption=status.render_graph_progress_text(view))
+    except Exception:  # noqa: BLE001 — any failure here means the text goes instead
+        return False
+
+
 def _show_workflow(task_id: str) -> None:
-    """`/workflow <task_id>` — the compiled graph and where the run got to."""
+    """`/workflow <task_id>` — the compiled graph as a picture, or as text if that fails."""
     from maestro import status
 
     wanted = task_id.strip()
@@ -1198,7 +1213,8 @@ def _show_workflow(task_id: str) -> None:
     except status.WorkflowViewError as exc:
         notify_telegram(f"No graph for {wanted}: {exc}")
         return
-    send_report(status.render_workflow_text(view), header=f"🕸 workflow {wanted}")
+    if not _send_workflow_picture(view):
+        send_report(status.render_workflow_text(view), header=f"🕸 workflow {wanted}")
 
 
 def _show_explain(task_id: str) -> None:
@@ -1419,6 +1435,25 @@ def _control_sprint(arg: str, _, *, prepared=None, update_id=None) -> None:
                     else sprint.status_text(updated))
 
 
+def _control_runaway(arg: str, _) -> None:
+    """P13 W13: the operator's switch, above config. `off` also drops the planner's forecast."""
+    from maestro import config
+    action = arg.strip().lower()
+    if action not in ('', 'status', 'on', 'shadow', 'off'):
+        notify_telegram('Usage: /runaway on|shadow|off|status')
+        return
+    state = read_state()
+    if action in ('on', 'shadow', 'off'):
+        state['runaway_control'] = action
+        write_state(state)
+    try:
+        mode = state.get('runaway_control') or config.runaway_mode()
+    except config.ConfigError as exc:
+        notify_telegram(f'Runaway detection: config is invalid: {exc}')
+        return
+    notify_telegram(f'Runaway detection: {mode}')
+
+
 def _no_args(fn):
     def handle(arg, _):
         if arg:
@@ -1444,7 +1479,7 @@ COMMANDS = {c.name: c for c in (
     Command('halt', '', 'Stop after the current iteration', _no_args(_control_halt)),
     Command('hitl', 'on|off', 'Require review before merge', _control_hitl),
     Command('backend', '<name|auto> [task_id]', 'Pick a launch backend or move one in-flight task', lambda a, _: _process_backend(a)),
-    Command('workflow', '<id>', 'Run summary and workflow steps', lambda a, _: _show_workflow(a)),
+    Command('workflow', '<id>', 'Workflow picture with the run summary', lambda a, _: _show_workflow(a)),
     Command('explain', '<id>', 'Run summary, checks and decision', lambda a, _: _show_explain(a)),
     Command('report', 'bug|change|feature <description>', 'Save a report for a scoped proposal', _intake_handler('report')),
     Command('reports', '', 'List intake reports and task progress', _intake_handler('reports')),
@@ -1461,6 +1496,7 @@ COMMANDS = {c.name: c for c in (
     Command('detail', '<id> [full]', 'Show task detail and verifications', _control_detail),
     Command('priority', '<weight>', 'Set and commit project priority; 1 is normal', _control_priority),
     Command('sprint', 'on|off|stop|status', 'Control expiring-capacity sprints; off skips one week', _control_sprint),
+    Command('runaway', 'on|shadow|off|status', 'Stop retries for attempts far over their usual spend; off also drops the forecast', _control_runaway),
     Command('help', '', 'Show this command list', _no_args(lambda: notify_telegram(HELP_TEXT))),
     Command('commands', '', 'Show this command list', _no_args(lambda: notify_telegram(HELP_TEXT))),
     Command('start', '', 'Show this command list', _no_args(lambda: notify_telegram(HELP_TEXT))),

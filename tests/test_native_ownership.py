@@ -179,7 +179,7 @@ def test_rejected_worker_releases_native_resources_without_hiding_git_failure(li
     job.write_text(json.dumps({'git_transaction': transaction.job, 'reservation': owner.job,
                                'created_mountpoints': [], 'timeout': HANG_SECONDS,
                                'auth_identity': codex_auth.capture(auth)}))
-    # Queue only once the worker has imported, so its 60 s queued-reservation
+    # Queue only once the worker has imported, so its queued-reservation
     # deadline measures the hand-off, not interpreter startup on a loaded host.
     process = subprocess.Popen([sys.executable, '-c',
         f'import sys; from maestro.backends.{backend}_worker import main; '
@@ -286,7 +286,7 @@ owner.cleanup()
     try:
         for child in children:
             _await_line(child, b'ready\n')
-        # Queue only after both workers have started: the 60 s queued deadline
+        # Queue only after both workers have started: the queued deadline
         # then covers the claim race itself, not interpreter startup under load.
         owner.queue()
         for child in children:
@@ -413,7 +413,7 @@ def test_window_failure_after_worker_claim_does_not_release_live_worker(linked, 
     driver = (CodexBackend(codex_home=home / '.codex') if backend == 'codex' else
               AntigravityBackend(gemini_home=home / '.gemini'))
     # The stand-in worker starts before the launch and waits for its job path,
-    # so the launch's 60 s queued deadline covers the hand-off, not interpreter
+    # so the launch's queued deadline covers the hand-off, not interpreter
     # startup on a loaded host.
     program = '''
 import json,sys
@@ -531,3 +531,21 @@ def test_expired_queued_launch_can_recover_git_lease_while_parent_lives(linked, 
     if backend == 'codex':
         from tests.native_test_home import assert_codex_discovery_isolated
         assert_codex_discovery_isolated(reports, tmp_path / 'host-home')
+
+
+@pytest.mark.parametrize('late, claims', [(130, True), (301, False)])
+def test_worker_startup_under_load_keeps_its_reservation(tmp_path, monkeypatch, late, claims):
+    """Interpreter startup was seen at 80-130 s at load 25; only an abandoned launch expires."""
+    from maestro.backends import native_ownership
+    owner = native_ownership.Reservation()
+    owner.workspace(tmp_path / 'reports')
+    owner.queue()
+    now = native_ownership.time.monotonic()
+    monkeypatch.setattr(native_ownership.time, 'monotonic', lambda: now + late)
+    worker = native_ownership.Reservation.load(owner.job)
+    if claims:
+        worker.start()
+    else:
+        with pytest.raises(ValueError, match='no fresh reservation'):
+            worker.start()
+    owner.cleanup()

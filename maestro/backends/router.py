@@ -289,6 +289,11 @@ class RouteUnavailable:
 # ── what the router needs to know about the task (`§2.1` step 2) ─────────────────────
 
 
+#: What raises a task to a strong model besides `risk: high` (Dan, 2026-11-02).
+STRONG_TASK_CLASSES = ("difficult_debugging",)
+STRONG_COMPLEXITY = 4
+
+
 @dataclass(frozen=True)
 class RoutingContext:
     """The slice of a `ContextManifest` routing actually consumes.
@@ -306,9 +311,10 @@ class RoutingContext:
     #: The fixed 6-class task catalog's class for this task (A03). Free text here; the
     #: router only ever uses it as part of a shape key and as a demand input.
     task_class: str = "ordinary"
-    risk: str = "medium"
-    #: Files the task is expected to change. A proxy for churn, per `§2.1` step 2.
-    churn_files: int = 0
+    #: `high` means real outside cost (Dan, 2026-11-02). `low` never lowers the model.
+    risk: str = "low"
+    #: The task's 1-5 complexity forecast, `None` when nobody forecast it.
+    complexity: int | None = None
     #: Verified failure rate for prior attempts at this task, `0.0` when it is new.
     historical_failure_rate: float = 0.0
     role_version: str = ""
@@ -336,8 +342,8 @@ class RoutingContext:
             estimated_output_tokens=int(read("estimated_output_tokens", 0)),
             modalities=tuple(read("modalities", ("text",))),
             task_class=str(read("task_class", "ordinary")),
-            risk=str(read("risk", "medium")),
-            churn_files=int(read("churn_files", 0)),
+            risk=str(read("risk", "low")),
+            complexity=read("complexity", None),
             historical_failure_rate=float(read("historical_failure_rate", 0.0)),
             role_version=str(read("role_version", "")),
             template_id=str(read("template_id", "")),
@@ -397,8 +403,8 @@ def estimate_demand(node: Any, context: RoutingContext, policy: Any = None, *,
     """Task demand, before any backend is considered (`§2.1` step 2).
 
     The one rule this encodes that the ordering must never be allowed to violate:
-    **high-risk work is never routed to a low-effort small model**. Risk, churn and a
-    history of failure each raise the floor, and the floor is a hard filter — the paid
+    **high-risk work is never routed to a low-effort small model**. Risk, class, complexity
+    and a history of failure each raise the floor, and the floor is a hard filter — the paid
     objective minimises cost *subject to* it, never through it. The role's own
     `permitted_backend_capabilities` can raise the floor further and never lower it,
     because a policy that could lower a risk-derived floor would make the floor advisory.
@@ -414,26 +420,27 @@ def estimate_demand(node: Any, context: RoutingContext, policy: Any = None, *,
     permitted, _ = _role_requirements(policy, node)
     reasons: list[str] = []
 
-    strength = "balanced"
+    floor_name = "strength" if role_strength in _STRENGTH_RANK else "min_reasoning_strength"
+    declared_strength = str(role_strength if role_strength in _STRENGTH_RANK
+                            else permitted.get("min_reasoning_strength") or "")
+    # Only a role that says `light` gets a light model: a task's own facts never lower it.
+    strength = "light" if declared_strength == "light" else "balanced"
     escalated = False
-    if context.risk == "high" or context.task_class in ("architectural", "security"):
+    if context.risk == "high":
         strength, escalated = "strong", True
-        reasons.append(f"risk={context.risk}/class={context.task_class} demands strong reasoning")
-    elif context.risk == "low" and context.churn_files <= 1:
-        strength = "light"
-        reasons.append("low risk and minimal churn permit a small model")
+        reasons.append("risk=high (real outside cost) demands strong reasoning")
+    if context.task_class in STRONG_TASK_CLASSES:
+        strength, escalated = "strong", True
+        reasons.append(f"class={context.task_class} demands strong reasoning")
+    if type(context.complexity) is int and context.complexity >= STRONG_COMPLEXITY:
+        strength, escalated = "strong", True
+        reasons.append(f"complexity={context.complexity} demands strong reasoning")
     if context.historical_failure_rate >= 0.5:
         strength, escalated = "strong", True
         reasons.append(
             f"historical failure rate {context.historical_failure_rate:.0%} escalates demand"
         )
-    if context.churn_files >= 10 and _STRENGTH_RANK[strength] < _STRENGTH_RANK["balanced"]:
-        strength = "balanced"
-        reasons.append(f"{context.churn_files} changed files exceed a light model's remit")
 
-    floor_name = "strength" if role_strength in _STRENGTH_RANK else "min_reasoning_strength"
-    declared_strength = str(role_strength if role_strength in _STRENGTH_RANK
-                            else permitted.get("min_reasoning_strength") or "")
     if declared_strength in _STRENGTH_RANK and _STRENGTH_RANK[declared_strength] > _STRENGTH_RANK[strength]:
         strength = declared_strength
         reasons.append(f"role floor {floor_name}={declared_strength}")
@@ -1041,7 +1048,9 @@ def resolve_agent(
                 runaway_mode=pace_runaway_mode, planner_complexity=planner_complexity,
                 equivalent_shapes=_equivalent_shapes(catalog, entry, candidate.model_id,
                                                       candidate.pair.effort, shape))
-            if (evidence['success_rate'] is None and pace_runaway_mode == 'off'
+            band_compared = pace_runaway_mode != 'off' and type(planner_complexity) is int \
+                and 1 <= planner_complexity <= 5
+            if (evidence['success_rate'] is None and not band_compared
                     and candidate.success_rate is not None):
                 evidence.update(_statistics_success_evidence(statistics, catalog, entry,
                     candidate.model_id, candidate.pair.effort, shape))

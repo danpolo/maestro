@@ -15,6 +15,8 @@ from tests.test_git_staging import linked, confined, git
 from tests.test_git_object_validation import staged
 from tests.test_private_git_objects import hashes
 
+pytestmark = pytest.mark.real_fsync
+
 
 def test_independent_owners_validate_concurrently_and_publish_both_exact_refs(linked, tmp_path, monkeypatch):
     repo, tree, _, start = linked

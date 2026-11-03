@@ -84,6 +84,10 @@ class Transport:
     def edit(self, message_id, *, markup=None):
         self.edits.append((message_id, markup))
 
+    def edit_text(self, message_id, text, *, markup=None):
+        message = next(m for m in self.sent if m['id'] == message_id)
+        message.update(text=text, markup=markup)
+
     def last(self):
         return self.sent[-1]
 
@@ -143,7 +147,7 @@ def test_new_class_three_steps_end_with_modelctl_add_and_role_assignment(world):
     store, bridge, transport = world
     detected(world)
     assert 'gpt-7-comet' in transport.last()['text'] and 'mdl:' in transport.last()['text']
-    assert set(transport.buttons()) == {'Use', 'Decline'}
+    assert set(transport.buttons()) == {'Use', 'Pull from Drive', 'Decline'}
     assert 'gpt-6.1-sol' in transport.last()['text']  # the other routes' values, for context
     tap(store, bridge, transport, 'Use')
     judge = next(label for label in transport.buttons() if 'judge' in label)
@@ -255,7 +259,7 @@ def test_failed_add_reports_modelctl_error_and_retry_completes(world):
     record = only(store)
     assert (record['status'], record['step']) == ('open', 'failed')
     assert 'FAILED: ceiling 900K exceeds the native window' in transport.last()['text']
-    assert {'Retry', 'Re-enter values', 'Decline'} == set(transport.buttons())
+    assert {'Retry', 'Re-enter values', 'Pull from Drive', 'Decline'} == set(transport.buttons())
     assert store.current() is None
     bridge.add_ok = True
     tap(store, bridge, transport, 'Retry')

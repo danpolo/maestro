@@ -28,35 +28,56 @@ _EXECUTION_SURFACES = (*_SEALED, 'agents', 'settings.json', 'settings.local.json
                        'rules.json', 'CLAUDE.md', 'GEMINI.md')
 
 
+# The inventory is a written record, not an input to verification, so being partial never fails
+# a prepare. A plugin's own files are not worth the walk: real homes had about 5,000 entries,
+# and four levels name about 450 of them.
+_INVENTORY_DEPTH = 3
+_INVENTORY_ENTRIES = 20000
+
+
 def _omission_inventory(root: Path) -> dict:
     """Name masked execution surfaces, never read their instructions or auth.
 
     Native caches/worktrees are deliberately not recursively enumerated. Links
     are recorded by name, without following them outside the masked discovery
-    root. Match preparation's bounded, pinned directory-input contract.
+    root. Match preparation's bounded, pinned directory-input contract. A record
+    that stopped early carries `truncated: true`.
     """
     paths = []
     existed = root.exists()
     omitted = []
+    truncated = False
     if existed:
         def walk(parent, name, info, depth=0):
-            if len(paths) >= 20000 or depth >= 64:
-                raise ValueError('Codex omission inventory entry/depth limit exceeded')
+            nonlocal truncated
+            if len(paths) >= _INVENTORY_ENTRIES:
+                truncated = True
+                return
             path = parent.path / name
             paths.append(str(path.relative_to(root)))
-            if stat.S_ISDIR(info.st_mode):
+            if not stat.S_ISDIR(info.st_mode):
+                return
+            if depth >= _INVENTORY_DEPTH:
+                truncated = True
+                return
+            try:
                 with control_files.DirectoryView(path) as child:
                     if control_files.identity(child.info) != control_files.identity(info):
                         raise ValueError('Codex omission inventory directory changed')
                     for leaf, value in child.entries().items():
                         walk(child, leaf, value, depth + 1)
+            except (OSError, ValueError):
+                truncated = True  # a live home can change mid-walk; the record says it is partial
         with control_files.DirectoryView(root) as view:
             entries = view.entries(only=_EXECUTION_SURFACES)
             omitted = sorted(name for name in _EXECUTION_SURFACES if name in entries)
             for name in omitted:
                 walk(view, name, entries[name])
-    return {'path': str(root), 'existed': existed, 'omitted': omitted,
-            'omitted_paths': sorted(paths)}
+    record = {'path': str(root), 'existed': existed, 'omitted': omitted,
+              'omitted_paths': sorted(paths)}
+    if truncated:
+        record['truncated'] = True
+    return record
 
 
 def _model_metadata(native_home: Path, control: Path, model: str | None) -> tuple[dict, dict]:

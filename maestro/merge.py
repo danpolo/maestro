@@ -15,7 +15,7 @@ import re
 import subprocess
 from pathlib import Path
 
-from maestro.config import _load_project_yaml
+from maestro.config import _load_project_yaml, global_config_problem
 from maestro import confinement
 from maestro import metabranch
 from maestro import metrics
@@ -320,6 +320,9 @@ def integration_guard(
     """
     proj = _load_project_yaml() if proj is None else proj
     proj = proj if isinstance(proj, dict) else {}
+    problem = global_config_problem()
+    if problem:
+        return f"deny_list: the global config cannot be used, so its safety lists are unknown: {problem}; refusing"
     if not target_head:
         return "deny_list: the target branch has no head to diff the candidate against; refusing"
     span = f"{target_head}...{commit}"

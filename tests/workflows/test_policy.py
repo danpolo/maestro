@@ -187,9 +187,9 @@ def test_a_template_asking_for_a_role_with_no_definition_is_refused():
 
 
 @pytest.mark.parametrize(
-    "risk,expected", [("low", False), ("medium", False), ("high", True), ("critical", True)]
+    "risk,expected", [("low", False), ("high", True)]
 )
-def test_high_risk_covers_critical_too(risk, expected):
+def test_high_risk_is_exactly_high(risk, expected):
     assert RiskContext(task_id="T", risk=risk).holds("high_risk") is expected
 
 

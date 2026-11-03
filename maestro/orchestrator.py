@@ -2147,6 +2147,18 @@ def _graph_task_overrides(task_id):
                  if str(task.get('id', '')) == str(task_id)), None)
 
 
+def _graph_planner_complexity(task_id):
+    """W13's forecast: a planner node's, else the ROADMAP task's `complexity:`."""
+    from maestro.workflows import runaway
+
+    store = _state_module.control_store()
+    forecast = runaway.latest_forecast(store, task_id) if store is not None else None
+    if forecast is not None:
+        return forecast
+    task = _graph_task_overrides(task_id)
+    return runaway.valid_band(task.get('complexity')) if task else None
+
+
 def _graph_routing(*, task_id=None):
     """The graph loop's `DispatchRouting`, built once per controller process (P12A W1/W2).
 
@@ -2199,6 +2211,10 @@ def _graph_routing(*, task_id=None):
         near_cost_margin=near_cost_margin(project),
         pace_estimates=_config.pace_estimates(project, task=task),
         runaway_mode=_config.runaway_mode(project, task=task),
+        runaway_factor=_config.runaway_factor(project, task=task),
+        runaway_control_reader=lambda: (_state_module.read_state().get('runaway_control')
+                                        if _state_module.control_store() is not None else None),
+        planner_complexity_reader=_graph_planner_complexity,
         project_priority=_config.project_priority(project),
         sprint_refresh=_graph_refresh_sprint,
         sprint_reader=lambda: (_state_module.read_state().get('sprint', {})
@@ -2229,6 +2245,7 @@ def _graph_task_routing(routing, task_id):
     task = _graph_task_overrides(task_id)
     result.pace_estimates = _config.pace_estimates(project, task=task)
     result.runaway_mode = _config.runaway_mode(project, task=task)
+    result.runaway_factor = _config.runaway_factor(project, task=task)
     result.project_priority = _config.project_priority(project)
     frozen_policy = project.get('_model_policy_frozen_policy')
     # An unchanged unadopted inventory already belongs to the controller catalog.
@@ -3182,7 +3199,28 @@ def _graph_improvement_weekly(store, artifacts, channel, runnable=()):
     if throttled:
         return None
     _last_improvement_check = now
-    return _graph_improvement(store, artifacts, channel, "weekly")
+    result = _graph_improvement(store, artifacts, channel, "weekly")
+    _graph_digest()  # after the analysis, so it reports that run
+    return result
+
+
+def _graph_digest() -> bool:
+    """P13 W10: the weekly digest when due (`digest.send_if_due`). Never raises: a failure
+    journals `digest_failed` or `digest_undelivered`, and a later idle check tries again."""
+    from maestro import digest
+    from maestro.hitl import telegram
+
+    def send(text: str) -> bool:
+        delivered = telegram.deliver_report(text, header="📊 Maestro weekly digest")
+        if not delivered:
+            append_journal("digest_undelivered", "Telegram did not confirm the weekly digest")
+        return delivered
+
+    try:
+        return digest.send_if_due(REPO, _state_module.CONTROL_DB, at=_improvement_now(), send=send)
+    except Exception as exc:  # noqa: BLE001 — a digest never stops the loop
+        append_journal("digest_failed", f"{type(exc).__name__}: {exc}"[:300])
+        return False
 
 
 def _graph_improvement_poll(channel) -> None:

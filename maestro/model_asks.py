@@ -8,6 +8,8 @@ Kinds of ask:
 - `menu` and `edit`: Dan's `/models` command (codex-bridge writes it as `kind: command`) lists
   every routed Claude and Codex model; a tap opens that model's card, one button per value, and
   Apply runs one `modelctl add` with the changed values.
+- `access_failure`: a model whose automatic access tests stopped. Retry or Remove model; its logic
+  and text live in `model_access`.
 
 Records live under the policy store (`asks/<ask_id>.json`) and are written atomically under its
 lock. codex-bridge, the single listener on the send-to-me bot, writes button taps and replies
@@ -16,6 +18,7 @@ into `asks/inbox/<update_id>.json`; `process` drains them. Values are only ever 
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import html
 import json
@@ -32,11 +35,17 @@ from maestro.model_policy import PolicyError, atomic_write, canonical
 MODEL_ASKS_VERSION = 1
 
 REMIND_AFTER = 24 * 3600
+STUCK_AFTER = 3600
 EDIT_IDLE_AFTER = 24 * 3600  # an untouched /models edit card closes after this (Dan's ask, 2026-10-08)
 _UPDATES_KEPT = 100
 _MESSAGES_KEPT = 50
 _ERROR_CHARS = 1500
-_WINDOWED = ('codex',)  # providers whose enforced window is its own table cell
+# Providers whose enforced window is its own table cell, and what Dan is told when he sets it.
+_WINDOW_HINTS = {
+    'codex': 'Codex never goes below the model\'s own default, so it may save a higher value.',
+    'antigravity_cli': 'Where agy compacts this model: above the ceiling, and at most the native window.',
+}
+_WINDOWED = tuple(_WINDOW_HINTS)
 _STRENGTHS = ('light', 'balanced', 'strong')
 _LIFECYCLE = ('handoff', 'fresh', 'ceiling', 'window')
 _PROFILE = ('strength', 'relative_cost', 'max_output')
@@ -154,6 +163,17 @@ def default_window(ceiling: int) -> int:
     return (ceiling * 6 // 5 + 5_000) // 10_000 * 10_000
 
 
+def _offered_window(record) -> int | None:
+    """The default a card may offer: it never exceeds the native window, and None if nothing fits."""
+    values = _merged(record)
+    if values.get('ceiling') is None:
+        return None
+    native = values.get('native_window') or record.get('provider_native')
+    window = default_window(values['ceiling'])
+    window = min(window, native) if native else window
+    return window if window > values['ceiling'] else None
+
+
 # ── records ─────────────────────────────────────────────────────────────────────────────
 
 def ask_id(kind: str, subject: str) -> str:
@@ -229,8 +249,8 @@ def open_new_class(store, proposal: dict, now=None, versions=None, access=None) 
     backend, model = proposal['destination']
     family = proposal['detection']['family']
     for other in records(store):
-        if (other['kind'] == 'new_class' and other['status'] == 'open' and other['backend'] == backend
-                and other['family'] == family and other['model_id'] != model
+        if (other['kind'] == 'new_class' and other['status'] == 'open' and not other.get('readd')
+                and other['backend'] == backend and other['family'] == family and other['model_id'] != model
                 and _supersedes(proposal, other, versions or {})):
             other.update(status='superseded', step='closed', send_pending=bool(other['message_ids']),
                          reason=f'a newer {family} model ({model}) was detected')
@@ -383,49 +403,175 @@ def _start_roles(store, record) -> None:
                   send_pending=True)
 
 
-def _start_pairs(store, bridge, record) -> None:
-    """Only register-listed efforts are proposed; every value still needs Dan's answer."""
+def _deliverable_efforts(bridge, record) -> list[str]:
+    """Efforts this model can run. A harness dial (Claude, Codex) offers them all; agy has no dial,
+    so each model's own effort variants, which modelctl lists as its aliases, decide."""
+    from maestro.backends import catalog
+    efforts = _catalog_efforts(record['backend'])
+    if efforts:
+        return efforts
+    row = _any_row(bridge, record['backend'], record['model_id']) or {}
+    suffixes = {alias.rsplit('-', 1)[-1] for alias in row.get('aliases', [])}
+    return [effort for effort in catalog.CANONICAL_EFFORTS if effort in suffixes]
+
+
+def _catalog_efforts(backend) -> list[str]:
     from maestro import thirdparty
     from maestro.backends import catalog
     entry = catalog.catalog_from_register(thirdparty.load_register(),
-                                           defaults=catalog.SHIPPED_CATALOG_DEFAULTS).entries.get(record['backend'])
-    efforts = [effort for effort in catalog.CANONICAL_EFFORTS
-               if entry is not None and entry.delivers(effort)]
+                                           defaults=catalog.SHIPPED_CATALOG_DEFAULTS).entries.get(backend)
+    return [effort for effort in catalog.CANONICAL_EFFORTS if entry is not None and entry.delivers(effort)]
+
+
+def _any_row(bridge, backend, model) -> dict | None:
+    """The owner's facts about a model, registered or not."""
+    rows = bridge.configured_models(backend, identities=[model]).get('models') or []
+    return next((m for m in rows if m['model_id'] == model or model in m.get('aliases', [])), None)
+
+
+def _start_card(store, bridge, record) -> None:
+    """Dan's Use flow (2026-11-01): one card with every value. Known values are shown and editable;
+    a model modelctl has no row for starts empty, with the Model unknown row only as suggestions."""
+    backend, model = record['backend'], record['model_id']
+    efforts = _deliverable_efforts(bridge, record)
     if not efforts:
-        raise PolicyError('no deliverable effort levels for this model; pair approval unavailable')
-    record.update(pair_approval=True, pair_efforts=efforts, pair_index=0, approved_pairs=[], roles=[], role_models={})
-    _next_pair(store, record)
+        raise PolicyError(f'modelctl lists no effort levels for {model}, so it cannot be routed yet')
+    answers, suggestions = {}, {}
+    row = _owner_row(bridge, backend, model)  # a bridge failure is reported to Dan on the alert
+    if row is not None:
+        life = row['lifecycle']
+        answers.update(handoff=list(life['prepare']), fresh=list(life['fresh']), ceiling=life['ceiling'])
+        if backend in _WINDOWED and row.get('enforced_window'):
+            answers['window'] = row['enforced_window']
+        grade = row.get('routing_profile')
+        if isinstance(grade, dict):
+            answers['max_output'] = grade['max_output_tokens']
+            if grade.get('native_window_tokens'):
+                answers['native_window'] = grade['native_window_tokens']
+    try:
+        unknown = bridge.limits(backend).get('unknown')
+    except PolicyError:
+        unknown = None
+    if unknown:
+        suggestions.update(handoff=list(unknown['prepare']), fresh=list(unknown['fresh']), ceiling=unknown['ceiling'])
+    reported = (_any_row(bridge, backend, model) or {}).get('provider_limits') or {}
+    if reported.get('max_output_tokens'):
+        suggestions['max_output'] = reported['max_output_tokens']
+    order = ['handoff', 'fresh', 'ceiling', *(['window'] if backend in _WINDOWED else []), 'max_output', 'native_window']
+    record.update(pair_approval=True, pair_efforts=efforts, pair_values={}, approved_pairs=[], roles=[], role_models={},
+                  order=order, walk=[], answers=answers, suggestions=suggestions,
+                  provider_native=reported.get('native_window_tokens'), provider_output=reported.get('max_output_tokens'))
+    _back_to_card(record)
 
 
-def _next_pair(store, record) -> None:
-    _, policy = store.snapshot()
-    effort = record['pair_efforts'][record['pair_index']]
-    proposed = next((r for r in policy['routes'] if r['backend_id'] == record['backend']
-                     and r['effort'] == effort and r['model_id'] == record.get('predecessor')), None)
-    current = dict(intelligence=proposed['intelligence'], cost=proposed['relative_cost']) if proposed else {}
-    record.update(pair_effort=effort, order=['intelligence', 'cost'], walk=['intelligence', 'cost'],
-                  cells=['intelligence', 'cost'], answers={}, current=current)
-    _advance(record)
+def _back_to_card(record) -> None:
+    record.update(step='card', pending_cell=None, pair_effort=None, cells=[], current={}, error=None, send_pending=True)
 
 
-def _finish_pair(store, bridge, record) -> None:
-    if not (record.get('pair_effort') and record['status'] == 'applying'):
+def _card_store(record, cell, value) -> None:
+    effort = record.get('pair_effort')
+    if not effort:
+        record['answers'][cell] = value
+        _back_to_card(record)
         return
-    values = _merged(record)
-    record['approved_pairs'].append(dict(backend_id=record['backend'], model_id=record['model_id'],
-                                         effort=record['pair_effort'], intelligence=values['intelligence'],
-                                         relative_cost=values['cost']))
-    _advance_pair(store, bridge, record)
-
-
-def _advance_pair(store, bridge, record) -> None:
-    record.update(pair_index=record['pair_index'] + 1, status='open')
-    if record['pair_index'] < len(record['pair_efforts']):
-        _next_pair(store, record)
-    elif not record['approved_pairs']:
-        _decline(store, record)
+    record['pair_values'].setdefault(effort, {})[cell] = value
+    if record['cells']:
+        record.update(pending_cell=record['cells'].pop(0), error=None, send_pending=True)
     else:
-        _start_values(store, bridge, record)
+        _back_to_card(record)
+
+
+def _card_apply(record) -> None:
+    from maestro.backends.catalog import class_of
+    values = _merged(record)
+    problems = [_LABELS[c] for c in record['order'] if c != 'native_window' and values.get(c) is None]
+    problems = [f'Still missing: {", ".join(problems)}.'] if problems else []
+    filled = [e for e in record['pair_efforts'] if e in record['pair_values']]
+    half = [e for e in filled if len(record['pair_values'][e]) < 2]
+    if half:
+        problems.append(f'Finish or clear these efforts: {", ".join(half)}.')
+    if not filled:
+        problems.append('Fill at least one effort: a model with none cannot be routed.')
+    if not problems:
+        try:
+            _check_order({'native_window': record.get('provider_native'), **values})
+        except PolicyError as exc:  # a value carried over from modelctl's row can conflict with a new one
+            problems.append(f'{exc}.')
+    if problems:
+        record.update(error=' '.join(problems), send_pending=True)
+        return
+    pairs = [dict(backend_id=record['backend'], model_id=record['model_id'], effort=e,
+                  intelligence=record['pair_values'][e]['intelligence'],
+                  relative_cost=record['pair_values'][e]['cost']) for e in filled]
+    # modelctl's model profile stays an owner compatibility input; routing uses the pairs above.
+    record['answers'].update(strength=class_of(pairs[0]['intelligence']), relative_cost=pairs[0]['relative_cost'])
+    record.update(approved_pairs=pairs, status='applying', step='apply', registered=False, error=None, send_pending=True)
+
+
+def _on_card(record, action) -> bool:
+    """The card's own buttons; False leaves the action to the shared steps (set:, decline, retry)."""
+    step = record['step']
+    if step == 'card':
+        if action.startswith('c:') and action[2:] in record['order']:
+            cell = action[2:]
+            kept = {cell: record['answers'][cell]} if cell in record['answers'] else {}
+            record.update(step='cell', pending_cell=cell, pair_effort=None, cells=[], current=kept, error=None,
+                          send_pending=True)
+        elif action.startswith('p:') and action[2:] in record['pair_efforts']:
+            effort = action[2:]
+            record.update(step='cell', pending_cell='intelligence', pair_effort=effort, cells=['cost'],
+                          current=dict(record['pair_values'].get(effort, {})), error=None, send_pending=True)
+        elif action == 'apply':
+            _card_apply(record)
+        else:
+            return False
+    elif step == 'cell' and action == 'back':
+        _back_to_card(record)
+    elif step == 'cell' and action == 'skip_pair' and record.get('pair_effort'):
+        record['pair_values'].pop(record['pair_effort'], None)
+        _back_to_card(record)
+    elif step == 'failed' and action == 'change':
+        record['registered'] = False
+        _back_to_card(record)
+    else:
+        return False
+    return True
+
+
+def _pull(store, bridge, record) -> None:
+    """Dan's Pull from Drive (2026-11-02): take the model's line, check it, and apply it. A refusal
+    raises with every problem, leaving the ask as it was, so Dan fixes the line and pulls again."""
+    from maestro import model_sheet
+    from maestro.backends.catalog import CANONICAL_EFFORTS
+    if store.snapshot()[1]['schema'] != 2:
+        raise PolicyError('Pull from Drive needs a schema 2 policy')
+    known = _any_row(bridge, record['backend'], record['model_id']) or {}
+    line = model_sheet.find_row(record['backend'], record['model_id'], [known.get('model_id', ''), *known.get('aliases', [])])
+    trial = copy.deepcopy(record)
+    _start_card(store, bridge, trial)
+    trial['answers'], errors = {}, []
+    def read(cell, column):
+        try:
+            return parse_cell(cell, line[column])
+        except PolicyError as exc:
+            errors.append(f'{column}: {exc}')
+    for column, cell in model_sheet.CELLS.items():
+        if cell in trial['order'] and line.get(column, '').strip():
+            trial['answers'][cell] = read(cell, column)
+    for effort in CANONICAL_EFFORTS:
+        filled = {cell: column for cell, column in (('intelligence', f'{effort}_intelligence'), ('cost', f'{effort}_cost'))
+                  if line.get(column, '').strip()}
+        if filled and effort not in trial['pair_efforts']:
+            errors.append(f'{effort}: this model has no such effort (it has {", ".join(trial["pair_efforts"])})')
+        elif filled:
+            trial['pair_values'][effort] = {cell: read(cell, column) for cell, column in filled.items()}
+    if errors:
+        raise PolicyError('\n'.join(f'Drive table: {e}' for e in errors))
+    _card_apply(trial)
+    if trial['status'] != 'applying':
+        raise PolicyError(f'Drive table: {trial["error"]}')
+    record.clear()
+    record.update(trial)
 
 
 def _start_values(store, bridge, record) -> None:
@@ -459,13 +605,6 @@ def _start_values(store, bridge, record) -> None:
     if unknown:
         record['suggestions'] = dict(handoff=list(unknown['prepare']), fresh=list(unknown['fresh']),
                                      ceiling=unknown['ceiling'])
-    if record.get('pair_approval'):
-        # modelctl's model profile remains an owner compatibility input. It never grades
-        # schema 2 pairs; only the explicitly approved rows below do that.
-        from maestro.backends.catalog import class_of
-        first = record['approved_pairs'][0]
-        answers.update(strength=class_of(first['intelligence']), relative_cost=first['relative_cost'])
-        record.update(pair_effort=None, current={})
     order = ['strength', 'relative_cost', 'max_output', 'handoff', 'fresh', 'ceiling']
     order += ['window'] if backend in _WINDOWED else []
     walk = [c for c in order if c not in answers]
@@ -494,7 +633,12 @@ def _accept(record, cell, raw) -> None:
         value = parse_cell(cell, raw)
         merged = _merged(record)
         # The editor checks the whole card; a walk checks against the cells already decided.
-        earlier = record['order'] if record['kind'] == 'edit' else record['order'][:record['order'].index(cell)]
+        if record['kind'] == 'edit':
+            earlier = record['order']
+        elif record.get('pair_approval'):
+            earlier = record['order'] if cell in record['order'] else []
+        else:
+            earlier = record['order'][:record['order'].index(cell)]
         values = {c: merged[c] for c in earlier if merged.get(c) is not None}
         values[cell] = value
         if values.get('native_window') is None and record.get('provider_native'):
@@ -502,6 +646,9 @@ def _accept(record, cell, raw) -> None:
         _check_order(values)
     except PolicyError as exc:
         record.update(error=str(exc), send_pending=True)
+        return
+    if record.get('pair_approval'):
+        _card_store(record, cell, value)
         return
     if record['kind'] == 'edit':
         if value == record['baseline'].get(cell):
@@ -535,10 +682,11 @@ def _rewalk(record) -> None:
 def _decline(store, record) -> None:
     from maestro import model_detection
     if record['kind'] == 'new_class':
-        proposal = model_detection._load(store, record['subject'])
-        if proposal['status'] == 'waiting_limits':
-            proposal['status'] = 'rejected'
-            model_detection._save(store, proposal)
+        if not record.get('readd'):  # a re-add's subject is not a proposal
+            proposal = model_detection._load(store, record['subject'])
+            if proposal['status'] == 'waiting_limits':
+                proposal['status'] = 'rejected'
+                model_detection._save(store, proposal)
         record.update(status='declined', step='closed', send_pending=True)
     else:
         record.update(status='kept', step='closed', send_pending=True)
@@ -557,6 +705,10 @@ def _edit_apply(record) -> None:
 
 
 def _on_callback(store, bridge, record, action: str, now=None) -> None:
+    if record['kind'] == 'access_failure':  # before the status check: a removed card keeps Pull from Drive
+        from maestro import model_access
+        model_access.on_tap(store, bridge, record, action, time.time() if now is None else now)
+        return
     step = record['step']
     if record['status'] != 'open':
         return
@@ -578,15 +730,18 @@ def _on_callback(store, bridge, record, action: str, now=None) -> None:
             if cell == record['pending_cell']:
                 _accept(record, cell, value)
         return
+    if action == 'pull' and record['kind'] == 'new_class' and step in ('use', 'card', 'failed'):
+        _pull(store, bridge, record)
+        return
+    if record.get('pair_approval') and _on_card(record, action):
+        return
     if action == 'use' and step == 'use' and store.snapshot()[1]['schema'] == 2:
-        _start_pairs(store, bridge, record)
+        _start_card(store, bridge, record)
     elif action == 'use' and step == 'use' and record.get('predecessor'):
         _start_values(store, bridge, record)  # no role step: the successor takes its predecessor's roles
     elif action == 'use' and step == 'use':
         _start_roles(store, record)
-    elif action == 'skip_pair' and step == 'cell' and record.get('pair_effort'):
-        _advance_pair(store, bridge, record)
-    elif action == 'decline' and step in ('use', 'roles', 'cell', 'failed') and record['kind'] == 'new_class':
+    elif action == 'decline' and step in ('use', 'roles', 'cell', 'card', 'failed') and record['kind'] == 'new_class':
         _decline(store, record)
     elif action == 'keep' and (step == 'review' or step == 'failed' and record['kind'] == 'limits_review'):
         _decline(store, record)
@@ -664,7 +819,8 @@ def _handle(store, bridge, transport, update) -> bool:
         _on_callback(store, bridge, record, action)
     elif record['status'] == 'open' and record['step'] == 'cell':
         _accept(record, record['pending_cell'], update['text'])
-    _finish_pair(store, bridge, record)
+    elif record['status'] == 'open' and record['step'] == 'card':
+        record.update(error='Tap the value you want to change first, then reply.', send_pending=True)
     record['applied_updates'] = (record['applied_updates'] + [update['update_id']])[-_UPDATES_KEPT:]
     _save(store, record)
     return True
@@ -688,6 +844,26 @@ def process(store, bridge, transport, now=None) -> dict:
         return _process(store, bridge, transport, now, result)
 
 
+def _describe(exc) -> str:
+    return str(exc) or type(exc).__name__
+
+
+def _report_refusal(store, transport, update, exc) -> None:
+    """Answer on the ask's own message; without one, in a plain message. Dan always hears back."""
+    try:
+        with store.locked():
+            record = None
+            if update['kind'] != 'command':
+                record, _ = _find(records(store), update)
+            if record is not None and record['status'] == 'open':
+                record.update(error=failure_text(_describe(exc)), send_pending=True)
+                _save(store, record)
+                return
+        transport.send(f'❗ That did not work: {_e(_describe(exc))}\nTry again.')
+    except Exception:  # noqa: BLE001 - the refusal is already in the result
+        pass
+
+
 def _process(store, bridge, transport, now, result) -> dict:
     inbox = sorted((_dir(store) / 'inbox').glob('*.json'), key=_update_key)
     if transport is None and inbox:
@@ -705,14 +881,19 @@ def _process(store, bridge, transport, now, result) -> dict:
         try:
             with store.locked():
                 handled = _handle(store, bridge, transport, update)
-        except PolicyError as exc:
-            result['errors'].append(f'update {update["update_id"]} kept for retry: {exc}')
+        except Exception as exc:  # noqa: BLE001 - Dan hears about it; one bad tap must not jam the inbox
+            # Tapping again is the retry: a file left here re-triggers the path unit in a tight loop.
+            path.unlink(missing_ok=True)
+            result['errors'].append(f'update {update["update_id"]} refused: {_describe(exc)}')
+            _report_refusal(store, transport, update, exc)
             continue
         path.unlink(missing_ok=True)
         result['processed' if handled else 'ignored'] += 1
-    for record in records(store):
-        if record['status'] == 'applying':
-            result['applied'] += _apply(store, bridge, record['ask_id'])
+    applying = [record['ask_id'] for record in records(store) if record['status'] == 'applying']
+    if applying:
+        flush(store, transport, bridge, now=now)  # the add takes minutes: Dan sees it started first
+    for ident in applying:
+        result['applied'] += _apply(store, bridge, ident)
     result.update(flush(store, transport, bridge, now=now))
     return result
 
@@ -762,6 +943,9 @@ def _apply(store, bridge, ident) -> int:
         record = _load(store, ident)
         if record['status'] != 'applying':
             return 0
+    if record['kind'] == 'access_failure':
+        from maestro import model_access
+        return model_access.apply_card(store, bridge, ident)
     try:
         if not record['registered']:
             with store.locked():
@@ -805,8 +989,20 @@ def _apply(store, bridge, ident) -> int:
     with store.locked():
         record = _load(store, ident)
         record.update(status='done', step='closed', error=None, send_pending=True)
+        _note_saved_window(bridge, record)
         _save(store, record)
     return 1
+
+
+def _note_saved_window(bridge, record) -> None:
+    """Codex never goes below a model's own default window, so modelctl may save more than asked."""
+    asked = record['answers'].get('window')
+    try:
+        saved = (_owner_row(bridge, record['backend'], record['model_id']) or {}).get('enforced_window')
+    except PolicyError:
+        return
+    if record.get('pair_approval') and asked and saved and saved != asked:
+        record['saved_window'] = saved
 
 
 def _assign_roles(store, record) -> None:
@@ -828,7 +1024,7 @@ def _assign_roles(store, record) -> None:
 def _close_stale(store, record) -> bool:
     """A new-class ask whose proposal was settled elsewhere (e.g. a manual modelctl add)."""
     from maestro import model_detection
-    if record['kind'] != 'new_class' or record['status'] != 'open' or record['step'] not in ('use', 'roles', 'cell'):
+    if record['kind'] != 'new_class' or record['status'] != 'open' or record['step'] not in ('use', 'roles', 'cell', 'card'):
         return False
     if record.get('attempted'):
         return False  # its own apply settled the proposal (e.g. Re-enter values after a failure)
@@ -857,11 +1053,42 @@ def _close_idle_edit(record, now) -> bool:
     return True
 
 
+def _warn_stuck_inbox(store, transport, now) -> None:
+    """Taps waiting for over an hour mean the processor is down. Say so, at most once a day."""
+    if transport is None:
+        return
+    try:
+        stuck = [p for p in (_dir(store) / 'inbox').glob('*.json') if now - p.stat().st_mtime > STUCK_AFTER]
+        marker = _dir(store) / 'stuck-warned'
+        if not stuck or (marker.exists() and now - float(marker.read_text()) < REMIND_AFTER):
+            return
+        transport.send(f'⚠️ {len(stuck)} Telegram model answer(s) are not being processed. '
+                       'Check: systemctl --user status maestro-model-asks.path')
+        marker.write_text(str(now))
+    except (OSError, ValueError, PolicyError):
+        pass
+
+
+def _in_place(record) -> bool:
+    """Dan's alert message stays the one place for a model's Use flow; done and failed get a new
+    message so they notify, and a reminder is new by nature. An access card's results notify too,
+    so only its in-progress note edits the alert."""
+    if record['kind'] == 'access_failure':
+        return record['status'] == 'applying' and record['current_message'] is not None
+    if record['kind'] != 'new_class' or record['current_message'] is None or record.get('reminder'):
+        return False
+    if record['status'] in ('applying', 'declined'):
+        return True
+    return record['status'] == 'open' and (record['step'] == 'use' or (
+        record.get('pair_approval') and record['step'] in ('card', 'cell')))
+
+
 def flush(store, transport, bridge=None, now=None) -> dict:
     """Send each changed ask as a new message (so replies thread); toggles edit in place."""
     now = time.time() if now is None else now
     result = dict(sent=0, send_pending=0, send_errors=[])
     with store.locked():
+        _warn_stuck_inbox(store, transport, now)
         for record in records(store):
             changed = _close_stale(store, record) or _close_idle_edit(record, now)
             if (record['kind'] == 'new_class' and record['status'] == 'open' and not record['send_pending']
@@ -882,6 +1109,8 @@ def flush(store, transport, bridge=None, now=None) -> dict:
                 text, markup = render(record, _table(store, bridge, record))
                 if record['edit_pending'] and not record['send_pending'] and record['current_message'] is not None:
                     transport.edit(record['current_message'], markup=markup or {'inline_keyboard': []})
+                elif _in_place(record) and _edited(transport, record, text, markup):
+                    record.update(last_sent=now, error=None)
                 else:
                     if record['current_message'] is not None:
                         try:
@@ -898,6 +1127,14 @@ def flush(store, transport, bridge=None, now=None) -> dict:
                 result['send_pending'] += 1
             _save(store, record)
     return result
+
+
+def _edited(transport, record, text, markup) -> bool:
+    try:
+        transport.edit_text(record['current_message'], text, markup=markup or {'inline_keyboard': []})
+    except PolicyError:
+        return False  # too old or deleted: a new message still reaches Dan
+    return True
 
 
 # ── rendering ───────────────────────────────────────────────────────────────────────────
@@ -967,7 +1204,7 @@ def _table(store, bridge, record) -> str:
     """Context for an ask. A value prompt shows the one cell being decided on every other model,
     across all providers (Dan, 2026-10-08); Use and review show this backend's full rows; the
     `/models` list shows every provider's."""
-    if record['status'] != 'open' or record['step'] not in ('use', 'cell', 'review', 'menu'):
+    if record['status'] != 'open' or record['step'] not in ('use', 'card', 'cell', 'review', 'menu'):
         return ''
     try:
         reference = [r for r in _reference(store, bridge)
@@ -1016,17 +1253,42 @@ def _cell_buttons(record, cell) -> list[list[dict]]:
     if cell == 'strength':
         return [[_button(s + (' (current)' if s == keep else ''), record, f'set:strength:{s}') for s in _STRENGTHS]]
     rows = []
+    offered = _offered_window(record) if cell == 'window' else None
     if keep is not None:
         rows.append([_button(f'Keep {show(cell, keep)}', record, f'set:{cell}:{show(cell, keep)}')])
-    elif cell == 'window' and 'ceiling' in _merged(record):
-        value = show('window', default_window(_merged(record)['ceiling']))
+    if offered is not None and offered != keep:
+        value = show('window', offered)
         rows.append([_button(f'Use default {value}', record, f'set:window:{value}')])
-    elif cell in record['suggestions']:
+    elif keep is None and cell in record['suggestions']:
         value = show(cell, record['suggestions'][cell])
         rows.append([_button(f'Use suggestion {value}', record, f'set:{cell}:{value}')])
     if record.get('pair_effort'):
-        rows.append([_button('Skip this effort', record, 'skip_pair'), _button('Decline', record, 'decline')])
+        rows.append([_button('Not routed', record, 'skip_pair'), _button('Back', record, 'back')])
+    elif record.get('pair_approval'):
+        rows.append([_button('Back', record, 'back')])
     return rows
+
+
+def _card_buttons(record) -> list[list[dict]]:
+    values = _merged(record)
+    def label(cell):
+        if cell == 'native_window':
+            if values.get(cell) is None and not record.get('provider_native'):
+                return f'{_SHORT[cell]}: optional'
+            return _cell_label(record, values, cell)
+        return f'{_SHORT[cell]}: {show(cell, values[cell]) if values.get(cell) is not None else "❓"}'
+    def effort(name):
+        pair = record['pair_values'].get(name, {})
+        if not pair:
+            return f'{name}: ❓'
+        score = pair.get('intelligence', '❓')
+        cost = show('cost', pair['cost']) if 'cost' in pair else '❓'
+        return f'{name}: {score} · {cost}'
+    cells = [_button(label(c), record, f'c:{c}') for c in record['order']]
+    pairs = [_button(effort(e), record, f'p:{e}') for e in record['pair_efforts']]
+    rows = [cells[i:i + 2] for i in range(0, len(cells), 2)] + [pairs[i:i + 3] for i in range(0, len(pairs), 3)]
+    return rows + [[_button('Apply', record, 'apply'), _button('Decline', record, 'decline')],
+                   [_button('Pull from Drive', record, 'pull')]]
 
 
 def _cell_label(record, values, cell) -> str:
@@ -1043,6 +1305,10 @@ def render(record, table: str = '') -> tuple[str, dict | None]:
     backend = _e(record['backend'])
     footer = f'\n\n<code>mdl:{record["ask_id"]}</code>'
     status, step, buttons = record['status'], record['step'], []
+    if record['kind'] == 'access_failure':
+        from maestro import model_access
+        text, buttons = model_access.card_view(record)
+        return text + footer, (dict(inline_keyboard=buttons) if buttons else None)
     changes = '\n'.join(f'{_LABELS[c]}: {_e(show(c, record["baseline"].get(c)))} → {_e(show(c, v))}'
                         for c, v in record['answers'].items()) if record['kind'] == 'edit' else ''
     if record['kind'] == 'menu':
@@ -1090,6 +1356,8 @@ def render(record, table: str = '') -> tuple[str, dict | None]:
                         _button('Cancel', record, 'cancel')])
     elif status == 'done':
         text = (f'✅ {name} is set on {backend}. Projects adopt it between tasks.'
+                + (f'\nEnforced window saved as {_e(show("window", record["saved_window"]))}: '
+                   'Codex does not go below this model\'s own default.' if record.get('saved_window') else '')
                 + (f'\nRoles now on it: {_e(", ".join(record["roles"]))}.' if record['roles'] else ''))
     elif status == 'declined':
         text = (f'🚫 Stopped. {name} is registered with modelctl; its role choices were not applied.'
@@ -1100,19 +1368,28 @@ def render(record, table: str = '') -> tuple[str, dict | None]:
     elif status == 'superseded':
         text = f'⏭ Closed the ask about {name}: {_e(record["reason"] or "superseded")}.'
     elif status == 'applying':
-        text = f'⏳ Applying {name}: modelctl add, then Maestro publishes the policy.'
+        text = f'⏳ Applying {name}: modelctl add, then Maestro publishes the policy. This can take a few minutes.'
+    elif step == 'card':
+        provider = (f'\nFrom the provider (read-only): native window '
+                    f'{_e(show("native_window", record["provider_native"]))}.' if record.get('provider_native') else '')
+        text = (f'🆕 {name} on {backend}. Tap a value to fill or change it, then Apply.\n'
+                f'❓ = missing. The buttons low, medium and so on are per-effort intelligence · relative cost; '
+                f'an effort left ❓ is not routed.{provider}' + table)
+        buttons = _card_buttons(record)
     elif step == 'use' and record.get('needs') == 'profile':
         successor = (f'\nIt succeeds {_e(record["predecessor"])} and takes over its roles.'
                      if record.get('predecessor') else '')
         text = (f'🆕 {backend} model {name} (class {_e(record["family"])}) has limits in modelctl but no '
                 f'routing profile, so Maestro cannot route it yet.{successor}\nUse it in Maestro?' + table)
-        buttons = [[_button('Use', record, 'use'), _button('Decline', record, 'decline')]]
+        buttons = [[_button('Use', record, 'use'), _button('Pull from Drive', record, 'pull')],
+                   [_button('Decline', record, 'decline')]]
     elif step == 'use':
         access = ('\n⚠️ modelctl could not confirm access yet (its check was inconclusive); '
                   'the final add checks again.' if record.get('access') == 'INCONCLUSIVE' else '')
         text = (f'🆕 New {backend} model detected: {name} (class {_e(record["family"])}).{access}\n'
                 'Use it in Maestro?' + table)
-        buttons = [[_button('Use', record, 'use'), _button('Decline', record, 'decline')]]
+        buttons = [[_button('Use', record, 'use'), _button('Pull from Drive', record, 'pull')],
+                   [_button('Decline', record, 'decline')]]
     elif step == 'roles':
         text = (f'Which roles should {name} take over on {backend}? Tap to toggle, then Done.\n'
                 'Untouched roles keep their model; the new model is an eligible route either way.')
@@ -1135,6 +1412,8 @@ def render(record, table: str = '') -> tuple[str, dict | None]:
         if cell == 'native_window' and record.get('provider_native'):
             assumed = (f'\nThe provider reports {_e(show(cell, record["provider_native"]))}. '
                        'Reply only to override a value the provider reports wrongly.')
+        elif cell == 'window' and record.get('pair_approval'):
+            assumed = f'\n{_WINDOW_HINTS[record["backend"]]}'
         elif cell == 'native_window' and _merged(record).get(cell) is None and record.get('assumed_native'):
             assumed = (f'\nNot set by you yet; Maestro currently allows up to '
                        f'{_e(show(cell, record["assumed_native"]))}.')
@@ -1150,10 +1429,13 @@ def render(record, table: str = '') -> tuple[str, dict | None]:
         text = (f'❌ Applying {name} failed:\n<pre>{_e(record["error"] or "unknown error")}</pre>\n'
                 'Nothing changed in routing. Retry, re-enter the values, or stop.')
         buttons = [[_button('Retry', record, 'retry'), _button('Re-enter values', record, 'change')],
+                   *([[_button('Pull from Drive', record, 'pull')]] if record['kind'] == 'new_class' else []),
                    [_button('Decline', record, 'decline') if record['kind'] == 'new_class'
                     else _button('Keep as is', record, 'keep')]]
     else:
         text = f'Model ask about {name} is {_e(status)}.'
+    if record['error'] and status == 'open' and step in ('use', 'roles', 'review', 'card'):
+        text = f'❗ {_e(record["error"])}\n\n' + text
     if record.get('reminder'):
         text = '⏰ Reminder — still waiting on you.\n' + text
     return text + footer, (dict(inline_keyboard=buttons) if buttons else None)
@@ -1219,6 +1501,15 @@ class TelegramTransport:
         if not isinstance(result, dict) or type(result.get('message_id')) is not int:
             raise PolicyError('telegram sendMessage returned no message id')
         return result['message_id']
+
+    def edit_text(self, message_id: int, text: str, *, markup: dict | None = None) -> None:
+        payload = dict(chat_id=self.chat_id, message_id=message_id, text=text, parse_mode='HTML',
+                       disable_web_page_preview='true', reply_markup=json.dumps(markup or {'inline_keyboard': []}))
+        try:
+            self._call('editMessageText', payload)
+        except PolicyError as exc:
+            if 'not modified' not in str(exc):  # the same card again is success
+                raise
 
     def edit(self, message_id: int, *, markup: dict | None = None) -> None:
         self._call('editMessageReplyMarkup', dict(chat_id=self.chat_id, message_id=message_id,

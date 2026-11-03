@@ -17,6 +17,7 @@ from pathlib import Path
 
 import pytest
 
+from maestro import usage_report
 from maestro.backends import antigravity as agy_mod
 from maestro.backends import registry
 from maestro.backends.antigravity import AntigravityBackend
@@ -577,3 +578,95 @@ def test_usage_and_parse_exit_never_run_anything(driver, workspace, runs, tmp_pa
     driver.usage(_handle(workspace))
     driver.parse_exit(1, "rate limit")
     assert runs.calls == []
+
+
+# ── attempt_token_usage: the finished attempt's cumulative tokens ──
+
+#: Shape of a real `complete()` log (itv P12 attempt, agy 1.4.12 reports the same keys).
+_COMPLETION_LOG = json.dumps({
+    "conversation_id": CID, "status": "SUCCESS", "response": "done\n", "num_turns": 1,
+    "usage": {"input_tokens": 228844, "output_tokens": 18705, "thinking_tokens": 12637,
+              "cache_read_tokens": 2398313, "total_tokens": 247549},
+})
+
+
+def test_attempt_tokens_are_read_from_a_completion_document(tmp_path, driver):
+    (tmp_path / "impl.log").write_text(_COMPLETION_LOG + "\n")
+
+    assert driver.attempt_token_usage(tmp_path) == {
+        "fresh_input": 228844, "cache_read": 2398313, "cache_write": 0, "output": 18705,
+        "reasoning_output": 12637, "cost_usd": None, "models": [], "source": "agy_log",
+    }
+
+
+def test_the_usage_report_totals_an_agy_attempt(tmp_path, driver):
+    """The report totals an attempt only when all four counts are numbers. A `None` here
+    left every agy attempt out of the P12 sums: 2.65 M tokens on itv, 7.35 M on DuetFlow."""
+    (tmp_path / "impl.log").write_text(_COMPLETION_LOG + "\n")
+
+    tokens = driver.attempt_token_usage(tmp_path)
+
+    assert all(isinstance(tokens[field], int) for field in usage_report.TOKEN_FIELDS)
+
+
+def test_attempt_tokens_take_the_stream_result_not_the_last_turn(tmp_path, driver):
+    """A step's usage is one turn; `result` is the running total of the conversation."""
+    (tmp_path / "impl.log").write_text("\n".join(
+        [_init(), _turn(900, cache_read=50, output=7), _result(total=41288)]) + "\n")
+
+    tokens = driver.attempt_token_usage(tmp_path)
+
+    assert (tokens["fresh_input"], tokens["output"], tokens["models"]) == (41288, 38, [MODEL])
+
+
+def test_attempt_tokens_after_a_resume_are_the_last_running_total(tmp_path, driver):
+    """Seen on agy 1.4.12: a resumed conversation's `result` already includes earlier turns."""
+    (tmp_path / "impl.log").write_text("\n".join(
+        [_init(), _result(total=12595), _init(), _result(total=25477)]) + "\n")
+
+    assert driver.attempt_token_usage(tmp_path)["fresh_input"] == 25477
+
+
+def test_attempt_tokens_read_cache_read_from_a_stream_result(tmp_path, driver):
+    result = _event("result", status="SUCCESS", usage={
+        "input_tokens": 10, "output_tokens": 2, "cache_read_tokens": 500})
+    (tmp_path / "impl.log").write_text(_init() + "\n" + result + "\n")
+
+    assert driver.attempt_token_usage(tmp_path)["cache_read"] == 500
+
+
+def test_a_resume_that_has_not_finished_has_no_count(tmp_path, driver):
+    """`resume` appends to the log. Its predecessor's total is not this call's count."""
+    (tmp_path / "impl.log").write_text("\n".join(
+        [_init(), _result(total=12595), _init(), _turn(900)]) + "\n")
+
+    assert driver.attempt_token_usage(tmp_path) is None
+
+
+def test_a_result_with_no_usage_keeps_the_last_real_count(tmp_path, driver):
+    (tmp_path / "impl.log").write_text("\n".join(
+        [_COMPLETION_LOG, _event("result", status="FAILED")]) + "\n")
+
+    assert driver.attempt_token_usage(tmp_path)["fresh_input"] == 228844
+
+
+def test_the_later_final_record_wins_whatever_its_form(tmp_path, driver):
+    (tmp_path / "impl.log").write_text("\n".join(
+        [_init(), _result(total=5), _COMPLETION_LOG]) + "\n")
+
+    assert driver.attempt_token_usage(tmp_path)["fresh_input"] == 228844
+
+
+@pytest.mark.parametrize("log", [
+    None,                                               # the record is gone
+    "",
+    "not json\n",
+    _init() + "\n" + _turn(900) + "\n",                 # killed before its result
+    json.dumps({"status": "SUCCESS", "response": "no usage"}) + "\n",
+    json.dumps({"status": "SUCCESS", "usage": {"input_tokens": "many"}}) + "\n",
+])
+def test_attempt_tokens_stay_absent_when_the_log_cannot_say(tmp_path, driver, log):
+    if log is not None:
+        (tmp_path / "impl.log").write_text(log)
+
+    assert driver.attempt_token_usage(tmp_path) is None

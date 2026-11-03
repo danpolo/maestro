@@ -49,6 +49,18 @@ try:
             raise ValueError('unexpected state shape')
         result = {mid: m['access'] for mid, m in models.items()
                   if m.get('access') in ('VERIFIED', 'INCONCLUSIVE', 'FAILED')}
+    elif operation == 'stopped':
+        # Models whose automatic retests stopped and that Dan has not removed, read like `access`.
+        data = json.loads(env.state_file.read_text(encoding='utf-8'))
+        models = data['providers'][request['provider']]['models']
+        if not isinstance(models, dict) or not all(isinstance(m, dict) for m in models.values()):
+            raise ValueError('unexpected state shape')
+        result = {mid: dict(reason=m['retest_stopped']['reason'], at=m['retest_stopped']['at'], access=m.get('access'))
+                  for mid, m in models.items()
+                  if isinstance(m.get('retest_stopped'), dict) and not m.get('removed_by_dan')}
+    elif operation == 'drop_from_tests':
+        from modelctl.core.scan import drop_from_tests
+        result = drop_from_tests(env, request['provider'], request['model'])
     elif operation == 'retired':
         # Read the owner's state file directly: State() would move a corrupt file aside.
         data = json.loads(env.state_file.read_text(encoding='utf-8'))
@@ -153,6 +165,22 @@ class ModelctlBridge:
             raise PolicyError('modelctl access state invalid')
         return result
 
+    def stopped(self, backend):
+        """model id -> {reason, at, access} for models whose automatic retests are stopped."""
+        result = self._call('stopped', self._provider(backend))
+        if not isinstance(result, dict) or not all(isinstance(stop, dict) for stop in result.values()):
+            raise PolicyError('modelctl stopped state invalid')
+        return result
+
+    def drop_from_tests(self, backend, model) -> None:
+        """Dan's Remove model: the owner never tests it again until a re-add."""
+        try:
+            self._call('drop_from_tests', self._provider(backend), model=model)
+        except PolicyError as exc:
+            if 'LockBusy' in str(exc):
+                raise PolicyError('modelctl is busy with a test or scan, tap again in a few minutes') from exc
+            raise
+
     def pending_events(self):
         from maestro.backends import registry
         events = self._call('pending')
@@ -174,12 +202,8 @@ class ModelctlBridge:
         return self._call('ack', event_id=event_id)
 
 
-    def add(self, backend, argv, *, timeout=900) -> tuple[bool, str]:
-        """Run the owner's transactional `modelctl add` (Telegram model asks); never edits tables here.
-
-        modelctl validates, writes, smoke-tests inside its rollback boundary and hands
-        MODEL_SET to Maestro itself. Returns (succeeded, combined output) for the ask to report.
-        """
+    def _command(self, argv, timeout) -> subprocess.CompletedProcess:
+        """Run one owner command in an isolated interpreter, with its `~/.local/bin` tools on PATH."""
         if self.source is None or not (self.source / 'modelctl/cli.py').is_file():
             raise PolicyError('modelctl source missing; set MODELCTL_SOURCE to its compatible checkout')
         script = ('import sys; sys.path.insert(0,sys.argv[1]); from modelctl.cli import main; '
@@ -191,13 +215,40 @@ class ModelctlBridge:
         current_path = os.environ.get('PATH', '')
         if local_bin not in current_path.split(':'):
             environment['PATH'] = f"{local_bin}:{current_path}" if current_path else local_bin
+        return subprocess.run([sys.executable, '-I', '-c', script, str(self.source), *argv], cwd=self.source,
+                              env=environment, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                              timeout=timeout)
+
+    def add(self, backend, argv, *, timeout=900) -> tuple[bool, str]:
+        """Run the owner's transactional `modelctl add` (Telegram model asks); never edits tables here.
+
+        modelctl validates, writes, smoke-tests inside its rollback boundary and hands
+        MODEL_SET to Maestro itself. Returns (succeeded, combined output) for the ask to report.
+        """
         try:
-            result = subprocess.run([sys.executable, '-I', '-c', script, str(self.source), 'add',
-                                     self._provider(backend), *argv], cwd=self.source, env=environment,
-                                    stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=timeout)
+            result = self._command(['add', self._provider(backend), *argv], timeout)
         except (subprocess.TimeoutExpired, OSError) as exc:
             return False, f'modelctl add did not finish ({type(exc).__name__})'
         return result.returncode == 0, (result.stdout + result.stderr)[-20_000:]
+
+    def retest(self, backend, model, *, timeout=420) -> dict:
+        """Test one model now, whatever its stop says: Dan's Retry button. The test takes up to
+        180 seconds and modelctl's handover to `maestro models consume` up to 90."""
+        argv = ['retest', '--provider', self._provider(backend), '--model', model, '--json']
+        try:
+            result = self._command(argv, timeout)
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            raise PolicyError(f'modelctl retest did not finish ({type(exc).__name__})') from exc
+        try:
+            answer = json.loads(result.stdout)
+        except ValueError:
+            answer = None
+        if isinstance(answer, dict) and answer.get('error'):
+            raise PolicyError(str(answer['error']))
+        if (result.returncode or not isinstance(answer, dict)
+                or answer.get('outcome') not in ('passed', 'rate_limited', 'stopped')):
+            raise PolicyError(f'modelctl retest gave no usable result (exit {result.returncode})')
+        return answer
 
     def configured_models(self, backend, *, identities=()):
         from maestro.backends.catalog import SHIPPED_CATALOG_DEFAULTS

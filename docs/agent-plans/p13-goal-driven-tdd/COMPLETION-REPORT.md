@@ -190,13 +190,10 @@ built; only GDT-12 remains; by §8: GDT-12 is built).
 - C20 and C32 (W12) and C29 and C31 (W7) are partial and C33 (W12) is a limit, each with its owner in TRACEABILITY §5
   (superseded by §7: C29 and C31 are demo; C20 and C32 stay partial; by §8: C20, C32 and C33 are demo, so no partial or limit is left).
 - Gate subprocesses in a linked worktree resolve `maestro.acceptance` through the venv's editable install to the root checkout (test-environment note; DESIGN §19.12).
-- The two `test_codex_auth_lifetime` cases fail on root without GDT code (W4, Codex's owner).
-- Recorded 2026-10-27, not fixed (W4, Codex's owner; each needs its own reviewed product change; DESIGN §19.14):
-  `codex_runtime._omission_inventory` walks the masked `~/.claude`/`~/.codex` surfaces recursively and raises at
-  20,000 entries or on a directory that changes mid-walk; about 8,000 today and growing, so every Codex prepare will
-  eventually fail, and each prepare spends 3-9 s on it (production keeps walking the real-home roots; suggested fix:
-  a names-only or depth-limited record). The 60 s queued-reservation deadline still counts worker interpreter startup
-  (80-130 s seen at load 25).
+- Update 2026-11-02: the two `test_codex_auth_lifetime` cases that failed on root now pass (full suite at `a3144eb`:
+  8761 passed, 25 skipped, 1 xfailed).
+- Update 2026-11-02: both limits recorded on 2026-10-27 are fixed (DESIGN §19.14). The Codex omission inventory can no
+  longer fail a prepare, and the queued-reservation deadline is 300 s instead of 60 s.
 
 **Decisions awaiting Dan:** none. The close-out commits on the branch (the `goal_guard` fix `1c59a47` changes live gate code, so merging it is an
 outward change that the post-merge hook releases to every adopted project) go to root under the standing root-merge authorization in `AGENTS.md`
@@ -280,9 +277,9 @@ its window (`d789f6e`/`7199ba6`). Evidence in TRACEABILITY §4.
   Maestro session and is measured from the first release naming it); effects are measured in the
   origin project only while a config lever applies everywhere; five-task samples are noisy and no
   verdict acts by itself; graph loop only.
-- **The W10 seam.** W10's digest is not built. W12 sends its own per-run message and prints
-  read-only JSON (`python -m maestro.improvement report|evidence`) whose numbers equal `maestro
-  report usage`; W10 embeds it later.
+- **The W10 seam (closed 2026-11-02).** W12 sends its own per-run message and prints read-only
+  JSON (`python -m maestro.improvement report|evidence`) whose numbers equal `maestro report usage`.
+  W10's weekly digest now embeds that report, with each effect's measured line (DESIGN §19.15).
 - **Root merge.** S1-S4 change live behaviour only together, so they merge to root as one W12
   completion, after review, under the standing root-merge authorization (by the coordinator).
   The P13 spec's §W12 boxes (root, gitignored) are the coordinator's to tick.

@@ -437,12 +437,14 @@ class Lifecycle:
 
     def fail_quality(
         self, attempt_id: str, *, run_id: str, node_id: str, root: str, record,
-        outcome_ref: str | None = None, at: str | None = None,
+        outcome_ref: str | None = None, at: str | None = None, spend_to: int = 0,
     ) -> None:
         """P12B F6: the exhausted end of the ladder — today's `failed` path, counted.
 
         The root's `quality_failures` is spent here too, so a third bad output stores 3.
         F7's repaired run inherits that number and therefore gets no further retries.
+        `spend_to` is W13's early entry: it spends the whole budget at once, so a run
+        that stopped on its first attempt also gets one final run after the repair.
         """
         stamp = at or now_iso()
         with self.store.transaction() as conn:
@@ -463,9 +465,9 @@ class Lifecycle:
             )
             self.record_failure(attempt_id, run_id=run_id, record=record, conn=conn)
             conn.execute(
-                "UPDATE node_states SET quality_failures = quality_failures + 1"
+                "UPDATE node_states SET quality_failures = MAX(quality_failures + 1, ?)"
                 " WHERE run_id = ? AND node_id = ?",
-                (run_id, root),
+                (spend_to, run_id, root),
             )
 
     def fail_dead_writer_node(

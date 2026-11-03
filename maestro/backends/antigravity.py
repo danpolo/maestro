@@ -620,6 +620,51 @@ class AntigravityBackend:
             updated_at=_mtime_zulu(path),
         )
 
+    def attempt_token_usage(self, workspace: Path | str) -> Optional[dict]:
+        """Cumulative tokens of the call logged in `workspace`'s `impl.log`, or `None`.
+
+        Taken from the last final record: a stream's `result` or `complete()`'s one
+        document. That is the conversation's running total, a resume included (seen on agy
+        1.4.12). A step's `usage` is one turn only, so a run killed before its final
+        record has no count (G6). `cache_read_tokens` is apart from `input_tokens`.
+        `cache_write` is 0, as Codex's is: agy has no separate count for it, and the usage
+        report and pace learning total an attempt only when all four counts are numbers.
+        `thinking_tokens` is reported beside `output_tokens`, never added: agy's own
+        `total_tokens` leaves it out too.
+        """
+        text = _read_text(Path(workspace) / LOG_FILE)
+        if text is None:
+            return None
+        usage = model = None
+        for line in text.splitlines():  # in order: a resume appends to the same log
+            found = _completion_document(line).get("usage")
+            for kind, payload in _iter_events(line):
+                if kind == "init":
+                    # A new call has begun, so an earlier total says nothing about it.
+                    usage = None
+                    if isinstance(payload.get("model"), str):
+                        model = payload["model"]
+                elif kind == "result":
+                    found = payload.get("usage")
+            if isinstance(found, Mapping):
+                usage = found
+        if usage is None:
+            return None
+        fresh, cached = _as_count(usage.get("input_tokens")), _as_count(usage.get("cache_read_tokens"))
+        output = _as_count(usage.get("output_tokens"))
+        if fresh is None and cached is None and output is None:
+            return None
+        return {
+            "fresh_input": fresh,
+            "cache_read": cached,
+            "cache_write": 0,
+            "output": output,
+            "reasoning_output": _as_count(usage.get("thinking_tokens")),
+            "cost_usd": None,
+            "models": [model] if model else [],
+            "source": "agy_log",
+        }
+
     def _session_usage(self, handle: Handle) -> Optional[Usage]:
         """The last turn's live context from `impl.log`, never `result`'s running sum."""
         path = Path(handle.workspace) / LOG_FILE

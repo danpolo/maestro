@@ -489,6 +489,13 @@ def role_shape_issues(document: Mapping) -> list[str]:
             sprint_config(document)
         except ConfigError as exc:
             issues.append(str(exc))
+    if 'runaway' in document:
+        from maestro.config import ConfigError, runaway_factor, runaway_mode
+        try:
+            runaway_mode(document)
+            runaway_factor(document)
+        except ConfigError as exc:
+            issues.append(str(exc))
     if document.get('fallback_chain') is not None:
         issues.append('fallback_chain is retired: the router owns fallback')
     routing = document.get('routing')

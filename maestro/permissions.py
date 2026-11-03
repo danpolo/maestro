@@ -21,7 +21,9 @@ Dan's decision (2026-09-28):
 
 `harness_policy` builds Codex and Antigravity lists from this same global source.
 Native prefix formats cannot express every deny rule; residual rules are explicit and
-these exports are not activated on a launch path. W4 owns agy's confined enforcement.
+these exports are not activated on a launch path. Agy and Codex launches enforce the
+same `allow_rules` through `tool_policy` hooks inside bubblewrap (`backends/agy_runtime`,
+`backends/codex_runtime`).
 
 The matcher here approximates Claude Code's own rule matching closely enough to screen a
 proposal (does it cover the denied call, is it over-broad, does it touch the never-allow

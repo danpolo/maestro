@@ -86,6 +86,13 @@ def preview_retire(store, bridge, backend: str) -> dict:
     reachable = {r['model_id'] for r in current['routes'] if r['backend_id'] == backend}
     reachable |= {m for base in catalog.SHIPPED_CATALOG_DEFAULTS.values()
                   if base['backend_id'] == backend for m in base['available_models']}
+    # A model out on an access hold can still return, so retiring it must reach it too.
+    from maestro.model_access import _load as load_holds  # it imports this module
+    for hold in load_holds(store)['held'].values():
+        if hold['backend'] == backend:
+            reachable.add(hold['model_id'])
+            if explicit_removed.intersection(hold.get('removed', ())):
+                removed.add(hold['model_id'])
     retired = {tuple(p) for p in current['retired']}
     eligible = sorted((backend, m) for m in removed & reachable if (backend, m) not in retired)
     blocked = [dict(route=list(p), roles=role_references(current, p)) for p in eligible if role_references(current, p)]

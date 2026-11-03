@@ -76,7 +76,7 @@ class PolicyError(WorkflowError):
 CONDITIONS = {
     "always": lambda ctx: True,
     "never": lambda ctx: False,
-    "high_risk": lambda ctx: ctx.risk in ("high", "critical"),
+    "high_risk": lambda ctx: ctx.risk == "high",
     "low_risk": lambda ctx: ctx.risk == "low",
     "touches_tests": lambda ctx: ctx.touches_tests,
     "touches_risky_paths": lambda ctx: ctx.touches_risky_paths,
@@ -84,11 +84,11 @@ CONDITIONS = {
     "free_quality_mode": lambda ctx: ctx.objective == "free_quality",
     "paid_efficiency_mode": lambda ctx: ctx.objective == "paid_efficiency",
     # `include_when` OR-s its conditions, so a stage that needs "free mode AND not
-    # trivial" cannot say so in two entries — it would then also fire on a low-risk
-    # task. The conjunction is named here, once, and `[INV-06]`'s candidate fan-out is
-    # gated on it: buying two implementers for a typo fix is not quality, it is spend.
+    # trivial" cannot say so in two entries — it would then also fire on a docs task. The
+    # conjunction is named here, once, and `[INV-06]`'s candidate fan-out is gated on it:
+    # buying two implementers for a typo fix is not quality, it is spend.
     "free_quality_nontrivial": lambda ctx: (
-        ctx.objective == "free_quality" and ctx.risk != "low"
+        ctx.objective == "free_quality" and ctx.task_class != "documentation"
     ),
 }
 
@@ -132,7 +132,8 @@ class RiskContext:
     """
 
     task_id: str
-    risk: str = "medium"
+    risk: str = "low"
+    task_class: str = "feature"
     execution_kind: str = "ordinary"
     objective: str = "paid_efficiency"
     touches_tests: bool = False
@@ -585,7 +586,8 @@ class ProjectPolicy:
         scope = tuple(str(p) for p in getattr(spec, "scope", ()) or ())
         return RiskContext(
             task_id=spec.task_id,
-            risk=getattr(spec, "risk", "medium") or "medium",
+            risk=getattr(spec, "risk", "low") or "low",
+            task_class=getattr(spec, "task_class", "feature") or "feature",
             execution_kind=getattr(spec, "execution_kind", "ordinary"),
             objective=self.objective,
             touches_tests=_matches_any(scope, self.quality_gates.test_paths),

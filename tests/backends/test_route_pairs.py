@@ -168,6 +168,19 @@ def test_soft_independence_prefers_a_different_family_across_harnesses():
     assert 'independence_relaxed' in fallback.selection_reason
 
 
+def test_routes_without_owner_identity_are_never_claimed_independent():
+    # Live shape today: modelctl master publishes no model_family, so every profile has
+    # None. The router may still bind, but it must say independence was relaxed.
+    def model(backend):
+        return entry(backend, profiles={'m': cat.ModelProfile('m')},
+                     pairs=pair_table(('m', 'high', 'balanced', 1)))
+    catalog = cat.CapabilityCatalog.of([model('native'), model('agy')])
+    bound = resolve(catalog, independent_families=frozenset({'claude'}))
+    assert bound.is_bound
+    assert bound.to_dict().get('model_family') is None
+    assert 'independence_relaxed' in bound.selection_reason
+
+
 def test_soft_independence_waits_for_an_eligible_alternative_with_a_paused_pool():
     same = entry('native', profiles={'m': cat.ModelProfile('m', model_family='claude')},
                  pairs=pair_table(('m', 'high', 'balanced', 1)))
@@ -339,7 +352,7 @@ def test_approved_pairs_are_not_filtered_by_the_migration_effort():
 # router's `min_effort` did.
 ESCALATIONS = [
     router.RoutingContext(risk="high"),
-    router.RoutingContext(task_class="security"),
+    router.RoutingContext(task_class="difficult_debugging"),
     router.RoutingContext(historical_failure_rate=0.5),
 ]
 

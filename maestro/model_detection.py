@@ -660,8 +660,9 @@ def policy_for_set(policy, event, bridge, *, identities=(), owner=None, approved
 def _policy_for_set_pairs(policy, event, bridge, owner, target, approved):
     """Reuse verified owner lifecycle handling while retaining pair-specific judgments.
 
-    Owner model-wide grades cannot invent or overwrite an effort row. New classes need
-    completed Telegram approval; same-class successors inherit all approved pairs.
+    Owner model-wide grades cannot invent or overwrite an effort row. Dan's completed Telegram
+    approval decides a model with no routes; without one, a same-class successor inherits its
+    predecessor's pairs and a new class waits for approval.
     """
     from copy import deepcopy
     from maestro.backends.catalog import class_of
@@ -670,6 +671,8 @@ def _policy_for_set_pairs(policy, event, bridge, owner, target, approved):
     target_ids = {model, *target.get('aliases', [])}
     pairs = [dict(deepcopy(r), model_id=model) for r in policy['routes']
              if r['backend_id'] == backend and r['model_id'] in target_ids]
+    if not pairs:
+        pairs = [deepcopy(r) for r in approved]
     if not pairs:
         eligible = {r['model_id'] for r in policy['routes'] if r['backend_id'] == backend}
         predecessors = [m for m in owner['models'] if m['backend_id'] == backend
@@ -681,9 +684,7 @@ def _policy_for_set_pairs(policy, event, bridge, owner, target, approved):
             pairs = [dict(deepcopy(r), model_id=model) for r in policy['routes']
                      if r['backend_id'] == backend and r['model_id'] in identities]
         else:
-            pairs = [deepcopy(r) for r in approved]
-            if not pairs:
-                raise ProfileRequired(f'{backend}:{model}: routing waits for approval of its effort pairs', unrouted=True)
+            raise ProfileRequired(f'{backend}:{model}: routing waits for approval of its effort pairs', unrouted=True)
     if any((r['backend_id'], r['model_id']) != (backend, model) for r in pairs):
         raise PolicyError('pair approval crossed models or backends')
     # The existing schema 1 path verifies owner facts, native context and publication

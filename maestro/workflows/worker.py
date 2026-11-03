@@ -320,6 +320,12 @@ def agent_brief(
     if manifest.get("repair_contract"):
         # P12 pilot finding D17: what a diagnoser's plan_repair.json may name.
         parts.append("REPAIR CONTRACT:\n" + str(manifest["repair_contract"]))
+    if manifest.get("runaway_contract"):
+        # P13 W13: this diagnosis was opened early, on spend, and may be a false alarm.
+        parts.append(str(manifest["runaway_contract"]))
+    if manifest.get("forecast_contract"):
+        # P13 W13: absent with detection off, so the planner's brief is what it was before.
+        parts.append(str(manifest["forecast_contract"]))
     if manifest.get("review_origins"):
         # Dan, 2026-09-26: whose misses the later review rounds were.
         parts.append(

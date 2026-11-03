@@ -199,6 +199,21 @@ def _pool_burn(rows, *, pool_id, initial, now_epoch, minimum_observations):
                                             else 'history_unavailable'))
 
 
+def attempt_cost_units(binding, settle) -> float | None:
+    """Frozen relative cost times the attempt's complete token count, or `None`."""
+    price = binding.get('relative_cost')
+    tokens = settle.get('token_split')
+    if not positive_finite(price) or not isinstance(tokens, dict):
+        return None
+    fields = [tokens.get(name) for name in ('fresh_input', 'cache_read', 'cache_write', 'output')]
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in fields):
+        return None
+    count = sum(fields)
+    if not positive_finite(count) or not positive_finite(price*count):
+        return None
+    return price*count
+
+
 def class_evidence(rows, *, shape, pool_id, minimum_observations=5,
                    runaway_mode='off', planner_complexity=None, equivalent_shapes=()) -> dict:
     """Verified outcomes and frozen W2 token cost, compared only within this pool."""
@@ -206,15 +221,17 @@ def class_evidence(rows, *, shape, pool_id, minimum_observations=5,
     prior = {}
     expected = shape.to_dict()
     equivalents = [key.to_dict() for key in equivalent_shapes] or [expected]
-    band_required = runaway_mode != 'off'
     band_available = (not isinstance(planner_complexity, bool)
                       and isinstance(planner_complexity, int) and 1 <= planner_complexity <= 5)
+    # W13 turned detection on by default: a task nobody forecast compares on its task class
+    # alone, as it does with detection off, rather than losing all of its evidence.
+    band_required = runaway_mode != 'off' and band_available
     for row in rows:
         binding = _document(row.get('binding_json'))
         decision = binding.get('pace_decision')
         demand = decision.get('demand', {}) if isinstance(decision, dict) else {}
         prior_band = demand.get('planner_complexity') if isinstance(demand, dict) else None
-        if band_required and (not band_available or prior_band != planner_complexity
+        if band_required and (prior_band != planner_complexity
                               or isinstance(prior_band, bool) or not isinstance(prior_band, int)):
             continue
         if (not isinstance(row.get('verified_success'), bool)
@@ -227,17 +244,11 @@ def class_evidence(rows, *, shape, pool_id, minimum_observations=5,
             matching[row['attempt_id']] = row
     costs, cost_successes = [], 0
     for row in matching.values():
-        price = _document(row.get('binding_json')).get('relative_cost')
-        tokens = _document(row.get('usage_settle_json')).get('token_split')
-        if not positive_finite(price) or not isinstance(tokens, dict):
+        cost = attempt_cost_units(_document(row.get('binding_json')),
+                                  _document(row.get('usage_settle_json')))
+        if cost is None:
             continue
-        fields = [tokens.get(name) for name in ('fresh_input', 'cache_read', 'cache_write', 'output')]
-        if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in fields):
-            continue
-        count = sum(fields)
-        if not positive_finite(count) or not positive_finite(price*count):
-            continue
-        costs.append(price*count)
+        costs.append(cost)
         cost_successes += int(row['verified_success'])
     # Avoid a finite-input overflow without claiming a partial cost sum as complete.
     average = math.fsum(value/len(costs) for value in costs) if costs else None
@@ -271,8 +282,7 @@ def class_evidence(rows, *, shape, pool_id, minimum_observations=5,
         success_per_cost=ratio,
         pool_id=pool_id, attempt_ids=tuple(sorted(matching)),
         cost_source='recorded_relative_cost_times_complete_tokens',
-        fallback=('planner_complexity_unavailable' if band_required and not band_available
-                  else 'nonfinite_success_per_cost' if nonfinite_ratio
+        fallback=('nonfinite_success_per_cost' if nonfinite_ratio
                   else None if len(costs) >= minimum_observations and total is not None
                   else 'insufficient_recorded_cost_evidence'))
 

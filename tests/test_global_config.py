@@ -135,6 +135,24 @@ def test_without_a_global_file_the_loader_returns_the_project_document_untouched
     assert config.load_project_yaml() == {"thresholds": None, "priority": 3}
 
 
+@pytest.mark.parametrize("text", ["thresholds: [unclosed\n", "- not\n- a mapping\n"])
+def test_an_unusable_global_file_stops_every_merge_because_its_safety_lists_are_unknown(
+        layers, tmp_path, text):
+    from maestro import merge
+    layers(project_doc={"priority": 3})
+    (tmp_path / "home" / "config.yaml").write_text(text)
+    reason = merge.integration_guard(tmp_path, "HEAD", "HEAD", proj={})
+    assert reason.startswith("deny_list: ") and "global config" in reason
+
+
+@pytest.mark.parametrize("text", [None, "", "# only a comment\n", "priority: 2\n"])
+def test_a_usable_or_absent_global_file_has_no_problem(layers, tmp_path, text):
+    layers(project_doc={"priority": 3})
+    if text is not None:
+        (tmp_path / "home" / "config.yaml").write_text(text)
+    assert config.global_config_problem() is None
+
+
 def test_an_unusable_global_file_is_no_layer(layers, tmp_path):
     repo = layers(project_doc={"priority": 3})
     (tmp_path / "home" / "config.yaml").write_text("- not\n- a mapping\n")

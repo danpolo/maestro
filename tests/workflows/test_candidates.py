@@ -129,7 +129,7 @@ def test_a_crashed_candidate_cannot_route_around_the_join(policy):
 
 def test_an_unwidened_implementer_keeps_its_success_and_failure_edges(policy):
     """Width 1 is byte-identical: `on_success` onward, optional `on_failure` to park."""
-    revision = compiler.compile_workflow(task_spec(risk="low"), policy=policy)
+    revision = compiler.compile_workflow(task_spec(task_class="documentation"), policy=policy)
     assert [(e.target_node_id, e.guard_predicate, e.required) for e in revision.edges
             if e.source_node_id == "implementer"] == [
         ("gate", "on_success", True), ("park", "on_failure", False),
@@ -154,8 +154,8 @@ def test_a_widened_lane_that_loses_its_join_does_not_compile(policy):
         compiler.compile_workflow(task_spec(risk="medium"), policy=broken)
 
 
-def test_a_low_risk_free_task_buys_no_candidates(policy):
-    revision = compiler.compile_workflow(task_spec(risk="low"), policy=policy)
+def test_a_free_docs_task_buys_no_candidates(policy):
+    revision = compiler.compile_workflow(task_spec(task_class="documentation"), policy=policy)
     assert "implementer" in revision.node_ids
     assert "candidate_select" not in revision.node_ids
     assert not any(n.params.get("candidate_id") for n in revision.nodes)

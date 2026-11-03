@@ -9,6 +9,7 @@ are pinned by `tests/characterization/test_config.py` and are not fixed here.
 from __future__ import annotations
 
 import copy
+import math
 import os
 import re
 from pathlib import Path
@@ -64,6 +65,25 @@ def _read_mapping(path) -> dict:
 def load_global_config() -> dict:
     """The global defaults every project inherits; `{}` when there is no usable file."""
     return _read_mapping(global_config_path())
+
+
+def global_config_problem() -> str | None:
+    """Why the global config file cannot be used, `None` when it is absent or usable.
+
+    Reading stays lenient so a typo cannot stop the package importing, but the file may
+    hold `risky_set`, `deny_list_extra` or `confinement.deny`: `merge.integration_guard`
+    refuses every merge while this says something, and `doctor` reports it.
+    """
+    path = global_config_path()
+    try:
+        document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError, yaml.YAMLError) as exc:
+        return f"{path} is unreadable: {exc}"
+    if document is not None and not isinstance(document, dict):
+        return f"{path} is not a mapping"
+    return None
 
 
 def deep_merge(base, over) -> dict:
@@ -226,21 +246,39 @@ def sprint_config(document=None):
         raise ConfigError(str(exc)) from exc
 
 
-def runaway_mode(document=None, *, task=None) -> str:
-    """Read the effective mode for W5 evidence; this does not enable W13 work."""
+def _runaway_block(document, task) -> dict:
     document = load_project_yaml() if document is None else document
     if task is not None:
         document = deep_merge(document, task)
     block = document.get('runaway')
     if block is None:
-        return 'off'
+        return {}
     if not isinstance(block, dict):
         raise ConfigError('runaway must be a mapping')
-    mode = block.get('mode')
-    mode = 'off' if mode is None else mode
+    unknown = sorted(str(key) for key in block if key not in ('mode', 'factor'))
+    if unknown:
+        raise ConfigError(f"runaway has unknown settings: {', '.join(unknown)}")
+    return block
+
+
+def runaway_mode(document=None, *, task=None) -> str:
+    """The configured W13 mode, on by default (B11). Telegram's control sits above this."""
+    mode = _runaway_block(document, task).get('mode')
+    mode = 'on' if mode is None else mode
     if mode not in ('on', 'shadow', 'off'):
         raise ConfigError('runaway.mode must be on, shadow or off')
     return mode
+
+
+def runaway_factor(document=None, *, task=None) -> float:
+    """How many times its band's p90 an attempt must spend to trigger (default 2.0)."""
+    factor = _runaway_block(document, task).get('factor')
+    if factor is None:
+        return 2.0
+    if (isinstance(factor, bool) or not isinstance(factor, (int, float))
+            or not math.isfinite(factor) or factor <= 0):
+        raise ConfigError('runaway.factor must be a positive number')
+    return float(factor)
 
 
 def pace_estimates(document=None, *, task=None) -> dict:

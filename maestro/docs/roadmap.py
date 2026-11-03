@@ -233,7 +233,7 @@ def parse_runnable_tasks() -> list[dict]:
     return [task for task in tasks if not unrunnable(task, complete_ids, blocked)]
 
 
-def parse_prep_tasks() -> list[dict]:
+def parse_prep_tasks(state: dict | None = None) -> list[dict]:
     """B14 auto-prep: dispatch:manual tasks the orchestrator should AUTO-PREPARE.
 
     These are NOT handed the human step — a prep implementer does all the *automatable*
@@ -249,7 +249,7 @@ def parse_prep_tasks() -> list[dict]:
         if task.get("status") == "complete":
             complete_ids.add(str(task["id"]))
     blocked    = _drift_blocked_ids() | _goal_blocked_ids(tasks) | _replan_blocked_ids(tasks)
-    state      = read_state()
+    state      = read_state() if state is None else state
     parked_ids = {p.get("task_id") for p in state.get("waiting_on_dan", {}).values()}
     failed_parked = set(state.get("parked_tasks", []))  # B11: failed → needs /unpark first
     prep: list[dict] = []

@@ -478,6 +478,21 @@ def _adopt_plan_repair(ctx: "HandlerContext", result: NodeResult) -> NodeResult:
     return dataclasses.replace(result, outputs=outputs)
 
 
+def _adopt_forecast(ctx: "HandlerContext", result: NodeResult) -> NodeResult:
+    """P13 W13: a planner's `forecast.json`. A missing or invalid forecast is simply none."""
+    from maestro.workflows import runaway
+
+    try:
+        document = json.loads((Path(ctx.workspace) / runaway.FORECAST_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return result
+    band = runaway.valid_band(document.get("complexity")) if isinstance(document, dict) else None
+    if band is None:
+        return result
+    return dataclasses.replace(
+        result, outputs={**dict(result.outputs or {}), "complexity_forecast": band})
+
+
 # ── the attempt inbox ────────────────────────────────────────────────────────────────
 
 ENVELOPE_FILE = "envelope.json"
@@ -788,6 +803,8 @@ def agent_handler(ctx: HandlerContext) -> NodeResult:
         return adopt_review(ctx, result)
     if ctx.node.agent_definition_ref == ROLE_DIAGNOSER and result.status == "succeeded":
         return _adopt_plan_repair(ctx, result)
+    if ctx.node.agent_definition_ref == "planner" and result.status == "succeeded":
+        return _adopt_forecast(ctx, result)
     return result
 
 

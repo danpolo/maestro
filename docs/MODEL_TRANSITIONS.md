@@ -58,6 +58,72 @@ Dan acts on a detected model from Telegram alone: no code edit, release or patch
 review. `maestro models consume` (run by modelctl's handoff) opens the asks; Maestro
 never edits the owner's tables, it runs `modelctl add ... -y` with the collected values.
 
+- **Use card (Dan, 2026-11-01), which replaces the schema 2 walk below**: on schema 2, Use turns
+  the alert message itself into one card: limits, max output, optional native window, and one
+  button per effort (intelligence · relative cost). Known values are shown and editable; a model
+  without a modelctl row starts empty, with the Model unknown row only as suggestions. Apply needs
+  the required values and at least one effort; an effort left ❓ is not routed. agy has no effort
+  dial, so its efforts come from each model's own variants. Done and failed arrive as a new message
+  so they notify. Decline edits the alert and stops its reminders.
+- **Every tap gets an answer**: `process` never leaves a tap in the inbox. A refused tap is reported
+  on the ask's message and tapping again is the retry, because a file left in the inbox re-triggers
+  `maestro-model-asks.path` until systemd gives up on it. That unit sets `StartLimitIntervalSec=0`
+  and a short `ExecStopPost` pause so it cannot die that way. If taps still wait over an hour, `flush`
+  warns Dan on Telegram at most once a day.
+- **Pull from Drive (Dan, 2026-11-02)**: the alert, the card and a failed apply also offer *Pull from
+  Drive*. It reads the model's one row from `ChatGPT/server-exchange/model-reference.csv` with
+  `drive-pull`, checks it with the card's own rules, and applies it through the normal `modelctl add`.
+  A bad row changes nothing and every problem is written on the message; fix the row and tap again.
+  Blank row values count as missing even when modelctl has them. Read-only columns are ignored.
+- **The Drive table** (`maestro/model_sheet.py`): one row per model across all providers, for ChatGPT
+  to read and update. `maestro models consume`, an applied ask and `maestro models sheet` write it with
+  `drive-push`, and only when something changed locally: new models get a row, a model whose values
+  changed locally has that row's values replaced, and read-only columns are refreshed. All other
+  values, unknown rows and extra columns stay as they are. Drive only suggests: nothing reaches routing
+  without a Pull tap. Automatic writes need the `~/.maestro/models/sheet.enabled` marker.
+- **A failed access test takes a model out of routing (Dan, 2026-11-02)** (`maestro/model_access.py`):
+  each `maestro models consume` compares modelctl's recorded access with the current routes, so a
+  missed run corrects itself. `modelctl retest` runs consume hourly while a model is `FAILED` or its
+  tests are stopped, without spending a test on it. A
+  `FAILED` model's route rows are saved to `~/.maestro/models/access-holds.json`, then a revision
+  without them is published (source kind `access_hold`); it is not retired, because a retired route
+  cannot return. Once `VERIFIED`, the same rows return at their old positions (`access_restore`). If
+  the model already has routes by then, such as after a Pull, those stay and only the saved entry is
+  dropped. Tasks keep the revision they froze, and projects adopt between tasks. modelctl tells Dan
+  about a pass, and a rate limit stays silent and retries hourly. Maestro also alerts when routing
+  refuses, once until the model's state changes: a take-out that would leave a role with no route able to serve it, or the policy
+  with no routes, keeps the model routed; a refused restore keeps it out. `validate` does not check
+  that roles stay servable, so the take-out checks it itself. Problems in this step appear under
+  `access` in the command's output and never fail consume. While a model is out, a new MODEL_SET for
+  it (a limits edit, say) cannot route it and stays unacknowledged or asks for a profile until it
+  returns.
+- **A model its provider removed leaves routing by itself (Dan, 2026-11-03)**
+  (`maestro/model_access.py`): modelctl marks a model removed when a complete listing omits it, and
+  `maestro models consume` then takes its routes out the same way, whatever its last test said, and
+  tells Dan. Consume reads the outbox first, because a same-class switch needs its predecessor's routes.
+  If a model left routing, it reads the outbox again, because that model's routes fail its backend's
+  events. The hold also keeps the model's profile and class row, which a later `MODEL_SET` drops, so if
+  the model is listed again its routes return intact, unless a test has since failed or no profile is
+  left, which alerts Dan. If a role needs the model, it stays routed and Dan is alerted once. An
+  unreadable state changes nothing. `maestro models retire` remains the deliberate, permanent step, and
+  it also reaches a held model: a retired route cannot return, and `rollback` does not undo it.
+- **A stopped access test asks Dan what to do (Dan, 2026-11-02)** (`maestro/model_access.py`): any
+  failure other than a rate limit stops that model's automatic tests in modelctl. Only `FAILED` takes
+  it out of routing; a login, network, timeout or unclassified failure leaves it routed. Each
+  consume opens one `access_failure` card per stop, updates it if the reason changes and closes it if
+  the stop has gone. A card whose action is running is left alone. While
+  `ACCESS_ASKS_VERSION` is declared, modelctl sends no stop notice of its own.
+  **Retry** runs `modelctl retest --provider P --model M` (up to 3 minutes). A pass restores any held
+  routes, a rate limit returns the model to the hourly tests, and another failure keeps the card open
+  with the new reason. **Remove model** drops the model's routes (source kind `access_remove`, refused
+  with the reason if it would leave a role without a route), its saved routes and its old approval,
+  then marks it `removed_by_dan` in modelctl. It is not retired and its limits row stays. If modelctl
+  is busy, tapping again finishes the job. The removed card keeps a **Pull from Drive** button, because
+  nothing else offers one for a model with no routes and a closed ask; the tap opens a re-add ask,
+  and its `modelctl add` clears the mark. A model already routed is refused with that reason.
+- **Dan's approved values beat inheritance (Dan, 2026-11-02):** when a model with no routes has a
+  completed approval (Use card or Pull from Drive), its routes use those values even if an older model
+  of its class is routed. Inheriting the older model's routes applies only when no approval exists.
 - **Brand-new class** (a `waiting_limits` proposal): three steps. *Use it?* (Use /
   Decline), *which roles does it take over on its backend?* (toggle buttons, then Done;
   default none, so the model is only an eligible route), then each missing cell one at a

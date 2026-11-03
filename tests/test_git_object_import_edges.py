@@ -9,6 +9,8 @@ from maestro.backends import control_files, git_objects, git_staging
 from tests.test_git_staging import linked, git
 from tests.test_git_object_validation import staged
 
+pytestmark = pytest.mark.real_fsync
+
 
 def test_durable_intent_before_destination_creation_is_recoverable(linked):
     _,tree,reports,_=linked

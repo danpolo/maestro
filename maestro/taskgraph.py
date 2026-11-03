@@ -57,6 +57,9 @@ from pathlib import Path
 
 import yaml  # PyYAML
 
+#: libyaml when PyYAML was built with it: every read parses every block of the ROADMAP.
+_YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
+
 SCHEMA_VERSION = 1
 
 #: The fence pattern `maestro.docs.roadmap`, `.complete` and `.consistency` have always
@@ -102,7 +105,13 @@ RESOURCE_KEYS = ("cpu", "ram_mb", "vram_mb")
 #: `legacy_fields` and remain the authority for the legacy code paths.
 _DERIVED_FROM = ("mode", "dispatch", "kind", "status", "verifications")
 
-RISKS = ("low", "medium", "high", "critical")
+#: `high` = the task can cause real outside cost: API keys, connections to third-party
+#: providers with limited quota, or calling agents outside the Maestro workflow, where it
+#: must choose models and effort itself. Everything else is `low` (Dan, 2026-11-02).
+RISKS = ("low", "high")
+#: What older ROADMAPs wrote, read as the option that replaced it.
+_RETIRED_RISKS = {"medium": "low", "critical": "high"}
+KNOWN_RISKS = (*RISKS, *_RETIRED_RISKS)
 TASK_CLASSES = (
     "bug", "feature", "documentation", "difficult_debugging", "manual_prep", "recovery",
 )
@@ -252,7 +261,7 @@ def parse_block(text: str) -> dict | None:
     this way.
     """
     try:
-        data = yaml.safe_load(text)
+        data = yaml.load(text, Loader=_YAML_LOADER)
     except yaml.YAMLError:
         return None
     return data if isinstance(data, dict) else None
@@ -350,7 +359,7 @@ class TaskSpec:
     acceptance_criteria: tuple[str, ...] = ()
     depends_on: tuple[str, ...] = ()
     group_id: str | None = None
-    risk: str = "medium"
+    risk: str = "low"
     task_class: str = "feature"
     execution_kind: str = "ordinary"
     required_artifact_types: tuple[str, ...] = ()
@@ -425,7 +434,7 @@ class TaskSpec:
         out["deps"] = list(self.depends_on)
         if self.group_id:
             out["group_id"] = self.group_id
-        if self.risk != "medium":
+        if self.risk != "low":
             out["risk"] = self.risk
         if self.task_class != "feature":
             out["task_class"] = self.task_class
@@ -619,7 +628,8 @@ def normalize_spec(data: Mapping) -> TaskSpec:
     # `split_task` writes), `group: <id>` names a parent. Only the second is a group_id,
     # and either way the key stays in `legacy_fields` — `TaskSpec.is_group` reads it back.
     legacy = {k: v for k, v in data.items() if k not in _CONSUMED_KEYS}
-    risk = str(data.get("risk") or "medium")
+    risk = str(data.get("risk") or "low")
+    risk = _RETIRED_RISKS.get(risk, risk)
     task_class = str(data.get("task_class") or "feature")
     group_id = data.get("group_id") or (
         data.get("group") if isinstance(data.get("group"), str) else None
@@ -632,7 +642,7 @@ def normalize_spec(data: Mapping) -> TaskSpec:
         acceptance_criteria=_derive_acceptance_criteria(data),
         depends_on=tuple(dict.fromkeys(legacy_deps(data))),
         group_id=str(group_id) if isinstance(group_id, str) and group_id else None,
-        risk=risk if risk in RISKS else "medium",
+        risk=risk if risk in RISKS else "low",
         task_class=task_class if task_class in TASK_CLASSES else "feature",
         execution_kind=_derive_execution_kind(data),
         required_artifact_types=_as_tuple(data.get("required_artifact_types")),
@@ -1063,7 +1073,7 @@ def validate(
 
     for block in document.blocks:
         try:
-            data = yaml.safe_load(block.raw)
+            data = yaml.load(block.raw, Loader=_YAML_LOADER)
         except yaml.YAMLError as exc:
             issues.append(_yaml_issue(block, exc))
             continue
@@ -1874,7 +1884,7 @@ def sync_to_store(store, graph: TaskGraph, *, source_hash: str | None = None) ->
             revisions[task_id] = 1
             continue
         current = int(row["current_spec_revision"])
-        if _stored_yaml(store, task_id, current) == spec_yaml:
+        if same_spec_yaml(_stored_yaml(store, task_id, current), spec_yaml):
             revisions[task_id] = current
             continue
         store.apply_task_revision(
@@ -1893,6 +1903,18 @@ def sync_to_store(store, graph: TaskGraph, *, source_hash: str | None = None) ->
                     (task_id, dep, revision),
                 )
     return revisions
+
+
+def same_spec_yaml(stored: str | None, spec_yaml: str) -> bool:
+    """Whether a stored spec says what `spec_yaml` says. Identical text, or text an older
+    version wrote for the same spec (`risk: low` used to be spelled out, `risk: critical`
+    now reads as `high`), which is no edit and must not count as a new revision."""
+    if stored is None or stored == spec_yaml:
+        return stored is not None
+    try:
+        return normalize_spec(yaml.safe_load(stored)).to_yaml() == spec_yaml
+    except (yaml.YAMLError, TypeError, ValueError, AttributeError):
+        return False
 
 
 def _write_revision(store, task_id: str, revision: int, spec_yaml: str, source: str) -> None:

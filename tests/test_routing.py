@@ -504,7 +504,7 @@ def test_an_exhausted_agy_pool_sends_balanced_work_to_claude_or_codex(policy, sh
 def test_a_light_task_can_bind_an_agy_light_model(policy, shipped_catalog):
     local = light_policy(policy)
     binding = rt.resolve_agent(
-        node("light_fixer", node_id="light_fixer"), manifest(risk="low", churn_files=1),
+        node("light_fixer", node_id="light_fixer"), manifest(risk="low"),
         cat.ResourcePoolState(), agy_only(shipped_catalog), local,
     )
     assert binding.is_bound, binding.to_dict()

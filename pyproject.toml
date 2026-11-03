@@ -29,4 +29,5 @@ testpaths = ["tests"]
 addopts = "-q"
 markers = [
     "slow: exercises a real maestro subprocess (init/run/doctor) rather than an in-process call; excluded by `pytest -m \"not slow\"` fast-tier runs, still included in a bare `pytest`.",
+    "real_fsync: uses the real os.fsync and the store's production SQLite sync setting; every other test gets tests/conftest.py's stand-ins, which skip the flush to disk.",
 ]

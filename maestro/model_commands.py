@@ -9,7 +9,7 @@ from maestro.model_replacement import preview_replace, apply_preview
 from maestro.model_detection import (consume, open_proposals, reconcile_proposals, review_proposal,
                                      decide_proposal, send_to_me, switches)
 from maestro.model_lifecycle import preview_rollback, preview_retire, apply_policy_preview
-from maestro import model_asks
+from maestro import model_access, model_asks, model_sheet
 
 
 def run(args) -> int:
@@ -36,13 +36,26 @@ def run(args) -> int:
             print(json.dumps([adopt(Path(p['repo']), store) for p in registry(store)], indent=2))
             return 0
         if args.verb == 'consume':
-            outcome = consume(store, ModelctlBridge(), notify=send_to_me, asks=True,
-                              transport=model_asks.TelegramTransport.from_config())
+            transport = model_asks.TelegramTransport.from_config()
+            outcome = consume(store, ModelctlBridge(), notify=send_to_me, asks=True, transport=transport)
+            access = model_access.reconcile(store, ModelctlBridge(), transport)
+            if access.get('taken_out'):
+                # A removed model's routes fail its backend's events, which can go through now. Consume
+                # still runs first: a same-class switch needs its predecessor's routes in place.
+                outcome = dict(consume(store, ModelctlBridge(), notify=send_to_me, asks=True, transport=transport),
+                               first_pass=outcome)
+            outcome['access'] = access
+            outcome['sheet'] = model_sheet.sync_if_enabled(store, ModelctlBridge())
             print(json.dumps(outcome, indent=2))
             return 1 if outcome['errors'] else 0
+        if args.verb == 'sheet':
+            print(json.dumps(model_sheet.sync(store, ModelctlBridge()), indent=2))
+            return 0
         if args.verb == 'asks':
             if args.action == 'process':
                 outcome = model_asks.process(store, ModelctlBridge(), model_asks.TelegramTransport.from_config())
+                if outcome.get('applied'):
+                    outcome['sheet'] = model_sheet.sync_if_enabled(store, ModelctlBridge())
                 print(json.dumps(outcome, indent=2))
                 return 1 if outcome['errors'] or outcome['send_errors'] else 0
             if args.action is not None:

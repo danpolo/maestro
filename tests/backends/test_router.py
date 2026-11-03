@@ -49,7 +49,7 @@ def test_pair_preference_uses_the_in_pool_near_cost_band():
 
 @pytest.mark.parametrize("context", [rt.RoutingContext(risk="high"),
                                      rt.RoutingContext(historical_failure_rate=0.5),
-                                     rt.RoutingContext(task_class="security")])
+                                     rt.RoutingContext(task_class="difficult_debugging")])
 def test_pair_risk_escalates_intelligence_only(context):
     binding = resolve_role_pair(context_manifest=context)
     assert (binding.model_id, binding.requested_effort) == ("claude-opus-5-5", "medium")
@@ -527,16 +527,9 @@ def test_high_risk_work_is_never_routed_to_a_low_effort_small_model():
 
 
 def test_a_history_of_failure_escalates_demand_even_at_low_risk():
-    context = rt.RoutingContext(risk="low", churn_files=1, historical_failure_rate=0.6)
+    context = rt.RoutingContext(risk="low", historical_failure_rate=0.6)
     demand = rt.estimate_demand(agent_node(), context, Policy())
     assert demand.min_strength == "strong"
-
-
-def test_routine_low_risk_work_is_allowed_to_be_cheap():
-    demand = rt.estimate_demand(
-        agent_node(), rt.RoutingContext(risk="low", churn_files=1), Policy()
-    )
-    assert demand.min_strength == "light"
 
 
 def test_the_demand_names_a_strength_and_no_effort():
@@ -545,18 +538,11 @@ def test_the_demand_names_a_strength_and_no_effort():
     assert not hasattr(demand, "min_effort")
 
 
-def test_wide_churn_lifts_a_light_task_back_to_standard():
-    demand = rt.estimate_demand(
-        agent_node(), rt.RoutingContext(risk="low", churn_files=12), Policy()
-    )
-    assert demand.min_strength == "balanced"
-
-
 def test_a_role_floor_may_raise_the_demand_and_never_lower_it():
     role = implementer_role(
         permitted_backend_capabilities={"min_reasoning_strength": "strong"},
     )
-    low_risk = rt.RoutingContext(risk="low", churn_files=1)
+    low_risk = rt.RoutingContext(risk="low")
     raised = rt.estimate_demand(agent_node(), low_risk, Policy(definitions={"implementer": role}))
     assert raised.min_strength == "strong"
 
@@ -573,7 +559,7 @@ def test_a_role_floor_may_raise_the_demand_and_never_lower_it():
 def test_a_configured_role_strength_is_the_role_floor_in_place_of_the_templates():
     # DESIGN.md §17.2: the template's `min_reasoning_strength` is only the shipped default
     # of the role's `strength`.
-    low_risk = rt.RoutingContext(risk="low", churn_files=1)
+    low_risk = rt.RoutingContext(risk="low")
     strong_role = implementer_role(
         permitted_backend_capabilities={"min_reasoning_strength": "strong"},
     )
@@ -596,7 +582,7 @@ def test_a_configured_role_strength_is_the_role_floor_in_place_of_the_templates(
 
 
 def test_resolve_agent_routes_at_the_configured_role_strength():
-    low_risk = rt.RoutingContext(estimated_input_tokens=40_000, risk="low", churn_files=1)
+    low_risk = rt.RoutingContext(estimated_input_tokens=40_000, risk="low")
     assert resolve(context_manifest=low_risk).backend_id == "cheap_cli"
     binding = resolve(context_manifest=low_risk, role_strength="strong")
     assert (binding.backend_id, binding.model_id) == ("strong_cli", "big-1")

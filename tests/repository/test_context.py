@@ -213,3 +213,27 @@ def test_over_long_notes_are_bounded_and_reported_as_omitted(repo, selection, ta
     assert "T-P9's `notes:` in docs/ROADMAP.md" in cut
     brief = agent_brief(manifest.to_dict(), role="reviewer")
     assert kept in brief and f"[{cut}]" in brief
+
+
+def test_the_manifest_carries_the_tasks_routing_facts(repo, selection, task, roles, policy):
+    """The manifest is the routing input, so class, risk and complexity must reach the router."""
+    from dataclasses import replace
+
+    from maestro.backends.router import RoutingContext
+
+    specific = replace(task, task_class="difficult_debugging", risk="high")
+    root, sha = repo
+    queries = RepositoryQueries(root, selection=selection)
+    manifest = build_context_manifest(specific, roles["implementer"], sha, policy,
+                                      queries=queries, complexity=4)
+    assert {"task_class", "risk", "complexity"} <= set(manifest.to_dict())
+    context = RoutingContext.from_manifest(manifest)
+    assert (context.task_class, context.risk, context.complexity) == ("difficult_debugging", "high", 4)
+
+
+def test_a_task_with_no_routing_facts_reads_as_the_defaults(repo, selection, task, roles, policy):
+    from maestro.backends.router import RoutingContext
+
+    manifest, _ = _build(repo, selection, task, roles["implementer"], policy)
+    context = RoutingContext.from_manifest(manifest)
+    assert (context.task_class, context.risk, context.complexity) == ("feature", "low", None)

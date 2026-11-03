@@ -6,6 +6,8 @@ import pytest
 from maestro.backends import git_staging
 from tests.test_git_staging import linked
 
+pytestmark = pytest.mark.real_fsync
+
 
 @pytest.mark.parametrize('which', ['lease-parent', 'journal-parent'])
 def test_retry_persists_directory_links_left_by_failed_creation(linked, monkeypatch, which):

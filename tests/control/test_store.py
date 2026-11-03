@@ -26,6 +26,7 @@ from maestro.control.store import (
 # --- database & schema ---------------------------------------------------------------
 
 
+@pytest.mark.real_fsync
 def test_opens_in_wal_mode_with_foreign_keys_and_busy_timeout(store):
     assert store.pragma("journal_mode").lower() == "wal"
     assert store.pragma("foreign_keys") == 1

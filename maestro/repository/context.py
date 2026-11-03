@@ -120,7 +120,7 @@ MANIFEST_FIELDS = (
     "mandatory_instructions", "acceptance_criteria", "task_notes", "entrypoints", "source_refs",
     "related_tests_and_contracts", "relevant_decisions", "prior_failure_refs",
     "retrieval_paths", "freshness", "unresolved_queries", "omitted_material",
-    "context_estimate_tokens",
+    "context_estimate_tokens", "task_class", "risk", "complexity",
 )
 
 
@@ -146,6 +146,10 @@ class ContextManifest:
     max_context_tokens: int = 0
     #: The task's ROADMAP `notes:`, verbatim, bounded by `MAX_NOTES_TOKENS` (D28).
     task_notes: str = ""
+    #: The routing facts: the router reads these three from the manifest.
+    task_class: str = "feature"
+    risk: str = "low"
+    complexity: int | None = None
 
     def to_dict(self) -> dict:
         out: dict[str, Any] = {}
@@ -189,6 +193,7 @@ def build_context_manifest(
     test_results: Sequence[Mapping[str, Any]] = (),
     rework_paths: Sequence[str] = (),
     on_stale: str = "reject",
+    complexity: Optional[int] = None,
 ) -> ContextManifest:
     role_id = str(getattr(role, "role_id", ""))
     profile = ROLE_PROFILES.get(role_id)
@@ -265,6 +270,9 @@ def build_context_manifest(
         role_id=role_id,
         max_context_tokens=budget,
         task_notes=notes,
+        task_class=str(getattr(task, "task_class", "feature")),
+        risk=str(getattr(task, "risk", "low")),
+        complexity=complexity,
     )
 
 
